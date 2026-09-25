@@ -11,6 +11,8 @@
 #include "pico/stdlib.h"
 
 #include "creds.h"
+#include "log.h"
+#include "rt4k.h"
 #include "net.h"
 #include "ota.h"
 #include "platform_reboot.h"
@@ -128,14 +130,35 @@ static void json_escape(char *out, size_t size, const char *in) {
 }
 
 static void handle_status(int fd) {
-    char ssid[80], body[320];
+    char ssid[80], body[512];
     json_escape(ssid, sizeof(ssid), net_ssid());
+    rt4k_status_t rt;
+    rt4k_get_status(&rt);
     snprintf(body, sizeof(body),
         "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\","
-        "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u}",
+        "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,"
+        "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,"
+        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu}",
         CRULLER_VERSION, (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000), state_name(net_state()),
-        ssid, net_ip(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize());
+        ssid, net_ip(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
+        rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
+        (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped);
     respond(fd, 200, "OK", "application/json", body);
+}
+
+// GET <path>?since=N: text written after position N, with the new position in X-Next.
+static void handle_stream(int fd, const char *query, size_t (*reader)(uint32_t *, char *, size_t)) {
+    uint32_t pos = 0;
+    const char *p = query ? strstr(query, "since=") : NULL;
+    if (p) pos = (uint32_t)strtoul(p + 6, NULL, 10);
+    static char text[2048];
+    const size_t n = reader(&pos, text, sizeof(text));
+    char hdr[200];
+    const int h = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %u\r\n"
+        "X-Next: %lu\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)n, (unsigned long)pos);
+    send_all(fd, hdr, (size_t)h);
+    if (n) send_all(fd, text, n);
 }
 
 static const char PAGE[] =
@@ -146,18 +169,28 @@ static const char PAGE[] =
     "h1{margin:4px 0}h2{font-size:1.05em;margin:4px 0 8px}td{padding:2px 12px 2px 0}"
     "input,button{font-size:1em;margin:4px 0;padding:8px;box-sizing:border-box;width:100%}"
     "button{background:#d4537e;color:#fff;border:0;border-radius:4px}progress{width:100%}"
+    "pre{background:#000;padding:8px;height:180px;overflow:auto;white-space:pre-wrap;font-size:.85em;margin:4px 0}"
     "</style></head><body><h1>Cruller</h1>"
     "<section><h2>Status</h2><table id=st></table></section>"
+    "<section><h2>RT4K terminal</h2><pre id=rx></pre>"
+    "<form onsubmit='return cmd()'><input id=cm placeholder='Command, e.g. remote menu' autocomplete=off autocapitalize=none></form></section>"
     "<section><h2>Firmware update</h2><input type=file id=fw accept=.uf2>"
     "<button onclick=upd()>Upload</button><progress id=pg value=0 max=1 hidden></progress><div id=um></div></section>"
     "<section><h2>Wi-Fi</h2><form method=post action=/wifi>"
     "<input name=ssid placeholder='Network name (SSID)' required maxlength=32 autocomplete=off autocapitalize=none>"
     "<input name=pass type=password placeholder=Password maxlength=64>"
     "<button>Save and reboot</button></form></section>"
+    "<section><h2>Log</h2><pre id=lg></pre></section>"
     "<script>"
     "function st(){fetch('/status').then(r=>r.json()).then(s=>{document.getElementById('st').innerHTML="
     "Object.entries(s).map(([k,v])=>'<tr><td>'+k+'</td><td>'+String(v).replace(/</g,'&lt;')+'</td></tr>').join('')}).catch(()=>{})}"
     "st();setInterval(st,5000);"
+    "const pos={rx:0,lg:0};"
+    "function pull(u,id){fetch(u+'?since='+pos[id]).then(r=>{pos[id]=+r.headers.get('X-Next')||pos[id];return r.text()})"
+    ".then(t=>{if(t){const e=document.getElementById(id);e.textContent+=t;e.scrollTop=e.scrollHeight}}).catch(()=>{})}"
+    "setInterval(()=>{pull('/rt4k/rx','rx');pull('/log','lg')},700);"
+    "function cmd(){const i=document.getElementById('cm');if(!i.value)return false;"
+    "fetch('/rt4k/cmd',{method:'POST',body:i.value}).then(r=>r.text()).then(t=>{document.getElementById('rx').textContent+='> '+i.value+'  ['+t.trim()+']\\n';i.value=''});return false}"
     "function upd(){const f=document.getElementById('fw').files[0],m=document.getElementById('um'),p=document.getElementById('pg');"
     "if(!f){m.textContent='Choose a .uf2 file';return}"
     "const x=new XMLHttpRequest();x.open('POST','/update');p.hidden=false;"
@@ -193,6 +226,27 @@ typedef struct {
     char buf[256];
     size_t len;
 } form_t;
+
+static bool form_sink(const uint8_t *data, size_t len, void *ctx);
+
+static void handle_rt4k_cmd(request_t *r) {
+    static form_t form;
+    form.len = 0;
+    form.buf[0] = 0;
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form.buf) || !read_body(r, form_sink, &form)) {
+        respond(r->fd, 400, "Bad Request", "text/plain", "Send the command as the request body\n");
+        return;
+    }
+    // Strip line endings; rt4k_command() adds the framing the RT4K expects.
+    for (char *c = form.buf; *c; c++) if (*c == '\r' || *c == '\n') *c = ' ';
+    if (!rt4k_command(form.buf)) {
+        respond(r->fd, 503, "Service Unavailable", "text/plain", "RT4K queue full\n");
+        return;
+    }
+    rt4k_status_t rt;
+    rt4k_get_status(&rt);
+    respond(r->fd, 200, "OK", "text/plain", rt.mounted ? "sent\n" : "queued, but no RT4K is connected (dropped)\n");
+}
 
 static bool form_sink(const uint8_t *data, size_t len, void *ctx) {
     form_t *f = ctx;
@@ -251,8 +305,13 @@ static void handle_wifi(request_t *r) {
 
 static void handle(request_t *r) {
     const bool get = !strcmp(r->method, "GET"), post = !strcmp(r->method, "POST");
+    char *query = strchr(r->path, '?');
+    if (query) *query++ = 0;
     if (get && !strcmp(r->path, "/")) respond(r->fd, 200, "OK", "text/html", PAGE);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
+    else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
+    else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read);
+    else if (post && !strcmp(r->path, "/rt4k/cmd")) handle_rt4k_cmd(r);
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
     else if (net_state() == NET_PORTAL) redirect(r->fd, "http://192.168.4.1/"); // captive portal probes

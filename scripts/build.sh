@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local build. Paths default to this machine's setup; override them through the environment.
-#   scripts/build.sh [Debug|Release]
+#   [CRULLER_VERSION=x.y.z] scripts/build.sh [Debug|Release]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

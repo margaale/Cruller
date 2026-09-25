@@ -9,7 +9,7 @@ project(cruller C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-set(CRULLER_VERSION "0.0.3" CACHE STRING "Firmware version (X.Y.Z); must grow with every image, the boot ROM picks A/B by it")
+set(CRULLER_VERSION "0.0.4" CACHE STRING "Firmware version (X.Y.Z); must grow with every image, the boot ROM picks A/B by it")
 
 pico_sdk_init()
 
@@ -41,6 +41,8 @@ target_sources(cruller_app INTERFACE
     src/net.c
     src/http.c
     src/status_led.c
+    src/log.c
+    src/rt4k.c
     third_party/picow_ap/dhcpserver.c
     third_party/picow_ap/dnsserver.c
 )
@@ -58,6 +60,7 @@ target_link_libraries(cruller_app INTERFACE
     boot_uf2_headers
     hardware_flash
     littlefs
+    tinyusb_host
     FreeRTOS-Kernel-Heap4
 )
 
@@ -65,8 +68,8 @@ function(cruller_image TARGET)
     add_executable(${TARGET})
     target_link_libraries(${TARGET} PRIVATE cruller_app)
     pico_set_binary_version(${TARGET} MAJOR ${CRULLER_BIN_MAJOR} MINOR ${CRULLER_BIN_MINOR})
-    # Bench builds talk over USB CDC; the RT4K build will use the USB port as host instead.
-    pico_enable_stdio_usb(${TARGET} 1)
+    # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
+    pico_enable_stdio_usb(${TARGET} 0)
     pico_enable_stdio_uart(${TARGET} 0)
     pico_add_extra_outputs(${TARGET})
 endfunction()

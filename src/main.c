@@ -1,5 +1,6 @@
 // Cruller: RetroTINK 4K controller firmware for the Raspberry Pi Pico 2 W.
 // M0: Wi-Fi (with DonutShop credential import and a setup portal), web UI, A/B OTA.
+// M1: RT4K link over USB (host) and a web terminal.
 
 #include <stdio.h>
 
@@ -9,8 +10,10 @@
 #include "task.h"
 
 #include "http.h"
+#include "log.h"
 #include "net.h"
 #include "ota.h"
+#include "rt4k.h"
 #include "status_led.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
@@ -32,6 +35,7 @@ static void main_task(void *param) {
     }
     printf("CYW43 up in %lu ms\n", (unsigned long)(ms_since_boot() - t0));
     status_led_start();
+    rt4k_start();
     http_start();
     net_start();
 
@@ -50,6 +54,7 @@ static void main_task(void *param) {
 
 int main(void) {
     stdio_init_all();
+    log_init(); // stdout -> ring buffer read by the web UI (/log)
     xTaskCreate(main_task, "main", MAIN_TASK_STACK, NULL, MAIN_TASK_PRIORITY, NULL);
     vTaskStartScheduler();
     return 0; // not reached
