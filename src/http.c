@@ -12,6 +12,7 @@
 
 #include "creds.h"
 #include "flash_ops.h"
+#include "health.h"
 #include "log.h"
 #include "rt4k.h"
 #include "net.h"
@@ -320,6 +321,12 @@ static void handle(request_t *r) {
     else if (post && !strcmp(r->path, "/rt4k/cmd")) handle_rt4k_cmd(r);
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
+    else if (post && !strcmp(r->path, "/debug/wedge")) {
+        // Self-test of the network watchdog: the board should reset ~18 s after this.
+        respond(r->fd, 200, "OK", "text/plain", "Freezing the network for 60 s\n");
+        vTaskDelay(pdMS_TO_TICKS(300)); // let the response leave
+        health_wedge_network(60);
+    }
     else if (net_state() == NET_PORTAL) redirect(r->fd, "http://192.168.4.1/"); // captive portal probes
     else respond(r->fd, 404, "Not Found", "text/plain", "Not found\n");
 }

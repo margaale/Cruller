@@ -6,5 +6,14 @@
 
 void health_start(void);
 
-// After cyw43_arch_init(): also reset if the CYW43 stops answering.
+#include <stdint.h>
+
+// Confirming a TBYB image (rom_explicit_buy) turns the hardware watchdog off, since the boot ROM
+// runs the trial on it: call this right after confirming.
+void health_rearm_watchdog(void);
+
+// After cyw43_arch_init(): also reset when the network stops passing traffic (gateway pings).
 void health_start_net_probe(void);
+
+// Self-test of that check: freezes the network for `seconds`, then lets go.
+void health_wedge_network(uint32_t seconds);

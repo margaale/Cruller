@@ -50,6 +50,7 @@ static void main_task(void *param) {
     // network is not required, so a network outage never rejects a good image.
     while (!http_listening()) vTaskDelay(pdMS_TO_TICKS(50));
     ota_confirm_if_trial();
+    health_rearm_watchdog(); // the buy above stops the watchdog
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(30000));
