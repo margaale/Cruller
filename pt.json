@@ -1,0 +1,48 @@
+{
+  "version": [1, 0],
+  "unpartitioned": {
+    "families": ["absolute"],
+    "permissions": {
+      "secure": "rw",
+      "nonsecure": "rw",
+      "bootloader": "rw"
+    }
+  },
+  "partitions": [
+    {
+      "name": "Cruller A",
+      "id": 0,
+      "size": "1856K",
+      "families": ["rp2350-arm-s"],
+      "permissions": {
+        "secure": "rw",
+        "nonsecure": "rw",
+        "bootloader": "rw"
+      }
+    },
+    {
+      "name": "Cruller B",
+      "id": 0,
+      "size": "1856K",
+      "families": ["rp2350-arm-s"],
+      "permissions": {
+        "secure": "rw",
+        "nonsecure": "rw",
+        "bootloader": "rw"
+      },
+      "link": ["a", 0]
+    },
+    {
+      "name": "Cruller data",
+      "id": "0x72656c6c757263",
+      "start": "3720K",
+      "size": "364K",
+      "families": ["data"],
+      "permissions": {
+        "secure": "rw",
+        "nonsecure": "rw",
+        "bootloader": "rw"
+      }
+    }
+  ]
+}
