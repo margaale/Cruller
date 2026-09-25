@@ -28,8 +28,11 @@
 #define CFG_TUH_CDC_FTDI              1
 #define CFG_TUH_CDC_CP210X            1
 #define CFG_TUH_CDC_CH34X             1
-#define CFG_TUH_CDC_RX_BUFSIZE        512
-#define CFG_TUH_CDC_TX_BUFSIZE        512
+// Keep these two equal: TinyUSB's cdc_host.c declares rx_ff_buf with CFG_TUH_CDC_TX_BUFSIZE but
+// gives the RX FIFO a depth of CFG_TUH_CDC_RX_BUFSIZE. A bigger RX size made the FIFO write past
+// its buffer during RTL1 bursts (over cdch_epbuf, SDK state and the CYW43 driver's context).
+#define CFG_TUH_CDC_RX_BUFSIZE        2048  // ~10 ms at 2 Mbaud, slack for the rt4k task
+#define CFG_TUH_CDC_TX_BUFSIZE        CFG_TUH_CDC_RX_BUFSIZE
 
 // On enumeration: DTR+RTS on, and 2 Mbaud 8N1 (the RT4K's USB serial rate).
 #define CFG_TUH_CDC_LINE_CONTROL_ON_ENUM  0x03

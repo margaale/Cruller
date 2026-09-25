@@ -1,6 +1,7 @@
 #include "health.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -156,11 +157,36 @@ static void hex32(char *out, uint32_t v) {
     for (int i = 7; i >= 0; i--, v >>= 4) out[i] = "0123456789abcdef"[v & 15];
 }
 
+static void log_reg(const char *name, uint32_t v) {
+    char buf[24];
+    size_t n = strlen(name);
+    memcpy(buf, name, n);
+    buf[n++] = '=';
+    hex32(buf + n, v);
+    buf[n + 8] = ' ';
+    buf[n + 9] = 0;
+    log_write_raw(buf);
+}
+
 void __attribute__((used)) hardfault_report(const uint32_t *frame) {
-    char line[] = "\n*** HardFault pc=00000000 lr=00000000\n";
-    hex32(line + 18, frame[6]);
-    hex32(line + 30, frame[5]);
-    log_write_raw(line);
+    // Fault status: CFSR (MMFSR|BFSR|UFSR), HFSR, and the faulting addresses if valid.
+    const uint32_t cfsr = *(volatile uint32_t *)0xE000ED28u;
+    const uint32_t hfsr = *(volatile uint32_t *)0xE000ED2Cu;
+    const uint32_t mmfar = *(volatile uint32_t *)0xE000ED34u;
+    const uint32_t bfar = *(volatile uint32_t *)0xE000ED38u;
+    log_write_raw("\n*** HardFault core ");
+    log_write_raw(get_core_num() ? "1 " : "0 ");
+    log_reg("pc", frame[6]);
+    log_reg("lr", frame[5]);
+    log_reg("r0", frame[0]);
+    log_reg("r1", frame[1]);
+    log_reg("r2", frame[2]);
+    log_reg("r3", frame[3]);
+    log_reg("cfsr", cfsr);
+    log_reg("hfsr", hfsr);
+    log_reg("mmfar", mmfar);
+    log_reg("bfar", bfar);
+    log_write_raw("\n");
     for (;;) __asm volatile("nop");
 }
 

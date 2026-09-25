@@ -8,6 +8,7 @@
 #include "semphr.h"
 #include "stream_buffer.h"
 #include "pico/sync.h"
+#include "hardware/irq.h"
 #include "tusb.h"
 
 #define RT4K_TASK_STACK     1024
@@ -28,6 +29,23 @@ static volatile rt4k_status_t status;
 static volatile uint8_t cdc_idx = 0xff;
 static TaskHandle_t rt4k_handle;
 static volatile bool want_suspend, suspended;
+
+// Every host event (most often from the USB IRQ) wakes the rt4k task right away. Polling tuh_task()
+// once per tick moved one 64-byte packet per ms (~62 KB/s), below 2 Mbaud (200 KB/s), and the
+// FT232R's 256-byte buffer overflowed during RTL1 transfers.
+void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr) {
+    (void)rhport;
+    (void)eventid;
+    (void)in_isr; // ask the CPU instead: calling the wrong FreeRTOS variant corrupts the kernel
+    if (!rt4k_handle) return;
+    if (__get_current_exception()) {
+        BaseType_t woken = pdFALSE;
+        vTaskNotifyGiveFromISR(rt4k_handle, &woken);
+        portYIELD_FROM_ISR(woken);
+    } else {
+        xTaskNotifyGive(rt4k_handle);
+    }
+}
 
 // --- TinyUSB callbacks (run inside tuh_task(), i.e. in the rt4k task) --------------------------
 
@@ -91,6 +109,11 @@ static void rt4k_task(void *param) {
             printf("rt4k: USB host resumed\n");
             continue;
         }
+        // TinyUSB's rp2040 host driver doesn't guard endpoint state between task and IRQ
+        // (hw_endpoint_lock_update() is an empty "todo add critsec"), so an IRQ landing while a
+        // transfer is being (re)armed sees it half set up. Task and IRQ share core 1: keeping the
+        // IRQ off while we call into TinyUSB is the guard that TODO asks for.
+        irq_set_enabled(USBCTRL_IRQ, false);
         tuh_task();
         const uint8_t idx = cdc_idx;
         if (idx != 0xff && tuh_cdc_mounted(idx)) {
@@ -117,7 +140,8 @@ static void rt4k_task(void *param) {
             const size_t got = xStreamBufferReceive(tx_queue, buf, sizeof(buf), 0);
             status.tx_dropped += got;
         }
-        vTaskDelay(1);
+        irq_set_enabled(USBCTRL_IRQ, true);
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10)); // USB event or queued command; 10 ms at most
     }
 }
 
@@ -148,6 +172,7 @@ bool rt4k_command(const char *cmd) {
     const bool ok = xStreamBufferSpacesAvailable(tx_queue) >= (size_t)n &&
         xStreamBufferSend(tx_queue, line, (size_t)n, 0) == (size_t)n;
     xSemaphoreGive(tx_lock);
+    if (ok && rt4k_handle) xTaskNotifyGive(rt4k_handle);
     return ok;
 }
 
