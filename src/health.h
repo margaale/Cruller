@@ -15,5 +15,8 @@ void health_rearm_watchdog(void);
 // After cyw43_arch_init(): also reset when the network stops passing traffic (gateway pings).
 void health_start_net_probe(void);
 
+// Before cyw43_arch_deinit(): stops the gateway pings for good.
+void health_stop_net_probe(void);
+
 // Self-test of that check: freezes the network for `seconds`, then lets go.
 void health_wedge_network(uint32_t seconds);

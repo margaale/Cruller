@@ -4,11 +4,14 @@
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
 
+#include "health.h"
+
 #ifndef CYW43_DEFAULT_PIN_WL_REG_ON
 #define CYW43_DEFAULT_PIN_WL_REG_ON 23u
 #endif
 
 void platform_prepare_reboot(void) {
+    health_stop_net_probe();
     cyw43_arch_deinit();
     gpio_init(CYW43_DEFAULT_PIN_WL_REG_ON);
     gpio_set_dir(CYW43_DEFAULT_PIN_WL_REG_ON, GPIO_OUT);

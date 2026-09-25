@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 #include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
 #include "lwip/icmp.h"
@@ -30,6 +31,7 @@
 
 static volatile uint32_t last_reply_ms; // 0 = the gateway has never answered
 static struct raw_pcb *ping_pcb;
+static SemaphoreHandle_t ping_gate; // held by the ping task while it uses lwIP
 static uint16_t ping_seq;
 
 static uint32_t now_ms(void) {
@@ -97,11 +99,20 @@ static void ping_task(void *param) {
         vTaskDelete(NULL);
     }
     for (;;) {
+        xSemaphoreTake(ping_gate, portMAX_DELAY);
         cyw43_arch_lwip_begin();
         ping_gateway();
         cyw43_arch_lwip_end();
+        xSemaphoreGive(ping_gate);
         vTaskDelay(pdMS_TO_TICKS(PING_PERIOD_MS));
     }
+}
+
+void health_stop_net_probe(void) {
+    // Keep the gate: the ping task then never touches lwIP/CYW43 again, which matters once
+    // cyw43_arch_deinit() has torn the async context down (it crashed the reboot into an update).
+    if (ping_gate) xSemaphoreTake(ping_gate, pdMS_TO_TICKS(1000));
+    last_reply_ms = 0; // and don't count the missing replies against us
 }
 
 void health_start(void) {
@@ -116,6 +127,7 @@ void health_rearm_watchdog(void) {
 }
 
 void health_start_net_probe(void) {
+    ping_gate = xSemaphoreCreateMutex();
     xTaskCreate(ping_task, "ping", 512, NULL, WDT_TASK_PRIORITY, NULL);
 }
 
@@ -146,8 +158,8 @@ static void hex32(char *out, uint32_t v) {
 
 void __attribute__((used)) hardfault_report(const uint32_t *frame) {
     char line[] = "\n*** HardFault pc=00000000 lr=00000000\n";
-    hex32(line + 17, frame[6]);
-    hex32(line + 29, frame[5]);
+    hex32(line + 18, frame[6]);
+    hex32(line + 30, frame[5]);
     log_write_raw(line);
     for (;;) __asm volatile("nop");
 }
