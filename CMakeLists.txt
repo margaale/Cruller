@@ -42,7 +42,7 @@ target_sources(cruller_app INTERFACE
     src/http.c
     src/status_led.c
     src/log.c
-    src/rt4k.c
+    src/health.c
     third_party/picow_ap/dhcpserver.c
     third_party/picow_ap/dnsserver.c
 )
@@ -60,7 +60,6 @@ target_link_libraries(cruller_app INTERFACE
     boot_uf2_headers
     hardware_flash
     littlefs
-    tinyusb_host
     FreeRTOS-Kernel-Heap4
 )
 
@@ -68,8 +67,18 @@ function(cruller_image TARGET)
     add_executable(${TARGET})
     target_link_libraries(${TARGET} PRIVATE cruller_app)
     pico_set_binary_version(${TARGET} MAJOR ${CRULLER_BIN_MAJOR} MINOR ${CRULLER_BIN_MINOR})
-    # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
-    pico_enable_stdio_usb(${TARGET} 0)
+    if ("${TARGET}" MATCHES "_bench$")
+        # Bench board on a PC: USB is a serial console (the log, live) and there is no RT4K link.
+        target_sources(${TARGET} PRIVATE src/rt4k_stub.c)
+        target_compile_definitions(${TARGET} PRIVATE CRULLER_BENCH=1)
+        pico_enable_stdio_usb(${TARGET} 1)
+    else()
+        # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
+        target_sources(${TARGET} PRIVATE src/rt4k.c)
+        target_include_directories(${TARGET} PRIVATE src/usb_host)
+        target_link_libraries(${TARGET} PRIVATE tinyusb_host)
+        pico_enable_stdio_usb(${TARGET} 0)
+    endif()
     pico_enable_stdio_uart(${TARGET} 0)
     pico_add_extra_outputs(${TARGET})
 endfunction()
@@ -77,6 +86,11 @@ endfunction()
 # OTA image (Cruller -> Cruller): "try before you buy", confirmed once healthy.
 cruller_image(cruller)
 target_compile_definitions(cruller PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
+
+# Same OTA image for a board on the bench (see cruller_image). Not built by default.
+cruller_image(cruller_bench)
+target_compile_definitions(cruller_bench PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
+set_target_properties(cruller_bench PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # First image, installed by DonutShop's OTA stage-3 with a normal boot: must not be TBYB.
 cruller_image(cruller_migration_app)

@@ -6,9 +6,12 @@
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
+#include "hardware/watchdog.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "flash_ops.h"
+#include "health.h"
 #include "http.h"
 #include "log.h"
 #include "net.h"
@@ -27,13 +30,16 @@ static void main_task(void *param) {
     (void)param;
     printf("\nCruller %s, boot partition %d (%s boot)\n", CRULLER_VERSION, ota_boot_partition(), ota_last_boot_type());
 
+    health_start();
     const uint32_t t0 = ms_since_boot();
     if (cyw43_arch_init()) {
         // Without the CYW43 there is no network and no way to update: let a trial image roll back.
-        printf("cyw43_arch_init failed\n");
-        vTaskDelete(NULL);
+        printf("cyw43_arch_init failed, resetting\n");
+        watchdog_reboot(0, 0, 100);
+        for (;;) vTaskDelay(portMAX_DELAY);
     }
     printf("CYW43 up in %lu ms\n", (unsigned long)(ms_since_boot() - t0));
+    health_start_net_probe();
     status_led_start();
     rt4k_start();
     http_start();
@@ -55,6 +61,7 @@ static void main_task(void *param) {
 int main(void) {
     stdio_init_all();
     log_init(); // stdout -> ring buffer read by the web UI (/log)
+    flash_ops_init();
     xTaskCreate(main_task, "main", MAIN_TASK_STACK, NULL, MAIN_TASK_PRIORITY, NULL);
     vTaskStartScheduler();
     return 0; // not reached

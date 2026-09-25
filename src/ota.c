@@ -8,6 +8,8 @@
 #include "boot/picoboot_constants.h"
 #include "pico/bootrom.h"
 #include "hardware/flash.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #include "flash_layout.h"
 #include "flash_ops.h"
@@ -23,8 +25,13 @@ static struct {
     uint32_t blocks_done;
     uint32_t part_start;     // physical offset of the target partition
     uint32_t part_size;
-    int32_t erased_sector;   // highest sector index (relative to the partition) erased so far
+    int32_t sector;          // sector (relative to the partition) being assembled in sector_buf, -1 if none
 } ota;
+
+// Pages are collected per sector and written with one erase and one program. Every flash_safe_execute()
+// creates (and deletes) a lockout task on the other core; one per 256-byte page was ~2000 of them per
+// image, faster than the idle task freed them, and the heap ran out mid-update.
+static uint8_t __attribute__((aligned(4))) sector_buf[FLASH_SECTOR_SIZE_B];
 
 static uint8_t __attribute__((aligned(4))) rom_workarea[4 * 1024];
 
@@ -37,7 +44,22 @@ static bool fail(const char *why) {
 
 void ota_begin(void) {
     memset(&ota, 0, sizeof(ota));
-    ota.erased_sector = -1;
+    ota.sector = -1;
+}
+
+static bool flush_sector(void) {
+    if (ota.sector < 0) return true;
+    const uint32_t off = ota.part_start + (uint32_t)ota.sector * FLASH_SECTOR_SIZE_B;
+    if (!flash_erase_safe(off, FLASH_SECTOR_SIZE_B)) return fail("flash erase failed");
+    if (!flash_program_safe(off, sector_buf, FLASH_SECTOR_SIZE_B)) return fail("flash program failed");
+    if (memcmp(FLASH_RAW_PTR(off), sector_buf, FLASH_SECTOR_SIZE_B) != 0) return fail("flash verify failed");
+    if ((ota.blocks_done & 0x7f) == 0) {
+        printf("ota: %lu/%lu blocks, heap free %u (min %u)\n",(unsigned long)ota.blocks_done, (unsigned long)ota.num_blocks,
+            (unsigned)xPortGetFreeHeapSize(), (unsigned)xPortGetMinimumEverFreeHeapSize());
+    }
+    ota.sector = -1;
+    vTaskDelay(1); // let the idle task free the lockout tasks
+    return true;
 }
 
 static bool start(const struct uf2_block *b) {
@@ -76,17 +98,14 @@ static bool write_block(const struct uf2_block *b) {
     }
     const uint32_t rel = b->target_addr - XIP_BASE;
     const int32_t sector = (int32_t)(rel / FLASH_SECTOR_SIZE_B);
-    // UF2 files from the SDK are ordered by address; erase each sector once, when first reached.
-    if (sector > ota.erased_sector) {
-        if (!flash_erase_safe(ota.part_start + (uint32_t)sector * FLASH_SECTOR_SIZE_B, FLASH_SECTOR_SIZE_B)) return fail("flash erase failed");
-        ota.erased_sector = sector;
-    } else if (sector < ota.erased_sector) {
-        return fail("UF2 addresses not ascending");
+    // UF2 files from the SDK are ordered by address: a sector is complete once a later one starts.
+    if (sector != ota.sector) {
+        if (sector < ota.sector) return fail("UF2 addresses not ascending");
+        if (!flush_sector()) return false;
+        memset(sector_buf, 0xff, sizeof(sector_buf));
+        ota.sector = sector;
     }
-    static uint8_t page[FLASH_PAGE_SIZE_B];
-    memcpy(page, b->data, FLASH_PAGE_SIZE_B);
-    if (!flash_program_safe(ota.part_start + rel, page, FLASH_PAGE_SIZE_B)) return fail("flash program failed");
-    if (memcmp(FLASH_RAW_PTR(ota.part_start + rel), page, FLASH_PAGE_SIZE_B) != 0) return fail("flash verify failed");
+    memcpy(sector_buf + rel % FLASH_SECTOR_SIZE_B, b->data, FLASH_PAGE_SIZE_B);
     ota.blocks_done++;
     return true;
 }
@@ -112,6 +131,7 @@ bool ota_feed(const uint8_t *data, size_t len) {
 bool ota_finish(void) {
     if (ota.failed) return false;
     if (!ota.started || ota.fill != 0 || ota.blocks_done != ota.num_blocks) return fail("incomplete UF2 image");
+    if (!flush_sector()) return false;
     printf("ota: image complete\n");
     return true;
 }

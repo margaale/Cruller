@@ -26,6 +26,8 @@ static critical_section_t rx_lock;
 
 static volatile rt4k_status_t status;
 static volatile uint8_t cdc_idx = 0xff;
+static TaskHandle_t rt4k_handle;
+static volatile bool want_suspend, suspended;
 
 // --- TinyUSB callbacks (run inside tuh_task(), i.e. in the rt4k task) --------------------------
 
@@ -77,6 +79,18 @@ static void rt4k_task(void *param) {
     printf("rt4k: USB host started\n");
     uint8_t buf[64];
     for (;;) {
+        if (want_suspend) {
+            // Controller and IRQ off while flash is written (see flash_ops.h).
+            tuh_deinit(BOARD_TUH_RHPORT);
+            cdc_idx = 0xff;
+            status.mounted = false;
+            suspended = true;
+            while (want_suspend) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+            tuh_init(BOARD_TUH_RHPORT);
+            suspended = false;
+            printf("rt4k: USB host resumed\n");
+            continue;
+        }
         tuh_task();
         const uint8_t idx = cdc_idx;
         if (idx != 0xff && tuh_cdc_mounted(idx)) {
@@ -111,8 +125,19 @@ void rt4k_start(void) {
     tx_queue = xStreamBufferCreate(TX_QUEUE_SIZE, 1);
     tx_lock = xSemaphoreCreateMutex();
     critical_section_init(&rx_lock);
-    TaskHandle_t task;
-    xTaskCreateAffinitySet(rt4k_task, "rt4k", RT4K_TASK_STACK, NULL, RT4K_TASK_PRIORITY, 1u << RT4K_TASK_CORE, &task);
+    xTaskCreateAffinitySet(rt4k_task, "rt4k", RT4K_TASK_STACK, NULL, RT4K_TASK_PRIORITY, 1u << RT4K_TASK_CORE, &rt4k_handle);
+}
+
+bool rt4k_suspend(void) {
+    if (!rt4k_handle) return true; // not started: nothing running
+    want_suspend = true;
+    for (int i = 0; i < 100 && !suspended; i++) vTaskDelay(pdMS_TO_TICKS(10));
+    return suspended;
+}
+
+void rt4k_resume(void) {
+    want_suspend = false;
+    if (rt4k_handle) xTaskNotifyGive(rt4k_handle);
 }
 
 bool rt4k_command(const char *cmd) {

@@ -16,6 +16,11 @@ typedef struct {
 
 void rt4k_start(void);
 
+// Turns the USB host (controller, IRQ and task) off and back on; see flash_quiet_begin().
+// False if the rt4k task didn't stop within 1 s.
+bool rt4k_suspend(void);
+void rt4k_resume(void);
+
 // Sends a console command the way the RT4K expects it: "\r<cmd>\r\n". False when it doesn't fit.
 bool rt4k_command(const char *cmd);
 

@@ -11,6 +11,7 @@
 #include "pico/stdlib.h"
 
 #include "creds.h"
+#include "flash_ops.h"
 #include "log.h"
 #include "rt4k.h"
 #include "net.h"
@@ -209,9 +210,14 @@ static void handle_update(request_t *r) {
         return;
     }
     printf("http: firmware upload, %ld bytes\n", r->content_length);
+    if (!flash_quiet_begin()) {
+        respond(r->fd, 503, "Service Unavailable", "text/plain", "Update failed: could not stop the USB host\n");
+        return;
+    }
     ota_begin();
     const bool received = read_body(r, ota_sink, NULL);
     if (!received || !ota_finish()) {
+        flash_quiet_end();
         char msg[96];
         snprintf(msg, sizeof(msg), "Update failed: %s\n", received ? ota_error() : "connection lost");
         respond(r->fd, 400, "Bad Request", "text/plain", msg);

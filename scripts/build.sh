@@ -13,6 +13,7 @@ PIOASM_DIR="${PIOASM_DIR:-$TOOLS_ROOT/tools/sdk-tools/pioasm}"
 
 cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE="${1:-Release}" \
+    ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} \
     -Dpicotool_DIR="$PICOTOOL_DIR" \
     -Dpioasm_DIR="$PIOASM_DIR"
 ninja -C build
