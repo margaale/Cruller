@@ -9,7 +9,7 @@ project(cruller C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-set(CRULLER_VERSION "0.0.1" CACHE STRING "Firmware version (X.Y.Z)")
+set(CRULLER_VERSION "0.0.3" CACHE STRING "Firmware version (X.Y.Z); must grow with every image, the boot ROM picks A/B by it")
 
 pico_sdk_init()
 

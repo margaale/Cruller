@@ -2,7 +2,7 @@
 
 Cruller is firmware for the Raspberry Pi Pico 2 W that controls a RetroTINK 4K (RT4K) over Wi-Fi. It switches RT4K profiles from the gameID that consoles report, and provides a web UI to control the RT4K. It takes the idea of [DonutShop](https://github.com/svirant/DonutShop) and is written from scratch on the Pico SDK, without Arduino.
 
-Status: draft, nothing implemented yet.
+Status: M0 done (2026-09-25). The first image was installed over the air on a DonutShop board behind an RT4K, then updated A to B to A and survived a power cycle.
 
 ## Goals
 
@@ -120,11 +120,17 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 
 ## Milestones
 
-1. **M0, foundation:** CMake project, CI, and the flash layout with partition table. Migration from DonutShop by OTA, including the import of Wi-Fi credentials. Station mode with the portal fallback, mDNS, a minimal web page, and Cruller-to-Cruller OTA with rollback. Done when a board goes from DonutShop to Cruller with no cable and then updates itself twice.
+1. **M0, foundation (done):** CMake project, CI, and the flash layout with partition table. Migration from DonutShop by OTA, including the import of Wi-Fi credentials. Station mode with the portal fallback, mDNS, a minimal web page, and Cruller-to-Cruller OTA with rollback. Done when a board goes from DonutShop to Cruller with no cable and then updates itself twice.
 2. **M1, RT4K link:** USB host FTDI at 2 Mbaud, two-way, hot-plug, plus the HD-15 UART and a web terminal.
 3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI.
 4. **M3, control:** remote-control page, status LED patterns, and the RGB LED.
 5. **M4, extras:** Extron/TESmart/MT-VIKI serial, IR, and SD file management once the RT4K protocol is documented.
+
+### M0 results (2026-09-25)
+
+- **Migration:** DonutShop accepted `cruller_migration.bin` through `/update`. Cruller booted from partition A, imported `wifi.json` and kept its IP. The first upload attempt hung inside DonutShop and needed a power cycle; the retry worked. Retrying is the documented recovery.
+- **OTA:** 0.0.1 to 0.0.2 went to partition B (6 s upload, back in 16 s). 0.0.2 to 0.0.3 went back to A. After a power cycle the board booted 0.0.3 from A with a normal boot, so the explicit buy persisted.
+- **Image versions** (`CRULLER_VERSION`) must grow with every image, because the boot ROM chooses between A and B by version.
 
 ## Testing
 
