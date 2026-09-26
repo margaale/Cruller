@@ -18,6 +18,7 @@
 #include "net.h"
 #include "ota.h"
 #include "power.h"
+#include "rfc2217.h"
 #include "rt4k.h"
 #include "rtl1.h"
 #include "status_led.h"
@@ -59,6 +60,7 @@ static void main_task(void *param) {
     rt4k_start();
     ws_start();
     http_start();
+    rfc2217_start();
     net_start();
 
     // An updated image must be confirmed within ~16.7 s or the boot ROM reverts to the previous

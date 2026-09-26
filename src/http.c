@@ -16,6 +16,7 @@
 #include "freeze.h"
 #include "log.h"
 #include "power.h"
+#include "rfc2217.h"
 #include "rt4k.h"
 #include "rtl1.h"
 #include "ws.h"
@@ -261,16 +262,18 @@ void http_status_json(char *body, size_t size) {
     json_escape(ssid, sizeof(ssid), net_ssid());
     rt4k_status_t rt;
     rt4k_get_status(&rt);
+    char rfc2217_ip[16];
+    rfc2217_client(rfc2217_ip, sizeof(rfc2217_ip));
     snprintf(body, size,
         "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\","
         "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,"
         "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,"
-        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\"}",
+        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\",\"rfc2217_client\":\"%s\"}",
         CRULLER_VERSION, (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000), state_name(net_state()),
         ssid, net_ip(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
         (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
-        rt.mounted ? power_state_name(power_state()) : "unknown");
+        rt.mounted ? power_state_name(power_state()) : "unknown", rfc2217_ip);
 }
 
 // GET <path>?since=N: text written after position N, with the new position in X-Next.
@@ -325,7 +328,9 @@ static const char PAGE[] =
     "<form onsubmit='return cmd()'><input id=cm placeholder='Command, e.g. remote menu' autocomplete=off autocapitalize=none></form></div>"
     "</div>"
     "<div class=remote><div class=led id=led></div><div class='rg top'><button class=pwr data-c='remote pwr' data-confirm='Turn the RT4K off?'>"
-    "&#x23FB;</button><div class='rg g3 grp'><button data-c='remote input'>INPUT</button><button data-c='remote out"
+    "<svg viewBox='0 0 24 24' width=18 height=18 fill=none stroke=currentColor stroke-width=2.6 stroke-linecap=round "
+    "style='display:block;margin:auto'><path d='M12 3v8'/><path d='M6.6 6.6a7.5 7.5 0 1 0 10.8 0'/></svg>"
+    "</button><div class='rg g3 grp'><button data-c='remote input'>INPUT</button><button data-c='remote out"
     "put'>OUT</button><button data-c='remote scaler'>SCL</button><button data-c='remote sfx'>SFX</button><button da"
     "ta-c='remote adc'>ADC</button><button data-c='remote prof'>PROF</button></div></div><div class='rg g3'><button"
     " data-c='remote prof1'>1</button><button data-c='remote prof2'>2</button><button data-c='remote prof3'>3</butt"

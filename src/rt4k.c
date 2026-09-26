@@ -378,6 +378,25 @@ bool rt4k_query(const char *cmd, const char *expect, char *out, size_t size, uin
     return false;
 }
 
+bool rt4k_send_raw(const void *data, size_t len) {
+    if (!rt4k_link_lock(2000)) { // waits for a running rtl1 transfer
+        cmd_stats.dropped++;
+        return false;
+    }
+    const bool ok = rt4k_write(data, len);
+    rt4k_link_unlock();
+    cmd_stats.sent++;
+    last_cmd_ms = to_ms_since_boot(get_absolute_time());
+    return ok;
+}
+
+uint32_t rt4k_rx_head(void) {
+    critical_section_enter_blocking(&rx_lock);
+    const uint32_t head = rx_head;
+    critical_section_exit(&rx_lock);
+    return head;
+}
+
 uint32_t rt4k_ms_since_command(void) {
     return to_ms_since_boot(get_absolute_time()) - last_cmd_ms;
 }

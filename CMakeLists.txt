@@ -46,6 +46,8 @@ target_sources(cruller_app INTERFACE
     src/health.c
     src/power.c
     src/power_core.c
+    src/rfc2217.c
+    src/rfc2217_proto.c
     src/rtl1.c
     src/rtl1_core.c
     src/ws.c

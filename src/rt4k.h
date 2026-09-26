@@ -29,6 +29,13 @@ bool rt4k_command(const char *cmd);
 // dropped), copied to out. False if the command couldn't be sent or no such line came in time.
 bool rt4k_query(const char *cmd, const char *expect, char *out, size_t size, uint32_t timeout_ms);
 
+// Bytes from another client (RFC 2217), as they are, between rtl1 transfers: waits for the link
+// like rt4k_command() and counts as a command (transfers keep their distance after it).
+bool rt4k_send_raw(const void *data, size_t len);
+
+// The position after the last byte in the terminal ring (a starting point for rt4k_rx_read()).
+uint32_t rt4k_rx_head(void);
+
 // Raw bytes to the RT4K (rtl1 commands and frames). False if the queue is full.
 bool rt4k_write(const void *data, size_t len);
 
