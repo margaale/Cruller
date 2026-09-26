@@ -47,3 +47,6 @@ void rt4k_get_status(rt4k_status_t *out);
 
 // Debug: command counters and link waits, one line.
 void rt4k_debug(char *out, size_t size);
+
+// Debug: the USB event timeline around the last FT232R overrun, as text; restarts the recording.
+size_t rt4k_trace_dump(char *out, size_t size);

@@ -1,0 +1,31 @@
+diff --git a/src/class/cdc/cdc_host.c b/src/class/cdc/cdc_host.c
+index 117ff49..61d1ab0 100644
+--- a/src/class/cdc/cdc_host.c
++++ b/src/class/cdc/cdc_host.c
+@@ -685,6 +685,16 @@ void cdch_close(uint8_t daddr) {
+   }
+ }
+ 
++#if CFG_TUH_CDC_FTDI
++// The two FTDI status bytes of every received packet: modem status, then line status (bit 1 set:
++// the chip's receive buffer overflowed, bytes were lost).
++TU_ATTR_WEAK void tuh_cdc_ftdi_status_cb(uint8_t idx, uint8_t modem_status, uint8_t line_status) {
++  (void)idx;
++  (void)modem_status;
++  (void)line_status;
++}
++#endif
++
+ bool cdch_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes) {
+   // TODO handle stall response, retry failed transfer ...
+   TU_VERIFY(event == XFER_RESULT_SUCCESS);
+@@ -710,6 +720,9 @@ bool cdch_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t event, uint32_t
+       bool received = false;
+       for (uint32_t off = 0; off < xferred_bytes; off += mps) {
+         const uint32_t len = tu_min32(mps, xferred_bytes - off);
++        if (len >= 2) {
++          tuh_cdc_ftdi_status_cb(idx, p_cdc->stream.rx.ep_buf[off], p_cdc->stream.rx.ep_buf[off + 1]);
++        }
+         if (len > 2) {
+           tu_edpt_stream_read_xfer_complete_with_buf(&p_cdc->stream.rx, p_cdc->stream.rx.ep_buf + off + 2, len - 2);
+           received = true;

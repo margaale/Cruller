@@ -535,6 +535,11 @@ static void handle(request_t *r) {
         const size_t n = rtl1_last_failure(&d);
         respond_bytes(r->fd, "", d, n);
     }
+    else if (get && !strcmp(r->path, "/debug/usbtrace")) {
+        static char trace_text[12288];
+        rt4k_trace_dump(trace_text, sizeof(trace_text));
+        respond(r->fd, 200, "OK", "text/plain", trace_text);
+    }
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
     else if (post && !strcmp(r->path, "/debug/wedge")) {

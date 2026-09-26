@@ -82,6 +82,9 @@ function(cruller_image TARGET)
         target_sources(${TARGET} PRIVATE src/rt4k.c)
         target_include_directories(${TARGET} PRIVATE src/usb_host)
         target_link_libraries(${TARGET} PRIVATE tinyusb_host)
+        # The RT4K receive path runs from RAM (see cmake/linker/default_text_excludes.incl).
+        pico_add_linker_script_override_path(${TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker
+            FILES default_text_excludes.incl)
         pico_enable_stdio_usb(${TARGET} 0)
     endif()
     pico_enable_stdio_uart(${TARGET} 0)

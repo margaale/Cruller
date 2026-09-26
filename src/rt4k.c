@@ -13,6 +13,7 @@
 #include "tusb.h"
 
 #include "rtl1.h"
+#include "rtl1_core.h"
 
 #define RT4K_TASK_STACK     1024
 #define RT4K_TASK_PRIORITY  (tskIDLE_PRIORITY + 6) // above the Wi-Fi stack (4): Wi-Fi bursts delaying
@@ -36,6 +37,11 @@ static TaskHandle_t rt4k_handle;
 static volatile bool want_suspend, suspended;
 static struct { uint32_t sent, dropped, last_wait_ms, max_wait_ms; } cmd_stats; // debug
 static volatile uint32_t last_cmd_ms;
+static volatile uint32_t last_event_us; // debug: the last host event (see tuh_cdc_rx_cb)
+static struct { uint32_t packets, overruns, errors, last_overrun_ms; } ftdi_stats; // debug
+
+enum { TR_IRQ = 1, TR_EVENT, TR_XFER, TR_OVERRUN }; // debug trace (see trace_add)
+static void trace_add(uint16_t kind, uint16_t val);
 
 // Every host event (most often from the USB IRQ) wakes the rt4k task right away. Polling tuh_task()
 // once per tick moved one 64-byte packet per ms (~62 KB/s), below 2 Mbaud (200 KB/s), and the
@@ -44,6 +50,8 @@ void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr) {
     (void)rhport;
     (void)eventid;
     (void)in_isr; // ask the CPU instead: calling the wrong FreeRTOS variant corrupts the kernel
+    last_event_us = time_us_32();
+    trace_add(TR_EVENT, (uint16_t)eventid);
     if (!rt4k_handle) return;
     if (__get_current_exception()) {
         BaseType_t woken = pdFALSE;
@@ -88,6 +96,65 @@ void tuh_cdc_umount_cb(uint8_t idx) {
     }
 }
 
+// Debug: how long the bulk IN endpoint sits unpolled after a transfer completes (the completion IRQ
+// until tuh_task() re-arms it, right after tuh_cdc_rx_cb()).
+static uint32_t last_rearm_lat_us;
+static struct { uint32_t max_us, slow, overrun_us, max_overrun_us; } gap_stats;
+
+// Debug: a timeline of USB events during transfers, frozen shortly after an overrun shows up
+// (GET /debug/usbtrace). Written on core 1 only (USB IRQ and the rt4k task).
+#define TRACE_SIZE 512u // power of two
+static struct { uint32_t us; uint16_t kind, val; } trace[TRACE_SIZE];
+static volatile uint32_t trace_head, trace_stop_at; // trace_stop_at: 0 while recording
+static uint32_t xfer_packets;
+
+static void __not_in_flash_func(trace_add)(uint16_t kind, uint16_t val) {
+    if (rtl1_core_phase() == RTL1_PH_IDLE) return;
+    const uint32_t irq = save_and_disable_interrupts();
+    if (!trace_stop_at || trace_head < trace_stop_at) {
+        const uint32_t i = trace_head++ & (TRACE_SIZE - 1);
+        trace[i].us = time_us_32();
+        trace[i].kind = kind;
+        trace[i].val = val;
+    }
+    restore_interrupts(irq);
+}
+
+// Debug: every USB interrupt goes into the trace, with the tasks running on each core.
+static void __not_in_flash_func(usb_irq_probe)(void) {
+    // Value: first letters of the tasks running on core 0 and core 1.
+    const char *c0 = pcTaskGetName(xTaskGetCurrentTaskHandleForCore(0));
+    const char *c1 = pcTaskGetName(xTaskGetCurrentTaskHandleForCore(1));
+    trace_add(TR_IRQ, (uint16_t)((uint8_t)c0[0] << 8 | (uint8_t)c1[0]));
+}
+
+// Status bytes of every FTDI packet (patches/tinyusb/0002). An overrun means the FT232R's receive
+// buffer filled up: the host didn't collect packets fast enough and serial bytes were lost.
+void tuh_cdc_ftdi_status_cb(uint8_t idx, uint8_t modem_status, uint8_t line_status) {
+    (void)idx;
+    (void)modem_status;
+    ftdi_stats.packets++;
+    xfer_packets++;
+    if (line_status & 0x02) {
+        trace_add(TR_OVERRUN, (uint16_t)xfer_packets);
+        if (!trace_stop_at) trace_stop_at = trace_head + 64;
+        ftdi_stats.overruns++;
+        ftdi_stats.last_overrun_ms = to_ms_since_boot(get_absolute_time());
+        gap_stats.overrun_us = last_rearm_lat_us; // the re-arm before the data that shows the loss
+        if (last_rearm_lat_us > gap_stats.max_overrun_us) gap_stats.max_overrun_us = last_rearm_lat_us;
+    }
+    if (line_status & 0x1c) ftdi_stats.errors++; // parity, framing, break
+}
+
+void tuh_cdc_rx_cb(uint8_t idx) {
+    (void)idx;
+    trace_add(TR_XFER, (uint16_t)xfer_packets);
+    xfer_packets = 0;
+    last_rearm_lat_us = time_us_32() - last_event_us;
+    if (last_rearm_lat_us > gap_stats.max_us) gap_stats.max_us = last_rearm_lat_us;
+    if (last_rearm_lat_us > 1000) gap_stats.slow++;
+}
+
 // --- task --------------------------------------------------------------------------------------
 
 void rt4k_text_push(const uint8_t *data, size_t len) {
@@ -100,6 +167,7 @@ void rt4k_text_push(const uint8_t *data, size_t len) {
 static void host_init(void) {
     static const tusb_rhport_init_t rh = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(BOARD_TUH_RHPORT, &rh);
+    irq_add_shared_handler(USBCTRL_IRQ, usb_irq_probe, PICO_SHARED_IRQ_HANDLER_LOWEST_ORDER_PRIORITY);
 }
 
 static void rt4k_task(void *param) {
@@ -229,9 +297,14 @@ uint32_t rt4k_ms_since_command(void) {
 }
 
 void rt4k_debug(char *out, size_t size) {
-    snprintf(out, size, "commands: sent %lu dropped %lu, link wait last %lu ms max %lu ms\n",
+    snprintf(out, size, "commands: sent %lu dropped %lu, link wait last %lu ms max %lu ms\n"
+        "ftdi: %lu packets, %lu overruns (last at %lu ms), %lu line errors\n"
+        "rx re-arm latency: max %lu us, %lu over 1 ms; before an overrun: last %lu us max %lu us\n",
         (unsigned long)cmd_stats.sent, (unsigned long)cmd_stats.dropped, (unsigned long)cmd_stats.last_wait_ms,
-        (unsigned long)cmd_stats.max_wait_ms);
+        (unsigned long)cmd_stats.max_wait_ms, (unsigned long)ftdi_stats.packets, (unsigned long)ftdi_stats.overruns,
+        (unsigned long)ftdi_stats.last_overrun_ms, (unsigned long)ftdi_stats.errors, (unsigned long)gap_stats.max_us,
+        (unsigned long)gap_stats.slow, (unsigned long)gap_stats.overrun_us,
+        (unsigned long)gap_stats.max_overrun_us);
 }
 
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {
@@ -249,4 +322,26 @@ size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {
 
 void rt4k_get_status(rt4k_status_t *out) {
     memcpy(out, (const void *)&status, sizeof(*out));
+}
+
+size_t rt4k_trace_dump(char *out, size_t size) {
+    static const char *const kinds[] = {"?", "irq", "event", "xfer", "OVERRUN"};
+    const uint32_t head = trace_head;
+    const uint32_t count = head < TRACE_SIZE ? head : TRACE_SIZE;
+    size_t o = (size_t)snprintf(out, size, "%s, %lu entries (us since the first; xfer/OVERRUN value: packets)\n",
+        trace_stop_at ? "frozen after an overrun" : "recording", (unsigned long)count);
+    const uint32_t t0 = count ? trace[(head - count) & (TRACE_SIZE - 1)].us : 0;
+    for (uint32_t k = head - count; k != head && o + 40 < size; k++) {
+        const uint32_t i = k & (TRACE_SIZE - 1);
+        const unsigned kind = trace[i].kind < 5 ? trace[i].kind : 0u;
+        if (kind == TR_IRQ) // tasks running on core 0 / core 1 (first letters)
+            o += (size_t)snprintf(out + o, size - o, "%8lu irq %c/%c\n", (unsigned long)(trace[i].us - t0),
+                trace[i].val >> 8, trace[i].val & 0xff);
+        else
+            o += (size_t)snprintf(out + o, size - o, "%8lu %s %u\n", (unsigned long)(trace[i].us - t0), kinds[kind],
+                trace[i].val);
+    }
+    trace_head = 0; // start over
+    trace_stop_at = 0;
+    return o;
 }

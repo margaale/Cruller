@@ -1,0 +1,11 @@
+/* Cruller override of the SDK's default_text_excludes.incl (see pico_add_linker_script_override_path
+   in CMakeLists.txt): the code of the objects listed here is left out of flash .text, and the SDK's
+   .data section then copies it to RAM. That is the RT4K receive path: TinyUSB host, CDC, the RTL1
+   engine and the FreeRTOS kernel. Run from flash, it went cold in the XIP cache while the stream
+   paused (Wi-Fi code on core 0 evicts it), and the next packet took ~0.5-0.8 ms to handle; the
+   FT232R holds only ~1.3 ms of data at 2 Mbaud, so it overflowed and RTL1 frames lost bytes. */
+*(EXCLUDE_FILE(*libgcc.a: *libm.a:
+    *usbh.c.obj *cdc_host.c.obj *tusb_fifo.c.obj *tusb.c.obj *hcd_rp2040.c.obj *rp2040_usb.c.obj
+    *src/rt4k.c.obj *src/rtl1.c.obj *src/rtl1_core.c.obj
+    *FreeRTOS-Kernel/tasks.c.obj *FreeRTOS-Kernel/queue.c.obj *FreeRTOS-Kernel/list.c.obj
+    *FreeRTOS-Kernel/stream_buffer.c.obj *RP2350_ARM_NTZ*port.c.obj) .text*)
