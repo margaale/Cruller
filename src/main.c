@@ -32,7 +32,7 @@ static void main_task(void *param) {
     (void)param;
     printf("\nCruller %s, boot partition %d (%s boot)\n", CRULLER_VERSION, ota_boot_partition(), ota_last_boot_type());
 
-    health_start();
+    health_start(ota_is_trial_boot());
     const uint32_t t0 = ms_since_boot();
     if (cyw43_arch_init()) {
         // Without the CYW43 there is no network and no way to update: let a trial image roll back.

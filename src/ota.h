@@ -17,6 +17,9 @@ const char *ota_error(void);
 void ota_reboot_into_update(void);
 
 // Call once the firmware is known to be healthy after a flash update boot.
+// True when this boot is an update on trial (TBYB), not confirmed yet.
+bool ota_is_trial_boot(void);
+
 void ota_confirm_if_trial(void);
 
 // Boot information for status pages.

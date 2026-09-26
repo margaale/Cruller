@@ -42,13 +42,14 @@ static uint32_t now_ms(void) {
 
 static volatile uint32_t last_feed_ms;
 static volatile bool rebooting; // stop feeding: a reboot is scheduled on the watchdog
+static volatile bool armed;     // our watchdog is in charge (not during a TBYB trial)
 
 // Runs in the timer task (highest priority): if the feeder is being starved, say who holds the cores
 // before the watchdog resets the board (the log survives the reset).
 static void starve_check(TimerHandle_t t) {
     (void)t;
     const uint32_t late = now_ms() - last_feed_ms;
-    if (!last_feed_ms || late < 3000) return;
+    if (!armed || !last_feed_ms || late < 3000) return;
     char line[96];
     snprintf(line, sizeof(line), "\n*** watchdog not fed for %lu ms; core0=%s core1=%s\n", (unsigned long)late,
         pcTaskGetName(xTaskGetCurrentTaskHandleForCore(0)), pcTaskGetName(xTaskGetCurrentTaskHandleForCore(1)));
@@ -65,7 +66,7 @@ static void wdt_task(void *param) {
         }
         // watchdog_update() reloads the counter with our 8 s: it would postpone a reboot that
         // rom_reboot()/watchdog_reboot() scheduled on the same watchdog, forever.
-        if (!rebooting) watchdog_update();
+        if (armed && !rebooting) watchdog_update();
         last_feed_ms = now_ms();
         vTaskDelay(pdMS_TO_TICKS(WDT_FEED_MS));
     }
@@ -135,11 +136,19 @@ void health_stop_net_probe(void) {
     last_reply_ms = 0; // and don't count the missing replies against us
 }
 
-void health_start(void) {
+void health_start(bool trial) {
     xTimerStart(xTimerCreate("starve", pdMS_TO_TICKS(1000), pdTRUE, NULL, starve_check), 0);
+    xTaskCreate(wdt_task, "wdt", 256, NULL, WDT_TASK_PRIORITY, NULL);
+    if (trial) {
+        // An image on trial is watched by the boot ROM (reset and roll back unless confirmed within
+        // ~16.7 s). Arming and feeding our own watchdog now would defeat that: a new image hanging
+        // early would never roll back. Ours takes over after the confirmation (health_rearm_watchdog).
+        printf("health: trial boot, the boot ROM's watchdog is in charge until confirmed\n");
+        return;
+    }
     // pause_on_debug: a debugger halting the cores doesn't reset the board.
     watchdog_enable(WDT_TIMEOUT_MS, true);
-    xTaskCreate(wdt_task, "wdt", 256, NULL, WDT_TASK_PRIORITY, NULL);
+    armed = true;
     printf("health: watchdog %u ms\n", WDT_TIMEOUT_MS);
 }
 
@@ -149,6 +158,7 @@ void health_stop_feeding(void) {
 
 void health_rearm_watchdog(void) {
     watchdog_enable(WDT_TIMEOUT_MS, true);
+    armed = true;
 }
 
 void health_start_net_probe(void) {

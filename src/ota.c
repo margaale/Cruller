@@ -151,6 +151,10 @@ void ota_reboot_into_update(void) {
     for (;;) tight_loop_contents();
 }
 
+bool ota_is_trial_boot(void) {
+    return rom_get_last_boot_type() == BOOT_TYPE_FLASH_UPDATE;
+}
+
 void ota_confirm_if_trial(void) {
     if (rom_get_last_boot_type() != BOOT_TYPE_FLASH_UPDATE) return;
     const int ret = rom_explicit_buy(rom_workarea, sizeof(rom_workarea));

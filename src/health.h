@@ -4,7 +4,10 @@
 
 #pragma once
 
-void health_start(void);
+#include <stdbool.h>
+
+// trial: this is a TBYB image not confirmed yet (see health_start()).
+void health_start(bool trial);
 
 #include <stdint.h>
 
