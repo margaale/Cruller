@@ -41,3 +41,6 @@ void rt4k_text_push(const uint8_t *data, size_t len);
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max);
 
 void rt4k_get_status(rt4k_status_t *out);
+
+// Debug: command counters and link waits, one line.
+void rt4k_debug(char *out, size_t size);

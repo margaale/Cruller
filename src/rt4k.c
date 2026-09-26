@@ -8,6 +8,7 @@
 #include "semphr.h"
 #include "stream_buffer.h"
 #include "pico/sync.h"
+#include "pico/time.h"
 #include "tusb.h"
 
 #include "rtl1.h"
@@ -32,6 +33,7 @@ static volatile rt4k_status_t status;
 static volatile uint8_t cdc_idx = 0xff;
 static TaskHandle_t rt4k_handle;
 static volatile bool want_suspend, suspended;
+static struct { uint32_t sent, dropped, last_wait_ms, max_wait_ms; } cmd_stats; // debug
 
 // Every host event (most often from the USB IRQ) wakes the rt4k task right away. Polling tuh_task()
 // once per tick moved one 64-byte packet per ms (~62 KB/s), below 2 Mbaud (200 KB/s), and the
@@ -191,10 +193,25 @@ bool rt4k_command(const char *cmd) {
     char line[CMD_MAX + 4];
     const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     if (n < 0 || n >= (int)sizeof(line)) return false;
-    if (!rt4k_link_lock(2000)) return false; // an rtl1 transfer is running
+    const uint32_t t0 = to_ms_since_boot(get_absolute_time());
+    const bool locked = rt4k_link_lock(2000); // waits for a running rtl1 transfer
+    const uint32_t waited = to_ms_since_boot(get_absolute_time()) - t0;
+    cmd_stats.last_wait_ms = waited;
+    if (waited > cmd_stats.max_wait_ms) cmd_stats.max_wait_ms = waited;
+    if (!locked) {
+        cmd_stats.dropped++;
+        return false;
+    }
     const bool ok = rt4k_write(line, (size_t)n);
     rt4k_link_unlock();
+    cmd_stats.sent++;
     return ok;
+}
+
+void rt4k_debug(char *out, size_t size) {
+    snprintf(out, size, "commands: sent %lu dropped %lu, link wait last %lu ms max %lu ms\n",
+        (unsigned long)cmd_stats.sent, (unsigned long)cmd_stats.dropped, (unsigned long)cmd_stats.last_wait_ms,
+        (unsigned long)cmd_stats.max_wait_ms);
 }
 
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {

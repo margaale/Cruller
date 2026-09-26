@@ -66,11 +66,11 @@ static void reset(void) {
 }
 
 static void begin(const char *cmd, size_t max) {
-    rtl1_core_begin(cmd, out, max, &info, false, clock_ms);
+    rtl1_core_begin(cmd, out, max, &info, false, 0, clock_ms);
 }
 
 static void begin_quiet(const char *cmd, size_t max) {
-    rtl1_core_begin(cmd, out, max, &info, true, clock_ms);
+    rtl1_core_begin(cmd, out, max, &info, true, 0, clock_ms);
 }
 
 // Everything the RT4K sends in a test goes through here, so it can be split up as the test wants.
@@ -371,6 +371,16 @@ static void test_no_ready_line(void) {
     CHECK(tx_len == 0); // no nonce yet, nothing to abort
 }
 
+static void test_short_ready_timeout(void) {
+    // Background polls wait less for the ready line.
+    reset();
+    rtl1_core_begin("osd", out, sizeof(out), &info, true, 600, clock_ms);
+    const uint32_t t0 = clock_ms;
+    CHECK(!rtl1_core_poll(t0 + 599));
+    CHECK(rtl1_core_poll(t0 + 601));
+    CHECK(rtl1_core_result() == RTL1_ERR_TIMEOUT);
+}
+
 static void test_stall_mid_transfer(void) {
     reset();
     begin("osd2", sizeof(out));
@@ -616,6 +626,7 @@ static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_ready_without_nonce),
     T(test_ready_for_another_command_is_ignored),
     T(test_no_ready_line),
+    T(test_short_ready_timeout),
     T(test_stall_mid_transfer),
     T(test_bad_crc),
     T(test_wrong_nonce),

@@ -215,7 +215,7 @@ static void handle_rt4k_xfer(int fd, const char *query) {
     }
     static uint8_t buf[4096];
     static rtl1_info_t info;
-    const rtl1_result_t r = rtl1_transfer(cmd, buf, sizeof(buf), &info, false);
+    const rtl1_result_t r = rtl1_transfer(cmd, buf, sizeof(buf), &info, false, 0);
     if (r != RTL1_OK) {
         char msg[160];
         snprintf(msg, sizeof(msg), "%s: %s\n", rtl1_result_name(r), info.detail);

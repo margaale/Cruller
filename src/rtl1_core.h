@@ -35,7 +35,9 @@ void rtl1_core_init(const rtl1_hooks_t *hooks);
 // Starts waiting for the ready line of `cmd` (whose first word names it). The caller then sends the
 // command; `out` and `info` must stay valid until the transfer ends. `quiet`: no text reaches the
 // terminal while the transfer runs (ready, closing and refusal lines, and anything in between).
-void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet, uint32_t now_ms);
+// ready_timeout_ms: how long to wait for the ready line (0 = RTL1_READY_TIMEOUT_MS).
+void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
+    uint32_t ready_timeout_ms, uint32_t now_ms);
 
 void rtl1_core_feed(const uint8_t *data, size_t len, uint32_t now_ms);
 

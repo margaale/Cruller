@@ -31,6 +31,10 @@
 #define POLL_IDLE_MS     250      // OSD poll period
 #define POLL_ACTIVE_MS   60       // right after a key press
 #define ACTIVE_WINDOW_MS 1500
+#define TRANSFER_GAP_MS  40       // between transfers: one sent right after another was often ignored
+#define POLL_READY_TIMEOUT_MS 600  // a lost poll request frees the link quickly (keys wait for it)
+#define KEY_SETTLE_MS    100      // after a key: let the RT4K act and redraw before asking (a request
+                                  // sent right behind the key was often ignored: 3 s link stalls)
 #define OFFLINE_BACKOFF_MS 2000   // RT4K not answering (standby)
 
 typedef struct {
@@ -68,6 +72,7 @@ static uint8_t tx[4096 + 256];    // ws task only
 static volatile const char *ws_where = "start", *mirror_where = "start";
 static volatile rtl1_result_t last_result[2] = {RTL1_OK, RTL1_OK};
 static char last_detail[2][96];
+static uint32_t poll_last_ms[2], poll_max_ms[2], poll_errors[2][5]; // debug: per plane, errors by result
 
 static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
@@ -279,7 +284,11 @@ static bool offline(rtl1_result_t r) {
 static rtl1_result_t poll_plane(int p, uint8_t *buf) {
     static rtl1_info_t info;
     mirror_where = p ? "osd2" : "osd";
-    const rtl1_result_t r = rtl1_transfer(p ? "osd2" : "osd", buf, 4096, &info, true);
+    const uint32_t t0 = now_ms();
+    const rtl1_result_t r = rtl1_transfer(p ? "osd2" : "osd", buf, 4096, &info, true, POLL_READY_TIMEOUT_MS);
+    poll_last_ms[p] = now_ms() - t0;
+    if (poll_last_ms[p] > poll_max_ms[p]) poll_max_ms[p] = poll_last_ms[p];
+    if (r != RTL1_OK && (unsigned)r < 5) poll_errors[p][r]++;
     mirror_where = "compare";
     last_result[p] = r;
     memcpy(last_detail[p], info.detail, sizeof(last_detail[p]));
@@ -309,11 +318,16 @@ static void mirror_task(void *param) {
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
             continue;
         }
+        const uint32_t since_key = now_ms() - last_key_ms;
+        if (since_key < KEY_SETTLE_MS) {
+            mirror_where = "settle";
+            vTaskDelay(pdMS_TO_TICKS(KEY_SETTLE_MS - since_key));
+        }
         rtl1_result_t r = RTL1_OK;
         if (!font_version) {
             static rtl1_info_t info;
             mirror_where = "font";
-            r = rtl1_transfer("font", buf, sizeof(buf), &info, true);
+            r = rtl1_transfer("font", buf, sizeof(buf), &info, true, 0);
             if (r == RTL1_OK && info.len == sizeof(font)) {
                 xSemaphoreTake(snap_lock, portMAX_DELAY);
                 memcpy(font, buf, sizeof(font));
@@ -322,20 +336,31 @@ static void mirror_task(void *param) {
             }
         }
         if (!offline(r)) r = poll_plane(0, buf);
-        if (!offline(r)) r = poll_plane(1, buf);
+        // The menu is in the main plane: while keys are being pressed, poll only that one.
+        const bool navigating = now_ms() - last_key_ms < ACTIVE_WINDOW_MS;
+        if (!offline(r) && !navigating) {
+            vTaskDelay(pdMS_TO_TICKS(TRANSFER_GAP_MS));
+            r = poll_plane(1, buf);
+        }
         // Back off only when the RT4K doesn't answer; a refusal or a bad frame is retried soon.
-        const uint32_t wait = offline(r) ? OFFLINE_BACKOFF_MS
-            : now_ms() - last_key_ms < ACTIVE_WINDOW_MS ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+        const uint32_t wait = offline(r) ? OFFLINE_BACKOFF_MS : navigating ? POLL_ACTIVE_MS : POLL_IDLE_MS;
         mirror_where = "wait";
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait)); // a key press cuts the wait short
     }
 }
 
 void ws_debug(char *out, size_t size) {
-    snprintf(out, size, "ws=%s mirror=%s clients=%d queued=%u\nosd: %s %s | versions %lu/%lu\nosd2: %s %s\n",
-        ws_where, mirror_where, client_count, (unsigned)uxQueueMessagesWaiting(adopt_q),
-        rtl1_result_name(last_result[0]), last_detail[0], (unsigned long)planes[0].version, (unsigned long)planes[1].version,
-        rtl1_result_name(last_result[1]), last_detail[1]);
+    int n = snprintf(out, size, "ws=%s mirror=%s clients=%d queued=%u\n", ws_where, mirror_where, client_count,
+        (unsigned)uxQueueMessagesWaiting(adopt_q));
+    for (int p = 0; p < 2 && n > 0 && (size_t)n < size; p++) {
+        n += snprintf(out + n, size - (size_t)n,
+            "%s: last %s %s | poll last %lu ms max %lu ms | errors nolink %lu timeout %lu device %lu protocol %lu | version %lu\n",
+            p ? "osd2" : "osd", rtl1_result_name(last_result[p]), last_detail[p], (unsigned long)poll_last_ms[p],
+            (unsigned long)poll_max_ms[p], (unsigned long)poll_errors[p][RTL1_ERR_NO_LINK],
+            (unsigned long)poll_errors[p][RTL1_ERR_TIMEOUT], (unsigned long)poll_errors[p][RTL1_ERR_DEVICE],
+            (unsigned long)poll_errors[p][RTL1_ERR_PROTOCOL], (unsigned long)planes[p].version);
+    }
+    if (n > 0 && (size_t)n < size) rt4k_debug(out + n, size - (size_t)n);
 }
 
 bool ws_has_room(void) {

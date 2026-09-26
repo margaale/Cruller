@@ -32,6 +32,8 @@ void rtl1_feed(const uint8_t *data, size_t len);
 
 // Runs one transfer and waits for it (up to about 5 s). One at a time; text commands wait meanwhile.
 // quiet: the transfer's own lines (ready, done, refusal) stay out of the terminal (background polls).
-rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet);
+// ready_timeout_ms: 0 = default (3 s); background polls use less, so a lost request frees the link soon.
+rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
+    uint32_t ready_timeout_ms);
 
 const char *rtl1_result_name(rtl1_result_t r);

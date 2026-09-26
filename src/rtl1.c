@@ -57,7 +57,8 @@ void rtl1_feed(const uint8_t *data, size_t len) {
     xSemaphoreGive(feed_lock);
 }
 
-rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet) {
+rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
+    uint32_t ready_timeout_ms) {
     memset(info, 0, sizeof(*info));
     if (!rt4k_connected()) {
         snprintf(info->detail, sizeof(info->detail), "RT4K not connected");
@@ -75,7 +76,7 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
 
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     xSemaphoreTake(done_sem, 0); // stale
-    rtl1_core_begin(cmd, out, max, info, quiet, now_ms());
+    rtl1_core_begin(cmd, out, max, info, quiet, ready_timeout_ms, now_ms());
     xSemaphoreGive(feed_lock);
 
     char line[200];

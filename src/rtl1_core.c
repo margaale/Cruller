@@ -24,6 +24,7 @@ static struct {
     uint8_t expect_seq;
     rtl1_result_t result;
     uint32_t start_ms;          // command sent
+    uint32_t ready_timeout_ms;
     uint32_t last_ms;           // last progress
     uint32_t now;               // time of the bytes being fed
     char line[192];             // text line being assembled
@@ -260,7 +261,9 @@ void rtl1_core_init(const rtl1_hooks_t *h) {
     memset(&e, 0, sizeof(e));
 }
 
-void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet, uint32_t now_ms) {
+void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
+    uint32_t ready_timeout_ms, uint32_t now_ms) {
+    e.ready_timeout_ms = ready_timeout_ms ? ready_timeout_ms : RTL1_READY_TIMEOUT_MS;
     e.quiet = quiet;
     size_t n = strcspn(cmd, " ");
     if (n >= sizeof(e.name)) n = sizeof(e.name) - 1;
@@ -280,7 +283,7 @@ bool rtl1_core_poll(uint32_t now_ms) {
     e.now = now_ms;
     switch (e.phase) {
         case RTL1_PH_READY:
-            if (now_ms - e.start_ms > RTL1_READY_TIMEOUT_MS) {
+            if (now_ms - e.start_ms > e.ready_timeout_ms) {
                 set_detail("no ready line from the RT4K");
                 e.phase = RTL1_PH_IDLE;
             }
