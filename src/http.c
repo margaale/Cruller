@@ -76,6 +76,19 @@ static void respond_bytes(int fd, const char *extra_headers, const uint8_t *body
     if (len) send_all(fd, body, len);
 }
 
+// Web assets embedded from src/web at build time (cmake/embed.cmake).
+extern const unsigned char web_fw_js[];
+extern const size_t web_fw_js_len;
+
+static void respond_asset(int fd, const char *type, const unsigned char *body, size_t len) {
+    char hdr[192];
+    const int n = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %u\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        type, (unsigned)len);
+    send_all(fd, hdr, (size_t)n);
+    send_all(fd, body, len);
+}
+
 static void redirect(int fd, const char *location) {
     char hdr[160];
     const int n = snprintf(hdr, sizeof(hdr),
@@ -303,6 +316,7 @@ static const char PAGE[] =
     "<div class=stage><div class=screen><div id=stats hidden></div>"
     "<canvas id=tv width=1280 height=720 title='Double-click for full screen'></canvas>"
     "<button class=fs onclick=\"$('tv').requestFullscreen()\">Full screen</button> <button class=fs onclick=\"$('stats').hidden^=1\">Stats</button>"
+    " <button class=fs onclick='fwOpen()'>RT4K firmware</button><div id=fw hidden></div><script src=/fw.js defer></script>"
     "<div class=term><pre id=rx></pre>"
     "<form onsubmit='return cmd()'><input id=cm placeholder='Command, e.g. remote menu' autocomplete=off autocapitalize=none></form></div>"
     "</div>"
@@ -571,11 +585,12 @@ static size_t body_read(void *ctx, uint8_t *buf, size_t max) {
     return (size_t)n;
 }
 
-// A path on the RT4K's SD card: letters, digits, '.', '_', '-', '/', no "..".
+// A path on the RT4K's SD card, relative to its root: printable ASCII (spaces and brackets are fine:
+// firmware zips have "lumacode/NES/PVM Style D93 (FBX).lmc"), no "..", no backslash, no leading '/'.
 static bool sd_path_ok(const char *p) {
-    if (!*p || strstr(p, "..")) return false;
+    if (!*p || *p == '/' || strstr(p, "..")) return false;
     for (; *p; p++) {
-        if (!isalnum((unsigned char)*p) && !strchr("._-/", *p)) return false;
+        if (*p < 0x20 || *p > 0x7e || *p == '\\') return false;
     }
     return true;
 }
@@ -663,6 +678,7 @@ static void handle(request_t *r) {
     char *query = strchr(r->path, '?');
     if (query) *query++ = 0;
     if (get && !strcmp(r->path, "/")) respond(r->fd, 200, "OK", "text/html", PAGE);
+    else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
     else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read);

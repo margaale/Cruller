@@ -20,5 +20,7 @@ done
 if command -v node >/dev/null; then
     echo "== page"
     node tests/check_page.js || status=1
+    echo "== fw.js (RT4K firmware updater)"
+    node tests/test_fw.js || status=1
 fi
 exit $status

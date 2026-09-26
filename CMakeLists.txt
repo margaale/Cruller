@@ -52,6 +52,15 @@ target_sources(cruller_app INTERFACE
     third_party/picow_ap/dnsserver.c
 )
 target_include_directories(cruller_app INTERFACE src third_party/picow_ap)
+
+# Web assets kept as real files (src/web), embedded as C arrays (see cmake/embed.cmake).
+set(WEB_FW_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_fw_js.c)
+add_custom_command(OUTPUT ${WEB_FW_JS_C}
+    COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/src/web/fw.js -DOUT=${WEB_FW_JS_C} -DNAME=web_fw_js
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/web/fw.js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    VERBATIM)
+target_sources(cruller_app INTERFACE ${WEB_FW_JS_C})
 target_compile_definitions(cruller_app INTERFACE
     CRULLER_VERSION="${CRULLER_VERSION}"
     CYW43_HOST_NAME="cruller"
