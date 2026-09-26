@@ -23,7 +23,8 @@ void platform_prepare_reboot(void) {
 }
 
 void platform_reboot(void) {
+    health_stop_feeding();
+    watchdog_reboot(0, 0, PLATFORM_REBOOT_DELAY_MS); // scheduled first: see ota_reboot_into_update()
     platform_prepare_reboot();
-    watchdog_reboot(0, 0, 10);
     for (;;) tight_loop_contents();
 }

@@ -41,6 +41,7 @@ static uint32_t now_ms(void) {
 }
 
 static volatile uint32_t last_feed_ms;
+static volatile bool rebooting; // stop feeding: a reboot is scheduled on the watchdog
 
 // Runs in the timer task (highest priority): if the feeder is being starved, say who holds the cores
 // before the watchdog resets the board (the log survives the reset).
@@ -62,7 +63,9 @@ static void wdt_task(void *param) {
             printf("health: no reply from the gateway for %u s, letting the watchdog reset\n", NET_DEAD_MS / 1000);
             vTaskDelete(NULL);
         }
-        watchdog_update();
+        // watchdog_update() reloads the counter with our 8 s: it would postpone a reboot that
+        // rom_reboot()/watchdog_reboot() scheduled on the same watchdog, forever.
+        if (!rebooting) watchdog_update();
         last_feed_ms = now_ms();
         vTaskDelay(pdMS_TO_TICKS(WDT_FEED_MS));
     }
@@ -128,7 +131,7 @@ static void ping_task(void *param) {
 void health_stop_net_probe(void) {
     // Keep the gate: the ping task then never touches lwIP/CYW43 again, which matters once
     // cyw43_arch_deinit() has torn the async context down (it crashed the reboot into an update).
-    if (ping_gate) xSemaphoreTake(ping_gate, pdMS_TO_TICKS(1000));
+    if (ping_gate) xSemaphoreTake(ping_gate, pdMS_TO_TICKS(100));
     last_reply_ms = 0; // and don't count the missing replies against us
 }
 
@@ -138,6 +141,10 @@ void health_start(void) {
     watchdog_enable(WDT_TIMEOUT_MS, true);
     xTaskCreate(wdt_task, "wdt", 256, NULL, WDT_TASK_PRIORITY, NULL);
     printf("health: watchdog %u ms\n", WDT_TIMEOUT_MS);
+}
+
+void health_stop_feeding(void) {
+    rebooting = true;
 }
 
 void health_rearm_watchdog(void) {

@@ -283,6 +283,8 @@ static const char PAGE[] =
     ".nav .side{background:#7c7c7c;padding:4px 0}.tall{display:flex;flex-direction:column;gap:4px;align-items:center}.tall span{font-size:.62em;color:#ccc;font-weight:700}"
     ".aux{margin-top:14px}.brand{text-align:center;color:#ddd;font-size:1.1em;line-height:1.2;margin-top:10px}.brand b{font-style:italic}"
     "#link{float:right;font-size:.8em;color:#888}.term{margin-top:8px}"
+    ".led{width:12px;height:5px;border-radius:2px;background:#e8e8e8;margin:-6px 0 8px 16px;transition:background .05s}"
+    ".led.on{background:#ff2b2b;box-shadow:0 0 6px 1px #ff2b2b}"
     "</style></head><body><h1>Cruller</h1>"
     "<section><h2>RT4K <span id=link>connecting</span></h2>"
     "<div class=stage><div class=screen>"
@@ -291,7 +293,7 @@ static const char PAGE[] =
     "<div class=term><pre id=rx></pre>"
     "<form onsubmit='return cmd()'><input id=cm placeholder='Command, e.g. remote menu' autocomplete=off autocapitalize=none></form></div>"
     "</div>"
-    "<div class=remote><div class='rg top'><button class=pwr data-c='remote pwr' data-confirm='Turn the RT4K off?'>"
+    "<div class=remote><div class=led id=led></div><div class='rg top'><button class=pwr data-c='remote pwr' data-confirm='Turn the RT4K off?'>"
     "&#x23FB;</button><div class='rg g3 grp'><button data-c='remote input'>INPUT</button><button data-c='remote out"
     "put'>OUT</button><button data-c='remote scaler'>SCL</button><button data-c='remote sfx'>SFX</button><button da"
     "ta-c='remote adc'>ADC</button><button data-c='remote prof'>PROF</button></div></div><div class='rg g3'><button"
@@ -335,7 +337,9 @@ static const char PAGE[] =
     // RT4K over the WebSocket: terminal text, OSD planes, font (see ws.h).
     "let ws,font=null;const planes=[null,null],BG=[[5,7,12],[233,237,243],[32,192,32],[208,32,32]];"
     "function out(t){const e=$('rx');e.textContent+=t;if(e.textContent.length>30000)e.textContent=e.textContent.slice(-20000);e.scrollTop=e.scrollHeight}"
-    "function send(t){if(ws&&ws.readyState==1)ws.send(t)}"
+    "function send(t){if(ws&&ws.readyState==1){ws.send(t);return true}return false}"
+    // The remote's LED: lights while a key is sent.
+    "function blink(){const l=$('led');l.classList.add('on');clearTimeout(blink.t);blink.t=setTimeout(()=>l.classList.remove('on'),150)}"
     "function conn(){ws=new WebSocket('ws://'+location.host+'/ws');ws.binaryType='arraybuffer';"
     "ws.onopen=()=>$('link').textContent='connected';"
     "ws.onclose=()=>{$('link').textContent='reconnecting';setTimeout(conn,2000)};"
@@ -362,13 +366,14 @@ static const char PAGE[] =
     "g.fillStyle='#000';g.fillRect(0,0,TV_W,TV_H);if(!font)return;g.imageSmoothingEnabled=false;"
     "const mk=planes[0]?kv(planes[0].r):{},ph=(mk.rows||32)*16,sc=TV_H>=ph?Math.floor(TV_H/ph):TV_H/ph,top=Math.floor((TV_H-ph*sc)/2);"
     "if(planes[0]){const c=render(planes[0]);g.drawImage(c,MARGIN,top,c.width*sc,c.height*sc)}"
-    // Secondary plane: only its content (it's left-aligned inside a 32-column box), flush to the corner.
+    // Secondary plane: only its content (it's left-aligned inside a 32-column box), at twice the main
+    // plane's scale, near the top-right corner, as the RT4K shows it (measured from a photo of the TV).
     "if(planes[1]){const p=planes[1],k=kv(p.r),rows=k.rows||0,w=k.width||k.cols||0,st=k.stride||w;let x1=-1,y1=-1;"
     "for(let y=0;y<rows;y++)for(let x=0;x<w;x++){const j=y*st+x;if(p.d[j]>32||p.d[2048+j]&192){if(x>x1)x1=x;if(y>y1)y1=y}}"
-    "if(x1>=0){const c=render(p),sw=(x1+1)*8,sh=(y1+1)*16;g.drawImage(c,0,0,sw,sh,Math.round(TV_W-MARGIN-sw*sc),MARGIN,sw*sc,sh*sc)}}}"
-    "document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{if(b.dataset.confirm&&!confirm(b.dataset.confirm))return;send(b.dataset.c)});"
+    "if(x1>=0){const c=render(p),sw=(x1+1)*8,sh=(y1+1)*16,s2=sc*2;g.drawImage(c,0,0,sw,sh,Math.round(TV_W*.955-sw*s2),Math.round(TV_H*.012),sw*s2,sh*s2)}}}"
+    "document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{if(b.dataset.confirm&&!confirm(b.dataset.confirm))return;if(send(b.dataset.c))blink()});"
     "const keys={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'ok',Escape:'back',Backspace:'back',Tab:'menu'};"
-    "document.onkeydown=e=>{if(e.target.tagName=='INPUT'||!keys[e.key])return;e.preventDefault();send('remote '+keys[e.key])};"
+    "document.onkeydown=e=>{if(e.target.tagName=='INPUT'||!keys[e.key])return;e.preventDefault();if(send('remote '+keys[e.key]))blink()};"
     "function cmd(){const i=$('cm');if(i.value){send(i.value);out('> '+i.value+'\\n');i.value=''}return false}"
     "$('tv').ondblclick=()=>$('tv').requestFullscreen();addEventListener('resize',fit);document.addEventListener('fullscreenchange',()=>setTimeout(fit,50));fit();conn();"
     "function upd(){const f=$('fw').files[0],m=$('um'),p=$('pg');"

@@ -14,6 +14,7 @@
 #include "flash_layout.h"
 #include "flash_ops.h"
 #include "platform_reboot.h"
+#include "health.h"
 
 static struct {
     uint8_t block[512];      // UF2 block being assembled
@@ -142,8 +143,11 @@ const char *ota_error(void) {
 
 void ota_reboot_into_update(void) {
     const uint32_t update_base = XIP_BASE + ota.part_start;
+    // Schedule the reboot first (the boot ROM runs it on the watchdog), then tidy up: if the tidying
+    // blocks, the board reboots anyway.
+    health_stop_feeding();
+    rom_reboot(REBOOT2_FLAG_REBOOT_TYPE_FLASH_UPDATE, PLATFORM_REBOOT_DELAY_MS, update_base, 0);
     platform_prepare_reboot();
-    rom_reboot(REBOOT2_FLAG_REBOOT_TYPE_FLASH_UPDATE, 100, update_base, 0);
     for (;;) tight_loop_contents();
 }
 

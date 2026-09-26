@@ -37,6 +37,7 @@ static void main_task(void *param) {
     if (cyw43_arch_init()) {
         // Without the CYW43 there is no network and no way to update: let a trial image roll back.
         printf("cyw43_arch_init failed, resetting\n");
+        health_stop_feeding(); // or the feeder keeps postponing the reboot
         watchdog_reboot(0, 0, 100);
         for (;;) vTaskDelay(portMAX_DELAY);
     }
