@@ -8,6 +8,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "lwip/sockets.h"
+#include "lwip/memp.h"
+#include "lwip/stats.h"
 #include "pico/stdlib.h"
 
 #include "creds.h"
@@ -29,6 +31,7 @@
 #define HTTP_TASK_STACK     3072
 #define HTTP_TASK_PRIORITY  (tskIDLE_PRIORITY + 2)
 #define HTTP_PORT           80
+#define HTTP_BACKLOG        4    // connections waiting while one request is served
 #define RECV_TIMEOUT_MS     15000
 #define HEADER_MAX          1536
 #define BODY_CHUNK          1024
@@ -198,6 +201,55 @@ static void handle_debug_tasks(int fd, const char *query) {
         o += (size_t)snprintf(out + o, sizeof(out) - o, "%-12s %-9s prio %lu stack free %lu\n", tasks[i].pcTaskName,
             states[st], (unsigned long)tasks[i].uxCurrentPriority, (unsigned long)tasks[i].usStackHighWaterMark);
     }
+    respond(fd, 200, "OK", "text/plain", out);
+}
+
+// GET /debug/memory: clients against their limits, lwIP's pools and heap, the FreeRTOS heap, RAM.
+extern char __data_start__, __data_end__, __bss_start__, __bss_end__, __StackTop;
+
+static void handle_debug_memory(int fd) {
+    static char out[2048];
+    size_t o = 0;
+#define ADD(...) o += (size_t)snprintf(out + o, o < sizeof(out) ? sizeof(out) - o : 0, __VA_ARGS__)
+    int ws_max, rfc_max;
+    const int ws_n = ws_clients(&ws_max), rfc_n = rfc2217_count(&rfc_max);
+    ADD("clients\n");
+    ADD("  web pages (WebSocket)   %d of %d (a new one replaces the quietest)\n", ws_n, ws_max);
+    ADD("  RFC 2217 (port 2217)    %d of %d (a new one replaces the oldest)\n", rfc_n, rfc_max);
+    ADD("  HTTP                    1 request at a time, %d more waiting\n", HTTP_BACKLOG);
+
+    ADD("\nlwIP pools              used  peak  size  failed\n");
+    static const struct {
+        int id;
+        const char *name;
+    } pools[] = {
+        {MEMP_NETCONN, "sockets (NETCONN)"},
+        {MEMP_TCP_PCB, "TCP connections"},
+        {MEMP_TCP_PCB_LISTEN, "TCP listeners"},
+        {MEMP_TCP_SEG, "TCP segments"},
+        {MEMP_PBUF_POOL, "packet buffers"},
+        {MEMP_NETBUF, "netbufs"},
+        {MEMP_UDP_PCB, "UDP PCBs"},
+        {MEMP_SYS_TIMEOUT, "timeouts"},
+    };
+    for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
+        const struct stats_mem *m = lwip_stats.memp[pools[i].id];
+        ADD("  %-21s %5u %5u %5u %7lu\n", pools[i].name, (unsigned)m->used, (unsigned)m->max, (unsigned)m->avail,
+            (unsigned long)m->err);
+    }
+    ADD("  %-21s %5u %5u %5u %7lu  (bytes)\n", "lwIP heap", (unsigned)lwip_stats.mem.used, (unsigned)lwip_stats.mem.max,
+        (unsigned)lwip_stats.mem.avail, (unsigned long)lwip_stats.mem.err);
+
+    HeapStats_t hs;
+    vPortGetHeapStats(&hs);
+    ADD("\nFreeRTOS heap           %u KB: free %u, lowest ever %u, largest block %u (bytes)\n",
+        (unsigned)(configTOTAL_HEAP_SIZE / 1024), (unsigned)hs.xAvailableHeapSpaceInBytes,
+        (unsigned)hs.xMinimumEverFreeBytesRemaining, (unsigned)hs.xSizeOfLargestFreeBlockInBytes);
+    const uint32_t data = (uint32_t)(&__data_end__ - &__data_start__), bss = (uint32_t)(&__bss_end__ - &__bss_start__);
+    const uint32_t rest = (uint32_t)(&__StackTop - &__bss_end__);
+    ADD("RAM                     %u KB: code and data %u KB, bss %u KB (FreeRTOS heap included), rest %u KB\n",
+        (unsigned)((data + bss + rest) / 1024), (unsigned)(data / 1024), (unsigned)(bss / 1024), (unsigned)(rest / 1024));
+#undef ADD
     respond(fd, 200, "OK", "text/plain", out);
 }
 
@@ -889,6 +941,7 @@ static void handle(request_t *r) {
         rt4k_trace_dump(trace_text, sizeof(trace_text));
         respond(r->fd, 200, "OK", "text/plain", trace_text);
     }
+    else if (get && !strcmp(r->path, "/debug/memory")) handle_debug_memory(r->fd);
     else if (get && !strcmp(r->path, "/debug/console")) {
         static char console_text[1600];
         console_debug(console_text, sizeof(console_text));
@@ -919,7 +972,7 @@ static void http_task(void *param) {
     const int one = 1;
     setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in addr = {.sin_family = AF_INET, .sin_port = htons(HTTP_PORT), .sin_addr.s_addr = htonl(INADDR_ANY)};
-    if (server < 0 || bind(server, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(server, 4) < 0) {
+    if (server < 0 || bind(server, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(server, HTTP_BACKLOG) < 0) {
         printf("http: cannot listen on port %d\n", HTTP_PORT);
         vTaskDelete(NULL);
     }

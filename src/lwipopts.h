@@ -63,9 +63,18 @@
 #define MDNS_MAX_SERVICES           2
 #define MEMP_NUM_SYS_TIMEOUT        (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 8)
 
-#define MEM_STATS                   0
+// Pool and heap use for GET /debug/memory (used, peak, size, failed allocations).
+#define LWIP_STATS                  1
+#define LWIP_STATS_DISPLAY          0
+#define MEM_STATS                   1
+#define MEMP_STATS                  1
 #define SYS_STATS                   0
-#define MEMP_STATS                  0
 #define LINK_STATS                  0
+#define ETHARP_STATS                0
+#define IP_STATS                    0
+#define ICMP_STATS                  0
+#define UDP_STATS                   0
+#define TCP_STATS                   0
+#define IGMP_STATS                  0
 
 #endif // LWIPOPTS_H

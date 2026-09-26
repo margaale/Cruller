@@ -364,6 +364,11 @@ static rtl1_result_t poll_plane(int p, uint8_t *buf) {
     return r;
 }
 
+int ws_clients(int *max) {
+    if (max) *max = MAX_CLIENTS;
+    return client_count;
+}
+
 void ws_debug_reset(void) {
     memset(&key_lat, 0, sizeof(key_lat));
     memset(poll_errors, 0, sizeof(poll_errors));

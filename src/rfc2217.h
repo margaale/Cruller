@@ -12,3 +12,6 @@ void rfc2217_start(void);
 
 // The connected clients' addresses, space-separated ("" when none), for /status.
 void rfc2217_clients(char *out, size_t size);
+
+// Connected clients, and the most allowed in *max.
+int rfc2217_count(int *max);

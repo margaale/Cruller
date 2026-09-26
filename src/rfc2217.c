@@ -201,6 +201,13 @@ static void rfc2217_task(void *param) {
     }
 }
 
+int rfc2217_count(int *max) {
+    if (max) *max = MAX_CLIENTS;
+    int n = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++) n += clients[i].fd >= 0;
+    return n;
+}
+
 void rfc2217_clients(char *out, size_t size) {
     size_t o = 0;
     out[0] = 0;

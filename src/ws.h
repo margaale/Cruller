@@ -27,6 +27,9 @@ bool ws_has_room(void);
 // and times key -> screen (in ws_debug).
 void ws_key_sent(void);
 
+// Connected clients (open pages), and the most allowed in *max.
+int ws_clients(int *max);
+
 // Debug: zero the key -> screen and poll error counters (for a measurement run).
 void ws_debug_reset(void);
 
