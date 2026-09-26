@@ -14,13 +14,11 @@
 #include "rtl1_core.h"
 
 #define LINK_TIMEOUT_MS 2000
-// A transfer request sent right behind a console command (the RT4K then answers the key in the middle
-// of the frames) or right after another transfer broke or lost transfers. Enforced here, after taking
-// the link, so no caller can race past it.
-#define AFTER_COMMAND_MS  100
-#define AFTER_TRANSFER_MS 40
-
-static uint32_t last_transfer_end_ms;
+// The RT4K ignores a transfer request sent right behind a console command: with no gap, 10 of 10 polls
+// after a key press got no ready line (and no FT232R overrun, so nothing was lost on our side).
+// Enforced here, after taking the link, so no caller can race past it. Back-to-back transfers need no
+// gap (a 40 ms one covered the FT232R overruns, fixed since).
+#define AFTER_COMMAND_MS 100
 
 static SemaphoreHandle_t feed_lock; // every rtl1_core call
 static SemaphoreHandle_t done_sem;  // given when a transfer ends
@@ -100,8 +98,6 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
     }
     const uint32_t since_cmd = rt4k_ms_since_command();
     if (since_cmd < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(AFTER_COMMAND_MS - since_cmd));
-    const uint32_t since_xfer = now_ms() - last_transfer_end_ms;
-    if (since_xfer < AFTER_TRANSFER_MS) vTaskDelay(pdMS_TO_TICKS(AFTER_TRANSFER_MS - since_xfer));
 
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     xSemaphoreTake(done_sem, 0); // stale
@@ -138,7 +134,6 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     rtl1_core_end();
     xSemaphoreGive(feed_lock);
-    last_transfer_end_ms = now_ms();
     rt4k_link_unlock();
     xSemaphoreGive(xfer_lock);
     return result;
