@@ -267,7 +267,7 @@ static void portal_test_step(void) {
 
 static void net_task(void *param) {
     (void)param;
-    if (!creds_load(&creds)) {
+    if (!creds_load(&creds) && !creds_present()) { // never set up (a factory reset leaves a record)
         wifi_creds_t imported;
         if (creds_import_donutshop(&imported)) {
             creds = imported;

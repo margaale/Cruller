@@ -52,6 +52,15 @@ bool creds_load(wifi_creds_t *out) {
     return true;
 }
 
+bool creds_present(void) {
+    return record_valid(record_at(CREDS_SECTOR0_OFFSET)) || record_valid(record_at(CREDS_SECTOR1_OFFSET));
+}
+
+bool creds_forget(void) {
+    const wifi_creds_t none = {0}; // a valid record with no network: not "never set up"
+    return creds_save(&none);
+}
+
 bool creds_save(const wifi_creds_t *creds) {
     const creds_record_t *a = record_at(CREDS_SECTOR0_OFFSET);
     const creds_record_t *b = record_at(CREDS_SECTOR1_OFFSET);

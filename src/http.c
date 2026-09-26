@@ -759,6 +759,19 @@ static void handle_wifi(request_t *r) {
     platform_reboot();
 }
 
+// POST /restart: reboots into the current image. POST /factory-reset: forgets the Wi-Fi network (the
+// only setting Cruller keeps) and reboots into the setup portal.
+static void handle_restart(request_t *r, bool forget) {
+    if (forget && !creds_forget()) {
+        respond(r->fd, 500, "Internal Server Error", "text/plain", "Could not erase the settings\n");
+        return;
+    }
+    respond(r->fd, 200, "OK", "text/plain", forget ? "Settings erased; restarting into the setup portal\n" : "Restarting\n");
+    printf("http: %s requested\n", forget ? "factory reset" : "restart");
+    vTaskDelay(pdMS_TO_TICKS(500)); // let the response leave
+    platform_reboot();
+}
+
 static void handle(request_t *r) {
     const bool get = !strcmp(r->method, "GET"), post = !strcmp(r->method, "POST");
     char *query = strchr(r->path, '?');
@@ -855,6 +868,8 @@ static void handle(request_t *r) {
     }
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
+    else if (post && !strcmp(r->path, "/restart")) handle_restart(r, false);
+    else if (post && !strcmp(r->path, "/factory-reset")) handle_restart(r, true);
     else if (get && !strcmp(r->path, "/wifi/scan")) {
         static char scan[1600];
         net_scan_json(scan, sizeof(scan));

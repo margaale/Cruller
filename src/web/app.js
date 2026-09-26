@@ -362,18 +362,20 @@ $('tv').ondblclick = () => $('tv').requestFullscreen();
 addEventListener('resize', () => { fit(); if (tab === 'debug') drawCharts(); });
 document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
 
-// --- Cruller firmware upload ---------------------------------------------------------------------------
+// --- restart and factory reset -------------------------------------------------------------------------
 
-function upd() {
-  const f = $('uf2').files[0], m = $('um'), p = $('pg');
-  if (!f) { m.textContent = 'Choose a .uf2 file'; return; }
-  const x = new XMLHttpRequest();
-  x.open('POST', '/update');
-  p.hidden = false;
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { p.max = e.total; p.value = e.loaded; } };
-  x.onload = () => { m.textContent = x.responseText; };
-  x.onerror = () => { m.textContent = 'Upload failed'; };
-  x.send(f);
+async function restart(forget) {
+  const ask = forget
+    ? 'Factory reset?\n\nCruller forgets its Wi-Fi network and restarts into the setup portal: join the "Cruller_Setup" network to set it up again.'
+    : 'Restart Cruller?\n\nThe page reconnects by itself in a few seconds.';
+  if (!confirm(ask)) return;
+  text('um', forget ? 'Erasing the settings…' : 'Restarting…');
+  try {
+    const r = await fetch(forget ? '/factory-reset' : '/restart', { method: 'POST' });
+    text('um', (await r.text()).trim());
+  } catch (e) {
+    text('um', 'Could not reach Cruller: ' + e.message);
+  }
 }
 
 // --- Wi-Fi: nearby networks (GET /wifi/scan); tapping one fills in the name --------------------------------
