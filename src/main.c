@@ -11,6 +11,7 @@
 #include "task.h"
 
 #include "flash_ops.h"
+#include "freeze.h"
 #include "health.h"
 #include "http.h"
 #include "log.h"
@@ -33,6 +34,7 @@ static void main_task(void *param) {
     printf("\nCruller %s, boot partition %d (%s boot)\n", CRULLER_VERSION, ota_boot_partition(), ota_last_boot_type());
 
     health_start(ota_is_trial_boot());
+    freeze_start();
     const uint32_t t0 = ms_since_boot();
     // The CYW43's async context pins its task, and registers the chip's IRQ, on the core that calls
     // cyw43_arch_init(). Do it from core 0: core 1 belongs to the RT4K's USB (task and IRQ), and Wi-Fi
@@ -74,6 +76,7 @@ static void main_task(void *param) {
 int main(void) {
     stdio_init_all();
     log_init(); // stdout -> ring buffer read by the web UI (/log)
+    freeze_report(); // where the cores were, if the last run ended in a watchdog reset
     flash_ops_init();
     rtl1_init();
     xTaskCreate(main_task, "main", MAIN_TASK_STACK, NULL, MAIN_TASK_PRIORITY, NULL);

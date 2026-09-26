@@ -42,6 +42,7 @@ target_sources(cruller_app INTERFACE
     src/http.c
     src/status_led.c
     src/log.c
+    src/freeze.c
     src/health.c
     src/rtl1.c
     src/rtl1_core.c
