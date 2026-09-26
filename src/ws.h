@@ -9,10 +9,12 @@
 //   0x06 Debug report: [5][JSON], every 2 s to pages showing their Debug tab:
 //        {"status": the /status JSON, "serial": FT232R counters and modem lines, "mirror": OSD polls and
 //        key -> screen times, "console": the last commands, "memory": clients, lwIP pools, heaps}
+//        [6]["owner\tline\n"...]: every line from the RT4K as it comes, with the console owner it was
+//        routed to (console.h: 0 page, 1 power, 2 query, 3 HTTP, 4+ RFC 2217; -1 nobody's)
 // Client -> server, text messages: one RT4K console command each ("remote menu", "ver", ...).
-// Client -> server, binary: [0x10, 1|0] the page is visible / hidden; the mirror polls the RT4K
-// only while some page is visible (clients count as visible until they say otherwise).
-// [0x11, 1|0] the page shows / left its Debug tab.
+// Client -> server, binary: [0x10, 1|0] the page shows the live screen / doesn't (background tab, or
+// another view); the mirror polls the RT4K only while some page shows it (clients count as showing it
+// until they say otherwise). [0x11, 1|0] the page shows its Debug tab on screen / doesn't.
 
 #pragma once
 

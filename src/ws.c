@@ -61,6 +61,7 @@ typedef struct {
     bool hidden;                  // the page says it's not on screen (background tab)
     bool debug;                   // the page shows its Debug tab: gets MSG_DEBUG
     uint32_t last_debug_ms;       // 0 = send right away
+    uint32_t con_seq;             // Debug's serial log: the next console line to send (console_read)
 } client_t;
 
 typedef struct {
@@ -149,8 +150,22 @@ static size_t mirror_json(char *out, size_t size);
 // Only cheap numbers: the task list (uxTaskGetSystemState) suspends the scheduler and stays on request
 // (/debug/tasks?stacks).
 static bool push_debug(client_t *c) {
+    if (!c->debug) return true;
+    // Every line from the RT4K, with who it was for: [0x06, 6, "owner\ttext\n"...] (see ws.h).
+    for (int batch = 0; batch < 4; batch++) {
+        size_t o = 0;
+        int owner;
+        char line[160];
+        while (o < 1024 && console_read(&c->con_seq, &owner, line, sizeof(line))) {
+            o += (size_t)snprintf((char *)tx + 18 + o, sizeof(tx) - 18 - o, "%d\t%s\n", owner, line);
+        }
+        if (!o) break;
+        tx[16] = MSG_DEBUG;
+        tx[17] = 6;
+        if (!send_tx(c, WS_OP_BINARY, 2 + o)) return false;
+    }
     const uint32_t t = now_ms();
-    if (!c->debug || c->hidden || (c->last_debug_ms && t - c->last_debug_ms < DEBUG_EVERY_MS)) return true;
+    if (c->last_debug_ms && t - c->last_debug_ms < DEBUG_EVERY_MS) return true;
     c->last_debug_ms = t | 1;
     char *out = (char *)tx + 18;
     const size_t size = sizeof(tx) - 18;
@@ -249,12 +264,16 @@ static bool on_frame(client_t *c, const ws_frame_t *f) {
                 const bool was_hidden = c->hidden;
                 c->hidden = f->payload[1] == 0;
                 if (was_hidden && !c->hidden && mirror_task_h) xTaskNotifyGive(mirror_task_h);
-                if (was_hidden && !c->hidden) c->last_debug_ms = 0;
             }
-            // [0x11, 1|0]: the page shows / left its Debug tab.
+            // [0x11, 1|0]: the page shows its Debug tab on screen / doesn't.
             if (f->len >= 2 && f->payload[0] == MSG_IN_DEBUG) {
+                const bool was = c->debug;
                 c->debug = f->payload[1] != 0;
                 c->last_debug_ms = 0;
+                if (c->debug && !was) { // the serial log starts with the last lines kept
+                    const uint32_t h = console_head();
+                    c->con_seq = h > 40 ? h - 40 : 0;
+                }
             }
             return true;
         default:

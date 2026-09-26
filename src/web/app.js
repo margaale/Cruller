@@ -40,6 +40,7 @@ function route() {
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
   if (tab === 'rt4k' && view === 'live') fit();
+  tellVisibility();
   tellDebug();
   if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); }
 }
@@ -143,7 +144,7 @@ function append(id, t) {
 }
 
 function lg(t) { append('lg', t); }
-function out(t) { append('rx', t); append('d-rx', t); }
+function out(t) { append('rx', t); }
 
 // --- the WebSocket: terminal text, OSD planes, font, log, status (see ws.h) ------------------------------
 
@@ -207,16 +208,17 @@ function conn() {
   };
 }
 
-// Tell Cruller whether this page is on screen: it stops polling the RT4K's menu for background tabs.
+// Tell Cruller whether this page shows the live screen: it polls the RT4K's OSD (~25 KB/s) only while
+// some page does, so a background tab, or one on Cruller, Debug or Firmware, counts as hidden.
 let told = null; // [socket, visible] last sent
 function tellVisibility() {
   if (!ws || ws.readyState !== 1) return;
-  const visible = document.visibilityState === 'visible';
+  const visible = document.visibilityState === 'visible' && tab === 'rt4k' && !$('tv').closest('[data-subview]').hidden;
   if (told && told[0] === ws && told[1] === visible) return;
   ws.send(new Uint8Array([0x10, visible ? 1 : 0]));
   told = [ws, visible];
 }
-document.addEventListener('visibilitychange', tellVisibility);
+document.addEventListener('visibilitychange', () => { tellVisibility(); tellDebug(); });
 setInterval(tellVisibility, 1000); // a reconnected socket starts out counted as visible
 
 // --- the TV screen -------------------------------------------------------------------------------------
@@ -292,13 +294,28 @@ function draw() {
   ST.draw = performance.now() - t0;
 }
 
+// With no menu open, the RT4K leaves a copy of the message plane (e.g. "HDMI? / No Signal") in the
+// main plane, which the TV doesn't show: same characters and colours in every cell.
+function sameAsMessages(p0, p1) {
+  const a = kv(p0.r), b = kv(p1.r), sa = a.stride || a.width || 0, sb = b.stride || b.cols || 0;
+  for (let y = 0; y < (a.rows || 0); y++) {
+    for (let x = 0; x < (a.width || a.cols || 0); x++) {
+      const i = y * sa + x, inB = y < (b.rows || 0) && x < (b.cols || b.width || 0), j = y * sb + x;
+      const ca = p0.d[i] > 32 || p0.d[2048 + i] & 192 ? p0.d[i] | p0.d[2048 + i] << 8 : 0;
+      const cb = inB && (p1.d[j] > 32 || p1.d[2048 + j] & 192) ? p1.d[j] | p1.d[2048 + j] << 8 : 0;
+      if (ca !== cb) return false;
+    }
+  }
+  return true;
+}
+
 function draw1() {
   const t = $('tv'), g = t.getContext('2d'), W = t.width, H = t.height;
   g.fillStyle = '#000';
   g.fillRect(0, 0, W, H);
   if (!font) return;
   const mk = planes[0] ? kv(planes[0].r) : {}, ph = (mk.rows || 32) * 16, sc = H * (2048 / 2160) / ph;
-  if (planes[0]) {
+  if (planes[0] && !(planes[1] && sameAsMessages(planes[0], planes[1]))) {
     const c = render(planes[0]);
     blit(g, c, 0, 0, c.width, c.height, W * 0.031, H * 0.974 - c.height * sc, sc);
   }
@@ -395,7 +412,7 @@ let toldDebug = null; // [socket, showing] last sent
 
 function tellDebug() {
   if (!ws || ws.readyState !== 1) return;
-  const showing = tab === 'debug';
+  const showing = tab === 'debug' && document.visibilityState === 'visible';
   if (toldDebug && toldDebug[0] === ws && toldDebug[1] === showing) return;
   ws.send(new Uint8Array([0x11, showing ? 1 : 0]));
   toldDebug = [ws, showing];
@@ -414,6 +431,17 @@ const OWNERS = ['page', 'power check', 'Cruller', 'HTTP API'];
 const owner = (n) => OWNERS[n] || 'RFC 2217 #' + (n - 3);
 
 function onDebug(kind, t) {
+  if (kind === 6) { // every line from the RT4K: "owner\ttext"
+    const now = new Date().toTimeString().slice(0, 8);
+    const lines = t.split('\n').map((l) => {
+      const i = l.indexOf('\t'), o = +l.slice(0, i);
+      // binary leftovers of a transfer (a frame's tail before its closing line) as dots
+      const txt = l.slice(i + 1).replace(/[^\x20-\x7e]+/g, '·').replace(/^.*?\[COM\] /, '').trim();
+      return txt ? now + '  ' + (o < 0 ? 'everyone' : owner(o)).padEnd(12) + txt : '';
+    }).filter(Boolean);
+    if (lines.length) append('d-rx', lines.join('\n') + '\n');
+    return;
+  }
   if (kind !== 5) return;
   const r = report = JSON.parse(t);
   const s = r.status;
