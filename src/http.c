@@ -160,11 +160,17 @@ static void json_escape(char *out, size_t size, const char *in) {
     out[n] = 0;
 }
 
-// Debug: GET /debug/tasks: where the ws/mirror tasks are, and every task's state.
-static void handle_debug_tasks(int fd) {
+// Debug: GET /debug/tasks: where the ws/mirror tasks are and the link counters; with ?stacks, every
+// task's state too. Only on request: uxTaskGetSystemState() suspends the scheduler on both cores while
+// it scans every stack, for milliseconds, and the rt4k task missed USB packets (FT232R overruns).
+static void handle_debug_tasks(int fd, const char *query) {
     static char out[1536];
     ws_debug(out, sizeof(out));
     size_t o = strlen(out);
+    if (!query || !strstr(query, "stacks")) {
+        respond(fd, 200, "OK", "text/plain", out);
+        return;
+    }
     static TaskStatus_t tasks[24];
     const UBaseType_t n = uxTaskGetSystemState(tasks, 24, NULL);
     static const char *states[] = {"running", "ready", "blocked", "suspended", "deleted", "invalid"};
@@ -529,7 +535,7 @@ static void handle(request_t *r) {
     else if (post && !strcmp(r->path, "/rt4k/cmd")) handle_rt4k_cmd(r);
     else if (get && !strcmp(r->path, "/rt4k/xfer")) handle_rt4k_xfer(r->fd, query);
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
-    else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd);
+    else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;
         const size_t n = rtl1_last_failure(&d);
