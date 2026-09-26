@@ -8,6 +8,7 @@
 
 #define TYPE_RESPONSE 2
 #define TYPE_DATA     3
+#define TYPE_ACK      4
 #define TYPE_NAK      5
 #define TYPE_ABORT    6
 
@@ -22,6 +23,8 @@ static struct {
     rtl1_info_t *info;
     uint16_t nonce;
     uint8_t expect_seq;
+    bool put;                   // an upload (rtl1_core_begin_put)
+    rtl1_put_state_t replies;   // the RT4K's ACK/NAK frames during an upload
     rtl1_result_t result;
     uint32_t start_ms;          // command sent
     uint32_t ready_timeout_ms;
@@ -125,11 +128,15 @@ static bool on_line(char *line) {
                 }
                 e.expect_seq = 0;
                 e.st = 0;
-                e.phase = RTL1_PH_BINARY;
+                e.replies.nonce = e.nonce;
+                e.phase = e.put ? RTL1_PH_SEND : RTL1_PH_BINARY;
                 e.last_ms = e.now;
                 return true;
             }
-            if (contains_ci(line, "busy") || contains_ci(line, "bad command") ||
+            // "put: usage ...", "put err: ...": the command's own refusal.
+            const bool own_refusal = !strncmp(line, e.name, name_len) &&
+                (line[name_len] == ':' || !strncmp(line + name_len, " err", 4));
+            if (own_refusal || contains_ci(line, "busy") || contains_ci(line, "bad command") ||
                 contains_ci(line, "unknown command") || contains_ci(line, "nothing shown") ||
                 contains_ci(line, "error") || contains_ci(line, "failed")) {
                 e.result = RTL1_ERR_DEVICE;
@@ -145,13 +152,43 @@ static bool on_line(char *line) {
                 return true;
             }
             return false;
+        case RTL1_PH_SEND:
+            // The closing line: "put done", or why not ("put: ...", "put err: ...", "put timeout").
+            if (strncmp(line, e.name, name_len) || (line[name_len] != ' ' && line[name_len] != ':')) return false;
+            if (!strcmp(line + name_len, " done")) {
+                e.result = RTL1_OK;
+            } else {
+                e.result = RTL1_ERR_DEVICE;
+                set_detail("%s", line);
+            }
+            finish();
+            return true;
         default:
             return false;
     }
 }
 
+// Upload: the RT4K acknowledges each frame (put -a), refuses one, or gives up.
+static void on_reply_frame(void) {
+    if (e.crc != e.rx_crc || e.f_nonce != e.nonce) return; // damaged or stale: the sender retries on timeout
+    if (e.f_type == TYPE_ACK) {
+        e.replies.last_ack = e.f_seq;
+        e.replies.acks++;
+    } else if (e.f_type == TYPE_NAK) {
+        e.replies.nak_seq = e.f_seq;
+        e.replies.nak_reason = e.f_len ? e.payload[0] : 0;
+        e.replies.naks++;
+    } else if (e.f_type == TYPE_ABORT) {
+        e.result = RTL1_ERR_PROTOCOL;
+        set_detail("the RT4K aborted the upload at frame %u", e.f_seq);
+        e.phase = RTL1_PH_DRAIN;
+        e.last_ms = e.now;
+    }
+}
+
 static void on_frame(void) {
     e.last_ms = e.now;
+    if (e.phase == RTL1_PH_SEND) return on_reply_frame();
     if (e.crc != e.rx_crc) return fail_binary(true, "bad CRC on frame %u", e.f_seq);
     if (e.f_nonce != e.nonce) return fail_binary(true, "frame for another session (nonce 0x%04x)", e.f_nonce);
     if (e.f_type == TYPE_NAK) return fail_binary(false, "RT4K NAK, reason %u", e.f_len ? e.payload[0] : 0);
@@ -220,6 +257,11 @@ void rtl1_core_feed(const uint8_t *data, size_t len, uint32_t now_ms) {
     for (size_t i = 0; i < len; i++) {
         const uint8_t b = data[i];
         const rtl1_phase_t ph = e.phase;
+        if (ph == RTL1_PH_SEND && (e.st != 0 || b == 0xa5)) {
+            decode(b); // a reply frame (text lines never contain 0xa5)
+            text_from = i + 1;
+            continue;
+        }
         if (ph == RTL1_PH_BINARY) {
             decode(b);
             if (e.phase != RTL1_PH_BINARY) text_from = i + 1; // back to text after the last frame
@@ -227,7 +269,7 @@ void rtl1_core_feed(const uint8_t *data, size_t len, uint32_t now_ms) {
         }
         // A quiet transfer's text is judged line by line: its own lines are hidden, other lines
         // (replies to terminal commands, console messages) still reach the terminal.
-        const bool by_line = e.quiet && (ph == RTL1_PH_READY || ph == RTL1_PH_DONE);
+        const bool by_line = e.quiet && (ph == RTL1_PH_READY || ph == RTL1_PH_DONE || ph == RTL1_PH_SEND);
         if (ph == RTL1_PH_DRAIN || ph == RTL1_PH_DONE) e.last_ms = now_ms;
         if (b == '\n') {
             e.line[e.line_len] = 0;
@@ -273,10 +315,22 @@ void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *inf
     e.max = max;
     e.info = info;
     e.nonce = 0;
+    e.put = false;
     e.result = RTL1_ERR_TIMEOUT;
     e.line_len = 0;
     e.start_ms = e.last_ms = e.now = now_ms;
     e.phase = RTL1_PH_READY;
+}
+
+void rtl1_core_begin_put(const char *cmd, rtl1_info_t *info, uint32_t ready_timeout_ms, uint32_t now_ms) {
+    rtl1_core_begin(cmd, NULL, 0, info, true, ready_timeout_ms, now_ms);
+    e.put = true;
+    memset(&e.replies, 0, sizeof(e.replies));
+    e.st = 0;
+}
+
+void rtl1_core_put_state(rtl1_put_state_t *out) {
+    *out = e.replies;
 }
 
 bool rtl1_core_poll(uint32_t now_ms) {

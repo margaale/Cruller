@@ -36,6 +36,15 @@ void rtl1_feed(const uint8_t *data, size_t len);
 rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
     uint32_t ready_timeout_ms);
 
+// Where an upload's bytes come from: fills up to `max` bytes, returns how many (0 = no more).
+typedef size_t (*rtl1_read_fn)(void *ctx, uint8_t *buf, size_t max);
+
+// Writes a file to the RT4K's SD card (RTL1 put, acknowledged mode): `size` bytes read from `read`,
+// whose SHA-256 (64 hex digits) the RT4K checks at the end. Blocks for the whole upload (about
+// 100 KB/s); other transfers and text commands wait meanwhile. RTL1_OK once the RT4K said "put done".
+rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, rtl1_read_fn read, void *ctx,
+    rtl1_info_t *info);
+
 const char *rtl1_result_name(rtl1_result_t r);
 
 // Debug: raw bytes received during the last transfer that failed with a protocol error.

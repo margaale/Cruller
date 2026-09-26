@@ -29,7 +29,16 @@ typedef enum {
     RTL1_PH_BINARY,  // frames
     RTL1_PH_DONE,    // digest checked, waiting for the closing text line
     RTL1_PH_DRAIN,   // failed or aborted: swallow bytes until the closing text line
+    RTL1_PH_SEND,    // upload (put): the caller sends frames; ACK/NAK frames and text lines come back
 } rtl1_phase_t;
+
+// What the RT4K has answered so far during an upload.
+typedef struct {
+    uint32_t acks, naks;     // ACK / NAK frames received
+    uint8_t last_ack;        // sequence number of the last ACK
+    uint8_t nak_seq, nak_reason;
+    uint16_t nonce;          // from the ready line: the caller's frames carry it
+} rtl1_put_state_t;
 
 void rtl1_core_init(const rtl1_hooks_t *hooks);
 
@@ -39,6 +48,14 @@ void rtl1_core_init(const rtl1_hooks_t *hooks);
 // ready_timeout_ms: how long to wait for the ready line (0 = RTL1_READY_TIMEOUT_MS).
 void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
     uint32_t ready_timeout_ms, uint32_t now_ms);
+
+// Starts an upload: `cmd` is the whole put command ("put -a <size> <sha256> <path>"). After the ready
+// line the phase is RTL1_PH_SEND: the caller sends the data frames (rtl1_encode_frame) and follows
+// the RT4K's replies with rtl1_core_put_state(). The transfer ends with the RT4K's closing line:
+// "put done" (RTL1_OK) or any other "put..." line (RTL1_ERR_DEVICE, the line in info->detail).
+// Always quiet. There is no timeout while sending: the caller has its own.
+void rtl1_core_begin_put(const char *cmd, rtl1_info_t *info, uint32_t ready_timeout_ms, uint32_t now_ms);
+void rtl1_core_put_state(rtl1_put_state_t *out);
 
 void rtl1_core_feed(const uint8_t *data, size_t len, uint32_t now_ms);
 

@@ -292,6 +292,38 @@ bool rt4k_command(const char *cmd) {
     return ok;
 }
 
+bool rt4k_query(const char *cmd, const char *expect, char *out, size_t size, uint32_t timeout_ms) {
+    critical_section_enter_blocking(&rx_lock);
+    uint32_t pos = rx_head; // only what comes after the command
+    critical_section_exit(&rx_lock);
+    if (!rt4k_command(cmd)) return false;
+    char line[200], buf[128];
+    size_t len = 0;
+    for (const uint32_t t0 = to_ms_since_boot(get_absolute_time());
+         to_ms_since_boot(get_absolute_time()) - t0 < timeout_ms;) {
+        const size_t n = rt4k_rx_read(&pos, buf, sizeof(buf));
+        if (!n) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        for (size_t i = 0; i < n; i++) {
+            if (buf[i] != '\n') {
+                if (len < sizeof(line) - 1) line[len++] = buf[i];
+                continue;
+            }
+            if (len && line[len - 1] == '\r') len--;
+            line[len] = 0;
+            len = 0;
+            const char *l = strncmp(line, "[COM] ", 6) ? line : line + 6;
+            if (strstr(l, expect)) {
+                snprintf(out, size, "%s", l);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 uint32_t rt4k_ms_since_command(void) {
     return to_ms_since_boot(get_absolute_time()) - last_cmd_ms;
 }

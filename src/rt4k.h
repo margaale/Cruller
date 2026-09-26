@@ -25,6 +25,10 @@ void rt4k_resume(void);
 // or while an rtl1 transfer holds the link for more than 2 s.
 bool rt4k_command(const char *cmd);
 
+// Sends a console command and waits for the first reply line containing `expect` ("[COM] " prefix
+// dropped), copied to out. False if the command couldn't be sent or no such line came in time.
+bool rt4k_query(const char *cmd, const char *expect, char *out, size_t size, uint32_t timeout_ms);
+
 // Raw bytes to the RT4K (rtl1 commands and frames). False if the queue is full.
 bool rt4k_write(const void *data, size_t len);
 

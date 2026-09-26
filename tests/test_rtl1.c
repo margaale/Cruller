@@ -620,6 +620,160 @@ static void test_quiet_then_loud(void) {
     check_osd2_ok();
 }
 
+// --- uploads (put) -----------------------------------------------------------------------------------
+
+#define PUT_CMD   "put -a 8 0123abcd x.txt"
+#define PUT_NONCE 0x6630
+
+static void begin_put_ready(void) {
+    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    put_str("[COM] put ready nonce=0x6630\n");
+    deliver(0);
+}
+
+static void test_put_ready_enters_send(void) {
+    reset();
+    begin_put_ready();
+    CHECK(rtl1_core_phase() == RTL1_PH_SEND);
+    rtl1_put_state_t s;
+    rtl1_core_put_state(&s);
+    CHECK(s.nonce == PUT_NONCE);
+    CHECK(s.acks == 0 && s.naks == 0);
+    CHECK(term_len == 0); // always quiet
+}
+
+static void test_put_acks_then_done(void) {
+    reset();
+    begin_put_ready();
+    put_frame(PUT_NONCE, 4, 0, NULL, 0);
+    put_frame(PUT_NONCE, 4, 1, NULL, 0);
+    deliver(0);
+    rtl1_put_state_t s;
+    rtl1_core_put_state(&s);
+    CHECK(s.acks == 2);
+    CHECK(s.last_ack == 1);
+    CHECK(rtl1_core_phase() == RTL1_PH_SEND);
+    put_str("[COM] put done\n");
+    deliver(0);
+    CHECK(rtl1_core_phase() == RTL1_PH_IDLE);
+    CHECK(rtl1_core_result() == RTL1_OK);
+    CHECK(finished_calls == 1);
+    CHECK(term_len == 0);
+}
+
+static void test_put_byte_by_byte(void) {
+    reset();
+    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    put_str("[COM] put ready nonce=0x6630\n");
+    put_frame(PUT_NONCE, 4, 0, NULL, 0);
+    put_frame(PUT_NONCE, 4, 1, NULL, 0);
+    put_str("[COM] put done\n");
+    deliver(1);
+    rtl1_put_state_t s;
+    rtl1_core_put_state(&s);
+    CHECK(s.acks == 2);
+    CHECK(rtl1_core_result() == RTL1_OK);
+    CHECK(term_len == 0);
+}
+
+static void test_put_usage_refused(void) {
+    reset();
+    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    put_str("[COM] put: usage 'put <size> <sha256hex> <path>'\n");
+    deliver(0);
+    CHECK(rtl1_core_phase() == RTL1_PH_IDLE);
+    CHECK(rtl1_core_result() == RTL1_ERR_DEVICE);
+    CHECK_STR_HAS(info.detail, "usage");
+}
+
+static void test_put_err_refused(void) {
+    reset();
+    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    put_str("[COM] put err: no space\n");
+    deliver(0);
+    CHECK(rtl1_core_result() == RTL1_ERR_DEVICE);
+    CHECK_STR_HAS(info.detail, "no space");
+}
+
+static void test_put_nak_recorded(void) {
+    reset();
+    begin_put_ready();
+    const uint8_t reason = 2;
+    put_frame(PUT_NONCE, 5, 3, &reason, 1);
+    deliver(0);
+    rtl1_put_state_t s;
+    rtl1_core_put_state(&s);
+    CHECK(s.naks == 1);
+    CHECK(s.nak_seq == 3);
+    CHECK(s.nak_reason == 2);
+    CHECK(rtl1_core_phase() == RTL1_PH_SEND); // the sender decides: resend or give up
+}
+
+static void test_put_abort_fails(void) {
+    reset();
+    begin_put_ready();
+    put_frame(PUT_NONCE, 6, 4, NULL, 0);
+    deliver(0);
+    CHECK(rtl1_core_result() == RTL1_ERR_PROTOCOL);
+    CHECK(rtl1_core_phase() == RTL1_PH_DRAIN);
+    CHECK_STR_HAS(info.detail, "aborted");
+}
+
+static void test_put_damaged_ack_ignored(void) {
+    reset();
+    begin_put_ready();
+    put_frame(PUT_NONCE, 4, 0, NULL, 0);
+    wire[wire_len - 1] ^= 0xff; // CRC
+    put_frame(0x1111, 4, 0, NULL, 0); // another session
+    deliver(0);
+    rtl1_put_state_t s;
+    rtl1_core_put_state(&s);
+    CHECK(s.acks == 0);
+    CHECK(rtl1_core_phase() == RTL1_PH_SEND);
+}
+
+static void test_put_closing_error(void) {
+    reset();
+    begin_put_ready();
+    put_str("[COM] put timeout\n");
+    deliver(0);
+    CHECK(rtl1_core_phase() == RTL1_PH_IDLE);
+    CHECK(rtl1_core_result() == RTL1_ERR_DEVICE);
+    CHECK_STR_HAS(info.detail, "put timeout");
+}
+
+static void test_put_other_lines_reach_terminal(void) {
+    reset();
+    begin_put_ready();
+    put_str("[COM] Serial Remote: menu\n");
+    put_frame(PUT_NONCE, 4, 0, NULL, 0);
+    deliver(0);
+    CHECK(term_len > 0);
+    term[term_len] = 0;
+    CHECK_STR_HAS((const char *)term, "Serial Remote: menu");
+    CHECK(!term_has_binary());
+}
+
+static void test_put_no_timeout_while_sending(void) {
+    reset();
+    begin_put_ready();
+    clock_ms += 60000; // a slow sender: the caller owns this timeout
+    CHECK(!rtl1_core_poll(clock_ms));
+    CHECK(rtl1_core_phase() == RTL1_PH_SEND);
+}
+
+static void test_transfer_after_put(void) {
+    reset();
+    begin_put_ready();
+    put_str("[COM] put done\n");
+    deliver(0);
+    rtl1_core_end();
+    begin("osd", sizeof(out));
+    put_str("[COM] osd ready rows=32 stride=64 width=40 cells=2048 nonce=0x1234\n");
+    deliver(0);
+    CHECK(rtl1_core_phase() == RTL1_PH_BINARY); // not an upload any more
+}
+
 // --- runner ------------------------------------------------------------------------------------
 
 #define T(fn) {#fn, fn}
@@ -661,6 +815,18 @@ static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_quiet_hides_refusal),
     T(test_quiet_keeps_other_lines),
     T(test_quiet_then_loud),
+    T(test_put_ready_enters_send),
+    T(test_put_acks_then_done),
+    T(test_put_byte_by_byte),
+    T(test_put_usage_refused),
+    T(test_put_err_refused),
+    T(test_put_nak_recorded),
+    T(test_put_abort_fails),
+    T(test_put_damaged_ack_ignored),
+    T(test_put_closing_error),
+    T(test_put_other_lines_reach_terminal),
+    T(test_put_no_timeout_while_sending),
+    T(test_transfer_after_put),
 };
 
 int main(void) {

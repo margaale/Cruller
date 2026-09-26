@@ -36,7 +36,7 @@ bool http_listening(void) { return listening; }
 typedef struct {
     int fd;
     char method[8];
-    char path[96];
+    char path[256];       // with the query string (/rt4k/put carries a 64-digit SHA-256)
     long content_length;
     char head[HEADER_MAX];
     size_t head_len;      // bytes in head[] (headers plus any body bytes read along with them)
@@ -98,7 +98,7 @@ static bool read_request(request_t *r) {
         *end = 0; // headers are now a C string; body bytes (if any) follow after the terminator
         break;
     }
-    if (sscanf(r->head, "%7s %95s", r->method, r->path) != 2) return false;
+    if (sscanf(r->head, "%7s %255s", r->method, r->path) != 2) return false;
     for (char *line = strstr(r->head, "\r\n"); line; line = strstr(line + 2, "\r\n")) {
         if (!strncasecmp(line + 2, "Content-Length:", 15)) r->content_length = strtol(line + 17, NULL, 10);
     }
@@ -546,6 +546,96 @@ static bool form_field(const char *body, const char *name, char *out, size_t siz
     return false;
 }
 
+// Pulls a request body, for rtl1_put(): first the bytes read along with the headers, then the socket.
+typedef struct {
+    request_t *r;
+    long remaining;
+    size_t early; // offset into the bytes that came with the headers
+} body_reader_t;
+
+static size_t body_read(void *ctx, uint8_t *buf, size_t max) {
+    body_reader_t *b = ctx;
+    if (b->remaining <= 0) return 0;
+    if ((long)max > b->remaining) max = (size_t)b->remaining;
+    const size_t early_left = b->r->head_len - b->r->body_start - b->early;
+    if (early_left) {
+        const size_t n = early_left < max ? early_left : max;
+        memcpy(buf, b->r->head + b->r->body_start + b->early, n);
+        b->early += n;
+        b->remaining -= (long)n;
+        return n;
+    }
+    const int n = recv(b->r->fd, buf, max, 0);
+    if (n <= 0) return 0;
+    b->remaining -= n;
+    return (size_t)n;
+}
+
+// A path on the RT4K's SD card: letters, digits, '.', '_', '-', '/', no "..".
+static bool sd_path_ok(const char *p) {
+    if (!*p || strstr(p, "..")) return false;
+    for (; *p; p++) {
+        if (!isalnum((unsigned char)*p) && !strchr("._-/", *p)) return false;
+    }
+    return true;
+}
+
+// POST /rt4k/put?path=<sd path>&sha=<sha256 hex>: writes the body to the RT4K's SD card.
+static void handle_rt4k_put(request_t *r, const char *query) {
+    char path[96], sha[72];
+    if (!query || !form_field(query, "path", path, sizeof(path)) || !sd_path_ok(path) ||
+        !form_field(query, "sha", sha, sizeof(sha)) || strlen(sha) != 64 || strspn(sha, "0123456789abcdefABCDEF") != 64 ||
+        r->content_length <= 0) {
+        respond(r->fd, 400, "Bad Request", "text/plain", "Need ?path=<file>&sha=<sha256 hex> and the file as the body\n");
+        return;
+    }
+    char expect[24];
+    if (get_header(r, "Expect", expect, sizeof(expect)) && !strcasecmp(expect, "100-continue")) {
+        static const char cont[] = "HTTP/1.1 100 Continue\r\n\r\n";
+        send_all(r->fd, cont, sizeof(cont) - 1);
+    }
+    printf("http: RT4K upload %s, %ld bytes\n", path, r->content_length);
+    body_reader_t reader = {r, r->content_length, 0};
+    static rtl1_info_t info;
+    const uint32_t t0 = to_ms_since_boot(get_absolute_time());
+    const rtl1_result_t res = rtl1_put(path, (uint32_t)r->content_length, sha, body_read, &reader, &info);
+    const uint32_t ms = to_ms_since_boot(get_absolute_time()) - t0;
+    char msg[160];
+    if (res == RTL1_OK) {
+        snprintf(msg, sizeof(msg), "ok %s %ld bytes in %lu ms\n", path, r->content_length, (unsigned long)ms);
+        respond(r->fd, 200, "OK", "text/plain", msg);
+    } else {
+        snprintf(msg, sizeof(msg), "%s: %s\n", rtl1_result_name(res), info.detail);
+        respond(r->fd, res == RTL1_ERR_DEVICE ? 409 : 502, res == RTL1_ERR_DEVICE ? "Conflict" : "Bad Gateway",
+            "text/plain", msg);
+    }
+    printf("http: RT4K upload %s: %s", path, msg);
+}
+
+// POST /rt4k/ask?expect=<text>[&timeout=<ms>] with a console command as the body: the first reply
+// line containing <text> (e.g. "ver" / "FW Version:", "fwup check" / "fwup").
+static void handle_rt4k_ask(request_t *r, const char *query) {
+    static form_t form;
+    form.len = 0;
+    form.buf[0] = 0;
+    char expect[48], tmo[12];
+    if (!query || !form_field(query, "expect", expect, sizeof(expect)) || !expect[0] || r->content_length <= 0 ||
+        r->content_length >= (long)sizeof(form.buf) || !read_body(r, form_sink, &form)) {
+        respond(r->fd, 400, "Bad Request", "text/plain", "Need ?expect=<text> and a command as the body\n");
+        return;
+    }
+    for (char *c = form.buf; *c; c++) if (*c == '\r' || *c == '\n') *c = ' ';
+    uint32_t timeout_ms = form_field(query, "timeout", tmo, sizeof(tmo)) ? (uint32_t)strtoul(tmo, NULL, 10) : 3000;
+    if (timeout_ms > 20000) timeout_ms = 20000;
+    char line[200];
+    if (rt4k_query(form.buf, expect, line, sizeof(line), timeout_ms)) {
+        strncat(line, "\n", sizeof(line) - strlen(line) - 1);
+        respond(r->fd, 200, "OK", "text/plain", line);
+    } else {
+        respond(r->fd, 504, "Gateway Timeout", "text/plain", "no reply from the RT4K\n");
+    }
+}
+
 static void handle_wifi(request_t *r) {
     static form_t form;
     form.len = 0;
@@ -581,6 +671,8 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
     else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
+    else if (post && !strcmp(r->path, "/rt4k/put")) handle_rt4k_put(r, query);
+    else if (post && !strcmp(r->path, "/rt4k/ask")) handle_rt4k_ask(r, query);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;
         const size_t n = rtl1_last_failure(&d);
