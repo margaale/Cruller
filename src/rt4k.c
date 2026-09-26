@@ -14,6 +14,7 @@
 
 #include "rtl1.h"
 #include "rtl1_core.h"
+#include "power.h"
 
 #define RT4K_TASK_STACK     1024
 #define RT4K_TASK_PRIORITY  (tskIDLE_PRIORITY + 6) // above the Wi-Fi stack (4): Wi-Fi bursts delaying
@@ -193,6 +194,7 @@ void tuh_cdc_ftdi_status_cb(uint8_t idx, uint8_t modem_status, uint8_t line_stat
         if (last_rearm_lat_us > gap_stats.max_overrun_us) gap_stats.max_overrun_us = last_rearm_lat_us;
     }
     if (line_status & 0x1c) ftdi_stats.errors++; // parity, framing, break
+    if (line_status & 0x10) power_break();       // break: the RT4K's output went low (powered down)
 }
 
 void tuh_cdc_rx_cb(uint8_t idx) {
@@ -211,6 +213,7 @@ void rt4k_text_push(const uint8_t *data, size_t len) {
     for (size_t i = 0; i < len; i++) rx_ring[(rx_head + i) & (RX_RING_SIZE - 1)] = (char)data[i];
     rx_head += (uint32_t)len;
     critical_section_exit(&rx_lock);
+    power_feed_text(data, len);
 }
 
 static void host_init(void) {
@@ -339,6 +342,7 @@ bool rt4k_command(const char *cmd) {
     rt4k_link_unlock();
     cmd_stats.sent++;
     last_cmd_ms = to_ms_since_boot(get_absolute_time());
+    if (ok && !strcmp(cmd, "pwr on")) power_woken();
     return ok;
 }
 

@@ -44,6 +44,8 @@ target_sources(cruller_app INTERFACE
     src/log.c
     src/freeze.c
     src/health.c
+    src/power.c
+    src/power_core.c
     src/rtl1.c
     src/rtl1_core.c
     src/ws.c
@@ -60,7 +62,13 @@ add_custom_command(OUTPUT ${WEB_FW_JS_C}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/web/fw.js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
     VERBATIM)
-target_sources(cruller_app INTERFACE ${WEB_FW_JS_C})
+set(WEB_UI_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_ui_js.c)
+add_custom_command(OUTPUT ${WEB_UI_JS_C}
+    COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/src/web/ui.js -DOUT=${WEB_UI_JS_C} -DNAME=web_ui_js
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/web/ui.js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    VERBATIM)
+target_sources(cruller_app INTERFACE ${WEB_FW_JS_C} ${WEB_UI_JS_C})
 target_compile_definitions(cruller_app INTERFACE
     CRULLER_VERSION="${CRULLER_VERSION}"
     CYW43_HOST_NAME="cruller"

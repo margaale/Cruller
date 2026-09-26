@@ -15,6 +15,7 @@
 #include "health.h"
 #include "freeze.h"
 #include "log.h"
+#include "power.h"
 #include "rt4k.h"
 #include "rtl1.h"
 #include "ws.h"
@@ -79,6 +80,8 @@ static void respond_bytes(int fd, const char *extra_headers, const uint8_t *body
 // Web assets embedded from src/web at build time (cmake/embed.cmake).
 extern const unsigned char web_fw_js[];
 extern const size_t web_fw_js_len;
+extern const unsigned char web_ui_js[];
+extern const size_t web_ui_js_len;
 
 static void respond_asset(int fd, const char *type, const unsigned char *body, size_t len) {
     char hdr[192];
@@ -262,11 +265,12 @@ void http_status_json(char *body, size_t size) {
         "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\","
         "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,"
         "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,"
-        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu}",
+        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\"}",
         CRULLER_VERSION, (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000), state_name(net_state()),
         ssid, net_ip(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
-        (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped);
+        (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
+        rt.mounted ? power_state_name(power_state()) : "unknown");
 }
 
 // GET <path>?since=N: text written after position N, with the new position in X-Next.
@@ -316,7 +320,7 @@ static const char PAGE[] =
     "<div class=stage><div class=screen><div id=stats hidden></div>"
     "<canvas id=tv width=1280 height=720 title='Double-click for full screen'></canvas>"
     "<button class=fs onclick=\"$('tv').requestFullscreen()\">Full screen</button> <button class=fs onclick=\"$('stats').hidden^=1\">Stats</button>"
-    " <button class=fs onclick='fwOpen()'>RT4K firmware</button><div id=fw hidden></div><script src=/fw.js defer></script>"
+    " <button class=fs onclick='fwOpen()'>RT4K firmware</button><div id=fw hidden></div><script src=/fw.js defer></script><script src=/ui.js defer></script>"
     "<div class=term><pre id=rx></pre>"
     "<form onsubmit='return cmd()'><input id=cm placeholder='Command, e.g. remote menu' autocomplete=off autocapitalize=none></form></div>"
     "</div>"
@@ -680,6 +684,7 @@ static void handle(request_t *r) {
     if (query) *query++ = 0;
     if (get && !strcmp(r->path, "/")) respond(r->fd, 200, "OK", "text/html", PAGE);
     else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
+    else if (get && !strcmp(r->path, "/ui.js")) respond_asset(r->fd, "application/javascript", web_ui_js, web_ui_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
     else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read);

@@ -10,9 +10,10 @@ mkdir -p build-tests
 
 "$CC" "${CFLAGS[@]}" src/rtl1_core.c tests/sha256_ref.c tests/test_rtl1.c -o build-tests/test_rtl1
 "$CC" "${CFLAGS[@]}" src/ws_proto.c tests/test_ws.c -o build-tests/test_ws
+"$CC" "${CFLAGS[@]}" src/power_core.c tests/test_power.c -o build-tests/test_power
 
 status=0
-for t in test_rtl1 test_ws; do
+for t in test_rtl1 test_ws test_power; do
     echo "== $t"
     ./build-tests/$t || status=1
     echo
@@ -22,5 +23,7 @@ if command -v node >/dev/null; then
     node tests/check_page.js || status=1
     echo "== fw.js (RT4K firmware updater)"
     node tests/test_fw.js || status=1
+    echo "== ui.js"
+    node --check src/web/ui.js && echo "ui.js: syntax ok" || status=1
 fi
 exit $status

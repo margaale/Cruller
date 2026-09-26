@@ -14,6 +14,7 @@
 #include "http.h"
 #include "log.h"
 #include "rtl1.h"
+#include "power.h"
 #include "ws_proto.h"
 
 #define MAX_CLIENTS        3
@@ -50,6 +51,7 @@ typedef struct {
     uint32_t last_ping_ms;
     uint32_t log_pos;
     uint32_t last_status_ms;      // 0 = send one right away
+    int status_power;             // power state in the last status sent: a change is pushed at once
 } client_t;
 
 typedef struct {
@@ -119,8 +121,10 @@ static bool push_log_status(client_t *c) {
         if (!send_tx(c, WS_OP_BINARY, 1 + n)) return false;
     }
     const uint32_t t = now_ms();
-    if (c->last_status_ms && t - c->last_status_ms < STATUS_EVERY_MS) return true;
+    const int power = (int)power_state();
+    if (c->last_status_ms && t - c->last_status_ms < STATUS_EVERY_MS && power == c->status_power) return true;
     c->last_status_ms = t | 1;
+    c->status_power = power;
     tx[16] = MSG_STATUS;
     http_status_json((char *)tx + 17, 1024);
     return send_tx(c, WS_OP_BINARY, 1 + strlen((char *)tx + 17));
@@ -307,6 +311,8 @@ static rtl1_result_t poll_plane(int p, uint8_t *buf) {
     mirror_where = p ? "osd2" : "osd";
     const uint32_t t0 = now_ms();
     const rtl1_result_t r = rtl1_transfer(p ? "osd2" : "osd", buf, 4096, &info, true, POLL_READY_TIMEOUT_MS);
+    if (r == RTL1_OK || r == RTL1_ERR_DEVICE || r == RTL1_ERR_PROTOCOL) power_alive(); // it answered
+    else if (r == RTL1_ERR_TIMEOUT) power_silent();
     poll_last_ms[p] = now_ms() - t0;
     if (poll_last_ms[p] > poll_max_ms[p]) poll_max_ms[p] = poll_last_ms[p];
     if (r != RTL1_OK && (unsigned)r < 5) poll_errors[p][r]++;
@@ -340,6 +346,12 @@ static void mirror_task(void *param) {
         if (!client_count || !rt4k_connected()) {
             mirror_where = "idle";
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+            continue;
+        }
+        const power_state_t pw = power_state();
+        if (pw == PWR_STANDBY || pw == PWR_BOOTING) {
+            mirror_where = "rt4k asleep"; // nothing to show; power.c notices when it's back
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));
             continue;
         }
         rtl1_result_t r = RTL1_OK;
