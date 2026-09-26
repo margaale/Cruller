@@ -62,8 +62,15 @@ Types: 1 command, 2 response, 3 data, 4 acknowledgement, 5 negative acknowledgem
 | `get -- <path>`  | `off len total nonce`                               | a file from the SD card, in chunks |
 
 Colour byte: bits 5-4 red, 3-2 green, 1-0 blue (2 bits each, ×85 for 8-bit), bits 7-6 background
-mode. Text-only queries: `ver`, `model`, `osd2 state`, `banner`, and `baud <rate>` / `baud ok` to
-change the line speed.
+mode. Text-only queries: `ver`, `model`, `osd2 state`, `banner`.
+
+**Line speed:** `baud <rate>` answers `baud switching to <rate> -- send 'baud ok' within 5000 ms`
+(or `bad baud <rate> -- use 115200/500000/1000000/2000000`, or `baud: busy`). The host switches its
+side, then `baud ok` at the new speed answers `baud confirmed <rate>`; without it the RT4K goes back
+by itself. 2 Mbaud is the most it takes.
+
+**Timing:** replies start 1–17 ms after a command. A transfer request sent before the RT4K has
+answered the previous console command is ignored (no ready line); right after the answer it's taken.
 
 ## Uploads (put)
 

@@ -1,10 +1,23 @@
 # Cruller
 
-Firmware for the Raspberry Pi Pico 2 W that controls a RetroTINK 4K over Wi-Fi. It switches profiles automatically from the gameID your consoles report, and gives you a web UI to control the RT4K. It is built on the Pico SDK, FreeRTOS, lwIP and TinyUSB, and updates over the air.
+Firmware for the Raspberry Pi Pico 2 W that controls a RetroTINK 4K over Wi-Fi. It is built on the Pico SDK, FreeRTOS, lwIP and TinyUSB, and updates over the air.
 
 It takes the idea of [DonutShop](https://github.com/svirant/DonutShop), and can be installed over the air on a board that runs the DonutShop Pico 2 W firmware.
 
-**Status:** design stage. See [docs/DESIGN.md](docs/DESIGN.md).
+What it does today, with the Pico plugged into the RT4K's USB-C port:
+
+- **Web page:** a live mirror of the RT4K's on-screen menu, a remote control, a terminal, and the RT4K's power state.
+- **RT4K firmware updates** straight from RetroTINK's repository: pick a release or experimental version, and Cruller downloads, checks and installs it. No SD card swapping.
+- **Automation:** `POST /api/command` for scripts and Home Assistant, and an RFC 2217 serial port on TCP 2217 (for example hass-RT4K with `rfc2217://cruller.local:2217`). Several clients can share the RT4K; each gets only the replies to its own commands.
+- **Over-the-air updates** of Cruller itself, with rollback if a new image doesn't come up healthy.
+
+Planned: automatic profile switching from the gameID your consoles report, and the HD-15 serial link.
+
+See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RTL1.md) for the RT4K's serial protocol as Cruller uses it.
+
+## Building
+
+`scripts/build.sh` (paths default to the author's machine; override them through the environment). Host tests: `tests/run.sh`.
 
 ## License
 
