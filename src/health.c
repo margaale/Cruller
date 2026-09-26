@@ -153,6 +153,10 @@ void health_start(bool trial) {
     printf("health: watchdog %u ms\n", WDT_TIMEOUT_MS);
 }
 
+uint32_t health_last_feed_ms(void) {
+    return last_feed_ms;
+}
+
 void health_stop_feeding(void) {
     rebooting = true;
 }

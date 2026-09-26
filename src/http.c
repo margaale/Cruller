@@ -548,7 +548,7 @@ static void handle(request_t *r) {
         respond(r->fd, 200, "OK", "text/plain", trace_text);
     }
     else if (get && !strcmp(r->path, "/debug/freeze")) {
-        static char freeze_text[2048];
+        static char freeze_text[4096];
         freeze_dump(freeze_text, sizeof(freeze_text));
         respond(r->fd, 200, "OK", "text/plain", freeze_text);
     }

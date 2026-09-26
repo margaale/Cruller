@@ -18,6 +18,9 @@ void health_rearm_watchdog(void);
 // Before scheduling a reboot on the watchdog: feeding it would keep postponing the reboot.
 void health_stop_feeding(void);
 
+// When the feeder task last ran (ms since boot), fed or not; for the freeze recorder.
+uint32_t health_last_feed_ms(void);
+
 // After cyw43_arch_init(): also reset when the network stops passing traffic (gateway pings).
 void health_start_net_probe(void);
 

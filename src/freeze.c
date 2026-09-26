@@ -9,6 +9,9 @@
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "pico/platform.h"
+#include "pico/time.h"
+
+#include "health.h"
 
 #define PERIOD_US    250000u
 #define SAMPLES      16u      // per core: the last 4 s (the watchdog fires after 8 s without feeding)
@@ -17,6 +20,8 @@
 
 typedef struct {
     uint32_t us, pc, lr;
+    uint32_t wdt_left_ms; // watchdog time remaining
+    uint32_t fed_ago_ms;  // since the feeder task last ran (health.c)
     char task[NAME_LEN];
 } sample_t;
 
@@ -42,6 +47,8 @@ void __attribute__((used)) __not_in_flash_func(freeze_sample)(const uint32_t *fr
     s->us = timer_hw->timerawl;
     s->pc = frame[6];
     s->lr = frame[5];
+    s->wdt_left_ms = watchdog_get_time_remaining_ms();
+    s->fed_ago_ms = to_ms_since_boot(get_absolute_time()) - health_last_feed_ms();
     const TaskHandle_t t = xTaskGetCurrentTaskHandleForCore(core);
     const char *name = t ? pcTaskGetName(t) : "-";
     for (int i = 0; i < NAME_LEN; i++) {
@@ -83,8 +90,9 @@ static size_t format(char *out, size_t size) {
             char task[NAME_LEN];
             memcpy(task, s->task, NAME_LEN);
             task[NAME_LEN - 1] = 0;
-            o += (size_t)snprintf(out + o, size - o, "core %d %6ld ms %-11s pc=%08lx lr=%08lx\n", c,
-                -(long)((newest - s->us) / 1000), task, (unsigned long)s->pc, (unsigned long)s->lr);
+            o += (size_t)snprintf(out + o, size - o, "core %d %6ld ms %-11s pc=%08lx lr=%08lx wdt left %lu fed %lu ms ago\n",
+                c, -(long)((newest - s->us) / 1000), task, (unsigned long)s->pc, (unsigned long)s->lr,
+                (unsigned long)s->wdt_left_ms, (unsigned long)s->fed_ago_ms);
         }
     }
     return o < size ? o : size - 1;
@@ -95,10 +103,13 @@ size_t freeze_dump(char *out, size_t size) {
 }
 
 void freeze_report(void) {
+    // Watchdog reset reason: bit 0 the timer ran out, bit 1 forced (watchdog_reboot(), rom_reboot()).
+    const uint32_t reason = watchdog_hw->reason;
     if (rec.magic == FREEZE_MAGIC && watchdog_caused_reboot()) {
-        static char text[2 * SAMPLES * 64];
+        static char text[2 * SAMPLES * 110];
         format(text, sizeof(text));
-        printf("\n*** freeze record (before the reset; ms relative to the last sample):\n%s", text);
+        printf("\n*** freeze record, watchdog reason 0x%lx (%s) (ms relative to the last sample):\n%s",
+            (unsigned long)reason, reason & 1 ? "timeout" : reason & 2 ? "forced" : "?", text);
     }
     memset(&rec, 0, sizeof(rec));
     rec.magic = FREEZE_MAGIC;
