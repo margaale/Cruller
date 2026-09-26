@@ -42,12 +42,14 @@ static volatile uint32_t last_cmd_ms;
 static volatile uint32_t last_event_us; // debug: the last host event (see tuh_cdc_rx_cb)
 static struct { uint32_t packets, overruns, errors, last_overrun_ms; } ftdi_stats; // debug
 
-// RTS/CTS flow control on the FT232R (TinyUSB turns it off at mount; we switch it with a vendor
-// request). With it on, the FT232R only sends to the RT4K while the RT4K asserts CTS, so uploads can
-// stream without per-frame ACKs.
+// RTS/CTS flow control on the FT232R (TinyUSB turns it off at mount; we switch it back on with a
+// vendor request at every mount). With it on, the FT232R only sends to the RT4K while the RT4K
+// asserts CTS, so uploads can stream without per-frame ACKs. Always on: the RT4K keeps CTS asserted
+// in standby too (measured: "pwr on" wakes it with flow control on; CTS only blinks off for a packet
+// or two while it switches).
 static volatile uint8_t modem_status_last; // FTDI modem status byte: bit 4 CTS, bit 5 DSR
 static volatile uint32_t cts_off_packets;  // debug: packets whose status showed CTS off
-static volatile bool flow_wanted, flow_on;
+static volatile bool flow_wanted = true, flow_on;
 static volatile int8_t flow_request = -1;  // -1 none, else 0/1: the rt4k task sends it
 static volatile uint8_t cdc_daddr;
 

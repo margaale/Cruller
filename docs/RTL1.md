@@ -88,7 +88,7 @@ answered the previous console command is ignored (no ready line); right after th
 - With `-a` the RT4K ACKs each frame (NAK to resend), ~61 KB/s. Without it the host streams and the
   RT4K paces it with CTS, which it wires to the FT232R: switch RTS/CTS on at the chip first (FTDI
   `SET_FLOW_CTRL`, wIndex `0x0100` for the FT232R). ~94 KB/s, the RT4K's own pace (CTS drops while
-  it writes the card). Cruller streams, with flow control on only for the upload.
+  it writes the card). Cruller keeps flow control on all the time and streams.
 - The RT4K writes to `.rtl1up.tmp`, checks size and SHA-256, then renames: a mismatch answers
   `put fail: size/sha mismatch` and leaves nothing. Existing files are replaced.
 - It doesn't create folders (`put err: rename failed`, the temp file stays): `mkdir` first.

@@ -253,13 +253,7 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
     }
     wait_after_command();
 
-    // Stream if RTS/CTS can be switched on and the RT4K asserts CTS. Only for the upload: in standby
-    // the RT4K may drop CTS, and with flow control on nothing (not even "pwr on") would reach it.
-    const bool flow_was_on = rt4k_flow_control();
-    if (!flow_was_on) {
-        rt4k_set_flow_control(true);
-        for (int i = 0; i < 50 && !rt4k_flow_control(); i++) vTaskDelay(pdMS_TO_TICKS(10));
-    }
+    // Stream when RTS/CTS is on (always, see rt4k.c) and the RT4K asserts CTS; otherwise acknowledged.
     const bool acked = !rt4k_flow_control() || !(rt4k_modem_status() & 0x10);
     char cmd[200];
     snprintf(cmd, sizeof(cmd), "put%s %lu %s %s", acked ? " -a" : "", (unsigned long)size, sha256_hex, path);
@@ -350,7 +344,6 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     rtl1_core_end();
     xSemaphoreGive(feed_lock);
-    if (!flow_was_on) rt4k_set_flow_control(false);
     rt4k_link_unlock();
     xSemaphoreGive(xfer_lock);
     return result;

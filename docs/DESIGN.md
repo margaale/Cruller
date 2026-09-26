@@ -60,7 +60,7 @@ The RT4K receive path (TinyUSB, CDC, the RTL1 engine, the FreeRTOS kernel) runs 
 
 - **USB:** the RT4K enumerates as an FTDI FT232R. 2 Mbaud is the most it takes (`baud` accepts 115200, 500000, 1000000 and 2000000). Hot-plug works: the link is up when the device mounts.
 - **RTL1:** the binary transfer protocol of firmware 1.75+ (OSD planes, font, files, uploads), in `src/rtl1_core.c` (pure, host-tested) and `src/rtl1.c`. See [RTL1.md](RTL1.md), which also covers the file and firmware commands.
-- **Flow control:** the RT4K wires CTS to the FT232R. Cruller switches RTS/CTS on only for uploads, which then stream (~94 KB/s, the RT4K's own pace while it writes its card); in standby the RT4K may drop CTS, and nothing would reach it.
+- **Flow control:** the RT4K wires CTS to the FT232R. Cruller keeps RTS/CTS on at the chip all the time (asked again at every mount), so uploads stream (~94 KB/s, the RT4K's own pace while it writes its card) and commands wait instead of being lost while the RT4K is busy. The RT4K keeps CTS asserted in standby too: "pwr on" gets through with flow control on (measured).
 - **HD-15:** not used yet.
 
 ### RT4K console
