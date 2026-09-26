@@ -132,6 +132,31 @@ static void flow_ctrl_send(void) {
     if (tuh_control_xfer(&xfer)) flow_request = -1; // else busy: again next time round
 }
 
+// Line speed change at the FT232R, sent from the rt4k task like the flow control request.
+static volatile uint32_t baud_request; // 0: none
+static volatile bool baud_done;
+
+static void baud_set_done(tuh_xfer_t *xfer) {
+    if (xfer->result == XFER_RESULT_SUCCESS) status.baud = (uint32_t)xfer->user_data;
+    baud_done = true;
+    printf("rt4k: FT232R at %lu baud%s\n", (unsigned long)xfer->user_data,
+        xfer->result == XFER_RESULT_SUCCESS ? "" : " FAILED");
+}
+
+static void baud_send(void) {
+    const uint32_t want = baud_request;
+    if (!want || cdc_idx == 0xff) return;
+    if (tuh_cdc_set_baudrate(cdc_idx, want, baud_set_done, want)) baud_request = 0; // else busy: next time
+}
+
+bool rt4k_set_baud(uint32_t baud) {
+    baud_done = false;
+    baud_request = baud;
+    if (rt4k_handle) xTaskNotifyGive(rt4k_handle);
+    for (int i = 0; i < 100 && !baud_done; i++) vTaskDelay(pdMS_TO_TICKS(5));
+    return baud_done && status.baud == baud;
+}
+
 void rt4k_set_flow_control(bool on) {
     flow_wanted = on;
     flow_request = on;
@@ -247,6 +272,7 @@ static void rt4k_task(void *param) {
         }
         tuh_task();
         flow_ctrl_send();
+        baud_send();
         const uint8_t idx = cdc_idx;
         if (idx != 0xff && tuh_cdc_mounted(idx)) {
             uint32_t n;

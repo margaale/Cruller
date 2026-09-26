@@ -821,6 +821,38 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
     else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
+    else if (post && !strcmp(r->path, "/debug/baud")) {
+        // POST /debug/baud?rate=N: the RT4K's line speed change, as the PIPe Profiler does it:
+        // "baud N" -> "baud switching to N", both ends switch, "baud ok" -> "baud confirmed N".
+        char v[12], reply[96], msg[256];
+        const uint32_t rate = query && form_field(query, "rate", v, sizeof(v)) ? (uint32_t)strtoul(v, NULL, 10) : 0;
+        rt4k_status_t st;
+        rt4k_get_status(&st);
+        const uint32_t old = st.baud;
+        char cmd[24];
+        snprintf(cmd, sizeof(cmd), "baud %lu", (unsigned long)rate);
+        rtl1_pause(5000); // no mirror transfer in the middle
+        if (!rate) {
+            snprintf(msg, sizeof(msg), "need ?rate=N\n");
+        } else if (!rt4k_query(cmd, "baud", reply, sizeof(reply), 2500)) {
+            snprintf(msg, sizeof(msg), "%s: no reply\n", cmd);
+        } else if (strncmp(reply, "baud switching to", 17)) {
+            snprintf(msg, sizeof(msg), "%s: refused: %s\n", cmd, reply); // bad baud / busy: nothing changed
+        } else if (!rt4k_set_baud(rate)) {
+            snprintf(msg, sizeof(msg), "RT4K said \"%s\", but the FT232R didn't switch (the RT4K should fall back)\n", reply);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            char confirm[96];
+            if (rt4k_query("baud ok", "baud", confirm, sizeof(confirm), 2500) && strstr(confirm, "confirmed")) {
+                snprintf(msg, sizeof(msg), "now at %lu baud: %s / %s\n", (unsigned long)rate, reply, confirm);
+            } else {
+                rt4k_set_baud(old);
+                snprintf(msg, sizeof(msg), "not confirmed at %lu baud; back at %lu\n", (unsigned long)rate, (unsigned long)old);
+            }
+        }
+        rtl1_pause(0);
+        respond(r->fd, 200, "OK", "text/plain", msg);
+    }
     else if (post && !strcmp(r->path, "/debug/gap")) {
         // POST /debug/gap?fixed=N or ?reply=N: the wait after a console command (rtl1_set_gap), and
         // zeroed key -> screen / poll error counters for the next measurement.
