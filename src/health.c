@@ -20,7 +20,8 @@
 
 #define WDT_TIMEOUT_MS    8000
 #define WDT_FEED_MS       1000
-#define WDT_TASK_PRIORITY (tskIDLE_PRIORITY + 1) // lowest real priority: starving it is a hang too
+#define WDT_TASK_PRIORITY (tskIDLE_PRIORITY + 2) // with the busy tasks (http, ws): time slicing gives it
+                                                 // a turn; at 1 an OTA upload starved it for ~4 s
 
 // The network can die while everything else keeps running (seen with heavy USB host traffic: OTA
 // flash writes, RTL1 bursts): the board is then unreachable but not hung, and asking the CYW43 for
