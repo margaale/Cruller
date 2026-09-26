@@ -821,6 +821,19 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
     else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
+    else if (post && !strcmp(r->path, "/debug/gap")) {
+        // POST /debug/gap?fixed=N or ?reply=N: the wait after a console command (rtl1_set_gap), and
+        // zeroed key -> screen / poll error counters for the next measurement.
+        char v[12];
+        const uint32_t fixed = query && form_field(query, "fixed", v, sizeof(v)) ? (uint32_t)strtoul(v, NULL, 10) : 0;
+        const uint32_t reply = query && form_field(query, "reply", v, sizeof(v)) ? (uint32_t)strtoul(v, NULL, 10) : 0;
+        rtl1_set_gap(fixed, reply);
+        ws_debug_reset();
+        char msg[80];
+        snprintf(msg, sizeof(msg), fixed ? "fixed %lu ms after a command\n" : "after the reply + %lu ms\n",
+            (unsigned long)(fixed ? fixed : reply));
+        respond(r->fd, 200, "OK", "text/plain", msg);
+    }
     else if (post && !strcmp(r->path, "/debug/flow")) {
         // POST /debug/flow?on=1|0: RTS/CTS flow control on the FT232R (see rt4k_set_flow_control).
         const bool on = query && strstr(query, "on=1");

@@ -12,6 +12,7 @@
 
 #include "power.h"
 #include "rt4k.h"
+#include "ws.h"
 
 #define CONSOLE_TASK_STACK    512
 #define CONSOLE_TASK_PRIORITY (tskIDLE_PRIORITY + 3)
@@ -75,6 +76,13 @@ void console_feed(const uint8_t *data, size_t len) {
     }
 }
 
+bool console_reply_pending(void) {
+    critical_section_enter_blocking(&lock);
+    const bool waiting = console_core_waiting_reply();
+    critical_section_exit(&lock);
+    return waiting;
+}
+
 uint32_t console_head(void) {
     critical_section_enter_blocking(&lock);
     const uint32_t h = head;
@@ -119,13 +127,15 @@ bool console_run(int owner, const char *cmd, void (*on_line)(const char *line, v
     *flag = 0;
     request_t req = {.owner = owner, .notify = xTaskGetCurrentTaskHandle(), .status = flag};
     uint32_t seq = console_head(); // only what comes after this command
-    xTaskNotifyStateClear(NULL);
+    ulTaskNotifyTake(pdTRUE, 0);   // a wake-up left over from an earlier run (it saw the flag first)
     if (!enqueue_req(&req, cmd, NULL)) return false;
     char text[LINE_MAX_LEN];
     int o;
-    // Commands queued before ours go first: allow for them.
+    // Commands queued before ours go first: allow for them. The flag decides; the notification only
+    // wakes us up early.
     for (const uint32_t t0 = now_ms(); now_ms() - t0 < (QUEUE_DEPTH + 1) * CON_MAX_MS;) {
-        const bool done = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20)) > 0 || *flag;
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+        const bool done = *flag != 0;
         while (console_read(&seq, &o, text, sizeof(text))) {
             if (o == owner && on_line) on_line(text, ctx);
         }
@@ -169,8 +179,11 @@ static void console_task(void *param) {
         const bool sent = rt4k_send_command(req.cmd); // false: no RT4K, or the link stayed busy
         if (sent) {
             critical_section_enter_blocking(&lock);
-            console_core_begin(req.owner, req.expect, req.timeout_ms, now_ms());
+            // A remote key's whole reply is one line, "[COM] Serial Remote: <key>": done at once.
+            const bool key = !strncmp(req.cmd, "remote ", 7);
+            console_core_begin(req.owner, req.expect, req.timeout_ms, key ? "Serial Remote:" : NULL, now_ms());
             critical_section_exit(&lock);
+            if (key) ws_key_sent(); // from any sender: the mirror refreshes soon, and times it
             for (;;) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 critical_section_enter_blocking(&lock);

@@ -33,7 +33,7 @@ static void test_no_window_broadcasts(void) {
 
 static void test_reply_goes_to_sender(void) {
     reset();
-    console_core_begin(4, NULL, 0, now);
+    console_core_begin(4, NULL, 0, NULL, now);
     now += 5;
     CHECK(console_core_line("[COM] Serial Remote: menu", now) == 4);
     CHECK(!console_core_poll(now));
@@ -41,7 +41,7 @@ static void test_reply_goes_to_sender(void) {
 
 static void test_closes_after_quiet(void) {
     reset();
-    console_core_begin(4, NULL, 0, now);
+    console_core_begin(4, NULL, 0, NULL, now);
     now += 5;
     console_core_line("[COM] RT4KPRO, FW Version: 1.87.3", now);
     now += 3;
@@ -53,14 +53,14 @@ static void test_closes_after_quiet(void) {
 
 static void test_no_reply_closes(void) {
     reset();
-    console_core_begin(5, NULL, 0, now); // e.g. SVS: never answered
+    console_core_begin(5, NULL, 0, NULL, now); // e.g. SVS: never answered
     const uint32_t open = run_until_closed(5000);
     CHECK(open >= CON_NO_REPLY_MS && open < CON_NO_REPLY_MS + 20);
 }
 
 static void test_long_listing_stays_together(void) {
     reset();
-    console_core_begin(4, NULL, 0, now);
+    console_core_begin(4, NULL, 0, NULL, now);
     int mine = 0;
     for (int i = 0; i < 40; i++) { // ls: one entry every 20 ms
         now += 20;
@@ -72,7 +72,7 @@ static void test_long_listing_stays_together(void) {
 
 static void test_chatty_window_is_capped(void) {
     reset();
-    console_core_begin(4, NULL, 0, now);
+    console_core_begin(4, NULL, 0, NULL, now);
     const uint32_t t0 = now;
     while (!console_core_poll(now) && now - t0 < 20000) {
         now += 50;
@@ -83,7 +83,7 @@ static void test_chatty_window_is_capped(void) {
 
 static void test_expect_waits_for_its_line(void) {
     reset();
-    console_core_begin(2, "fwup", 15000, now);
+    console_core_begin(2, "fwup", 15000, NULL, now);
     now += 20;
     console_core_line("[COM] Serial Remote: menu", now); // not it
     now += 3000;
@@ -97,7 +97,7 @@ static void test_expect_waits_for_its_line(void) {
 
 static void test_expect_timeout(void) {
     reset();
-    console_core_begin(2, "fwup", 2000, now);
+    console_core_begin(2, "fwup", 2000, NULL, now);
     const uint32_t open = run_until_closed(10000);
     CHECK(open >= 2000 && open < 2020);
     CHECK(!console_core_got_expected());
@@ -105,17 +105,48 @@ static void test_expect_timeout(void) {
 
 static void test_next_window_new_owner(void) {
     reset();
-    console_core_begin(4, NULL, 0, now);
+    console_core_begin(4, NULL, 0, NULL, now);
     now += 5;
     console_core_line("[COM] a", now);
     run_until_closed(5000);
-    console_core_begin(5, NULL, 0, now);
+    console_core_begin(5, NULL, 0, NULL, now);
     now += 5;
     CHECK(console_core_line("[COM] b", now) == 5);
 }
 
+static void test_key_closes_on_its_reply(void) {
+    reset();
+    console_core_begin(4, NULL, 0, "Serial Remote:", now);
+    CHECK(console_core_waiting_reply());
+    now += 4;
+    CHECK(console_core_line("[COM] Serial Remote: down", now) == 4);
+    CHECK(!console_core_waiting_reply());
+    CHECK(console_core_poll(now)); // at once: no quiet wait
+    CHECK(console_core_line("[COM] next", now) == CON_BROADCAST);
+}
+
+static void test_key_refused_uses_quiet(void) {
+    reset();
+    console_core_begin(4, NULL, 0, "Serial Remote:", now);
+    now += 4;
+    console_core_line("[COM] Bad Command: remote dwn", now); // not the line it hoped for
+    const uint32_t open = run_until_closed(5000);
+    CHECK(open >= CON_QUIET_MS && open < CON_QUIET_MS + 20);
+}
+
+static void test_waiting_reply_until_no_reply_timeout(void) {
+    reset();
+    console_core_begin(5, NULL, 0, NULL, now);
+    CHECK(console_core_waiting_reply());
+    run_until_closed(5000);
+    CHECK(!console_core_waiting_reply());
+}
+
 #define T(fn) {#fn, fn}
 static const struct { const char *name; void (*fn)(void); } tests[] = {
+    T(test_key_closes_on_its_reply),
+    T(test_key_refused_uses_quiet),
+    T(test_waiting_reply_until_no_reply_timeout),
     T(test_no_window_broadcasts),
     T(test_reply_goes_to_sender),
     T(test_closes_after_quiet),

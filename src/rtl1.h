@@ -55,3 +55,7 @@ size_t rtl1_last_failure(const uint8_t **data);
 // Debug: refuse transfers (RTL1_ERR_NO_LINK) for the next `ms`, so raw bytes sent to the RT4K
 // (POST /debug/raw) don't interleave with the mirror's polls.
 void rtl1_pause(uint32_t ms);
+
+// Debug: how long a transfer waits after a console command. fixed_ms > 0: that long after it went
+// out; 0: until the RT4K has answered it, plus after_reply_ms (both capped at 100 ms).
+void rtl1_set_gap(uint32_t fixed_ms, uint32_t after_reply_ms);

@@ -21,6 +21,13 @@ bool ws_adopt(int fd);
 // Can a handover be queued?
 bool ws_has_room(void);
 
+// A remote key has gone out to the RT4K (console.c, from any sender): the mirror polls the menu soon
+// and times key -> screen (in ws_debug).
+void ws_key_sent(void);
+
+// Debug: zero the key -> screen and poll error counters (for a measurement run).
+void ws_debug_reset(void);
+
 // Debug: one line on where the ws and mirror tasks are.
 #include <stddef.h>
 void ws_debug(char *out, size_t size);

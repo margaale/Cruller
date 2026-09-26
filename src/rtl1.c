@@ -12,13 +12,34 @@
 
 #include "rt4k.h"
 #include "rtl1_core.h"
+#include "console.h"
 
 #define LINK_TIMEOUT_MS 2000
 // The RT4K ignores a transfer request sent right behind a console command: with no gap, 10 of 10 polls
-// after a key press got no ready line (and no FT232R overrun, so nothing was lost on our side).
-// Enforced here, after taking the link, so no caller can race past it. Back-to-back transfers need no
-// gap (a 40 ms one covered the FT232R overruns, fixed since).
+// after a key press got no ready line (and no FT232R overrun, so nothing was lost on our side). So a
+// transfer waits until the RT4K has answered the last command (console.c sees the reply), and at most
+// AFTER_COMMAND_MS after it went out (some commands are never answered). Enforced here, after taking
+// the link, so no caller can race past it. Back-to-back transfers need no gap.
 #define AFTER_COMMAND_MS 100
+
+// Tuning (POST /debug/gap): fixed_ms > 0 waits that long after the command instead (the old rule);
+// otherwise after the reply, plus after_reply_ms.
+static volatile uint32_t gap_fixed_ms, gap_after_reply_ms;
+
+void rtl1_set_gap(uint32_t fixed_ms, uint32_t after_reply_ms) {
+    gap_fixed_ms = fixed_ms;
+    gap_after_reply_ms = after_reply_ms;
+}
+
+static void wait_after_command(void) {
+    if (gap_fixed_ms) {
+        const uint32_t since = rt4k_ms_since_command();
+        if (since < gap_fixed_ms) vTaskDelay(pdMS_TO_TICKS(gap_fixed_ms - since));
+        return;
+    }
+    while (rt4k_ms_since_command() < AFTER_COMMAND_MS && console_reply_pending()) vTaskDelay(pdMS_TO_TICKS(2));
+    if (gap_after_reply_ms && rt4k_ms_since_command() < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(gap_after_reply_ms));
+}
 
 static volatile uint32_t paused_until_ms; // debug: no transfers while raw bytes go out (POST /debug/raw)
 
@@ -106,8 +127,7 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
         snprintf(info->detail, sizeof(info->detail), "link busy");
         return RTL1_ERR_NO_LINK;
     }
-    const uint32_t since_cmd = rt4k_ms_since_command();
-    if (since_cmd < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(AFTER_COMMAND_MS - since_cmd));
+    wait_after_command();
 
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     xSemaphoreTake(done_sem, 0); // stale
@@ -231,8 +251,7 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
         snprintf(info->detail, sizeof(info->detail), "link busy");
         return RTL1_ERR_NO_LINK;
     }
-    const uint32_t since_cmd = rt4k_ms_since_command();
-    if (since_cmd < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(AFTER_COMMAND_MS - since_cmd));
+    wait_after_command();
 
     // Stream if RTS/CTS can be switched on and the RT4K asserts CTS. Only for the upload: in standby
     // the RT4K may drop CTS, and with flow control on nothing (not even "pwr on") would reach it.

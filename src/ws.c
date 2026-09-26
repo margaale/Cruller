@@ -71,6 +71,9 @@ static plane_t planes[2];
 static uint8_t font[4096];
 static uint32_t font_version;
 static volatile uint32_t last_key_ms;
+// Key -> screen: from a remote key going out to the first menu change the mirror sees after it.
+static volatile uint32_t key_pending_ms; // 0: none waiting
+static struct { uint32_t last, max, total, count; } key_lat;
 
 static uint8_t tx[4096 + 256];    // ws task only
 
@@ -185,11 +188,7 @@ static bool on_frame(client_t *c, const ws_frame_t *f) {
             if (n) {
                 for (size_t i = 0; i < n; i++) if (cmd[i] == '\r' || cmd[i] == '\n') cmd[i] = ' ';
                 ws_where = "rt4k_command";
-                rt4k_command(cmd);
-                if (!strncmp(cmd, "remote ", 7)) {
-                    last_key_ms = now_ms();
-                    if (mirror_task_h) xTaskNotifyGive(mirror_task_h); // refresh the OSD soon
-                }
+                rt4k_command(cmd); // keys: console.c calls ws_key_sent() once it's out
             }
             return true;
         }
@@ -334,9 +333,31 @@ static rtl1_result_t poll_plane(int p, uint8_t *buf) {
         pl->len = len;
         snprintf(pl->ready, sizeof(pl->ready), "%s", info.ready);
         pl->version++;
+        const uint32_t k = key_pending_ms;
+        if (k && pl->version > 1) { // a key was waiting for its effect: this is it
+            const uint32_t lat = now_ms() - k;
+            key_lat.last = lat;
+            if (lat > key_lat.max) key_lat.max = lat;
+            key_lat.total += lat;
+            key_lat.count++;
+            key_pending_ms = 0;
+        }
     }
     xSemaphoreGive(snap_lock);
     return r;
+}
+
+void ws_debug_reset(void) {
+    memset(&key_lat, 0, sizeof(key_lat));
+    memset(poll_errors, 0, sizeof(poll_errors));
+    poll_max_ms[0] = poll_max_ms[1] = 0;
+}
+
+void ws_key_sent(void) {
+    const uint32_t t = now_ms();
+    last_key_ms = t;
+    key_pending_ms = t | 1;
+    if (mirror_task_h) xTaskNotifyGive(mirror_task_h); // refresh the OSD soon
 }
 
 static void mirror_task(void *param) {
@@ -348,6 +369,8 @@ static void mirror_task(void *param) {
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
             continue;
         }
+        // A key whose effect didn't show (end of a menu...) mustn't be matched to a later change.
+        if (key_pending_ms && now_ms() - key_pending_ms > ACTIVE_WINDOW_MS) key_pending_ms = 0;
         const power_state_t pw = power_state();
         if (pw == PWR_STANDBY || pw == PWR_BOOTING) {
             mirror_where = "rt4k asleep"; // nothing to show; power.c notices when it's back
@@ -387,6 +410,11 @@ void ws_debug(char *out, size_t size) {
             (unsigned long)poll_max_ms[p], (unsigned long)poll_errors[p][RTL1_ERR_NO_LINK],
             (unsigned long)poll_errors[p][RTL1_ERR_TIMEOUT], (unsigned long)poll_errors[p][RTL1_ERR_DEVICE],
             (unsigned long)poll_errors[p][RTL1_ERR_PROTOCOL], (unsigned long)planes[p].version);
+    }
+    if (n > 0 && (size_t)n < size) {
+        n += snprintf(out + n, size - (size_t)n, "key -> screen: last %lu ms, avg %lu ms, max %lu ms (%lu keys)\n",
+            (unsigned long)key_lat.last, (unsigned long)(key_lat.count ? key_lat.total / key_lat.count : 0),
+            (unsigned long)key_lat.max, (unsigned long)key_lat.count);
     }
     if (n > 0 && (size_t)n < size) rt4k_debug(out + n, size - (size_t)n);
 }
