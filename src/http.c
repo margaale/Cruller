@@ -98,6 +98,13 @@ static void respond_asset(int fd, const char *type, const unsigned char *body, s
     send_all(fd, body, len);
 }
 
+// Whether the request came in through the setup access point (192.168.4.1), real or test portal.
+static bool via_portal(int fd) {
+    struct sockaddr_in local;
+    socklen_t len = sizeof(local);
+    return getsockname(fd, (struct sockaddr *)&local, &len) == 0 && local.sin_addr.s_addr == PP_HTONL(0xC0A80401u);
+}
+
 static void redirect(int fd, const char *location) {
     char hdr[160];
     const int n = snprintf(hdr, sizeof(hdr),
@@ -954,13 +961,28 @@ static void handle(request_t *r) {
     }
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
+    else if (get && !strcmp(r->path, "/wifi/scan")) {
+        static char scan[1600];
+        net_scan_json(scan, sizeof(scan));
+        respond(r->fd, 200, "OK", "application/json", scan);
+    }
+    else if (post && !strcmp(r->path, "/debug/portal")) {
+        // POST /debug/portal?minutes=N: the setup access point next to the station link (0 closes it).
+        char v[8];
+        const uint32_t minutes = query && form_field(query, "minutes", v, sizeof(v)) ? (uint32_t)strtoul(v, NULL, 10) : 5;
+        net_portal_test(minutes > 60 ? 60 : minutes);
+        char msg[96];
+        snprintf(msg, sizeof(msg), minutes ? "opening \"Cruller_Setup\" for %lu min\n" : "closing the setup portal\n",
+            (unsigned long)minutes);
+        respond(r->fd, 200, "OK", "text/plain", msg);
+    }
     else if (post && !strcmp(r->path, "/debug/wedge")) {
         // Self-test of the network watchdog: the board should reset ~18 s after this.
         respond(r->fd, 200, "OK", "text/plain", "Freezing the network for 60 s\n");
         vTaskDelay(pdMS_TO_TICKS(300)); // let the response leave
         health_wedge_network(60);
     }
-    else if (net_state() == NET_PORTAL) redirect(r->fd, "http://192.168.4.1/"); // captive portal probes
+    else if (net_state() == NET_PORTAL || via_portal(r->fd)) redirect(r->fd, "http://192.168.4.1/"); // captive portal probes
     else respond(r->fd, 404, "Not Found", "text/plain", "Not found\n");
 }
 

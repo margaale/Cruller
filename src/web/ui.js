@@ -63,4 +63,43 @@
   }
   document.addEventListener('visibilitychange', tellVisibility);
   setInterval(tellVisibility, 1000); // a reconnected socket starts out counted as visible
+
+  // Wi-Fi: nearby networks as buttons under the name field (GET /wifi/scan); tapping one fills it in.
+  // In the setup portal (192.168.4.1) the list comes up by itself.
+  const ssid = document.querySelector('input[name=ssid]');
+  if (ssid) {
+    const find = document.createElement('button');
+    find.type = 'button';
+    find.className = 'fs';
+    find.textContent = 'Find networks';
+    const list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:4px 0';
+    ssid.after(find, list);
+    async function scan() {
+      find.disabled = true;
+      find.textContent = 'Looking for networks…';
+      try {
+        const nets = await (await fetch('/wifi/scan')).json();
+        list.textContent = nets.length ? '' : 'No networks found';
+        for (const n of nets) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'fs';
+          b.textContent = n.ssid + '  ' + n.rssi + ' dBm' + (n.secure ? '' : '  (open)');
+          b.onclick = () => {
+            ssid.value = n.ssid;
+            const pass = document.querySelector('input[name=pass]');
+            if (pass) pass.focus();
+          };
+          list.appendChild(b);
+        }
+      } catch (e) {
+        list.textContent = 'Could not look for networks';
+      }
+      find.disabled = false;
+      find.textContent = 'Find networks again';
+    }
+    find.onclick = scan;
+    if (location.hostname === '192.168.4.1') scan();
+  }
 })();
