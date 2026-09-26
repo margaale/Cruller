@@ -19,6 +19,9 @@
 #define TICK_MS               20
 #define CLIENT_LINE_MAX       256
 #define LINE_IDLE_MS          50  // a line without "\n" (just "\r") goes out after this pause
+#define KEEPALIVE_IDLE_S      30  // TCP keepalive (see add_client)
+#define KEEPALIVE_INTERVAL_S  5
+#define KEEPALIVE_COUNT       3
 
 typedef struct {
     int fd;                        // -1: free
@@ -93,6 +96,15 @@ static void add_client(int fd, const struct sockaddr_in *peer, uint8_t *buf, siz
     const struct timeval snd = {.tv_sec = 1, .tv_usec = 0};
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd, sizeof(snd));
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    // A client that vanished without closing (power cut, network gone) would keep its slot: TCP
+    // keepalive probes a quiet connection after KEEPALIVE_IDLE_S, then every KEEPALIVE_INTERVAL_S,
+    // and gives up after KEEPALIVE_COUNT unanswered probes (~45 s). Clients' TCP stacks answer on their
+    // own; RFC 2217 has nothing for it (Telnet's "Are You There" goes unanswered by pyserial).
+    const int idle = KEEPALIVE_IDLE_S, interval = KEEPALIVE_INTERVAL_S, count = KEEPALIVE_COUNT;
+    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
     c->fd = fd;
     c->since_ms = now_ms();
     inet_ntoa_r(peer->sin_addr, c->ip, sizeof(c->ip));
