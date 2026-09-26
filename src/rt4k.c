@@ -412,6 +412,23 @@ void rt4k_debug(char *out, size_t size) {
         ms, ms & 0x10 ? "on" : "off", ms & 0x20 ? "on" : "off", (unsigned long)cts_off_packets, flow_on ? "on" : "off");
 }
 
+size_t rt4k_debug_json(char *out, size_t size) {
+    const uint8_t ms = modem_status_last; // FTDI: bit 4 CTS, 5 DSR, 6 RI, 7 DCD
+    const int n = snprintf(out, size,
+        "{\"usb\":%s,\"vid\":%u,\"pid\":%u,\"baud\":%lu,\"rx\":%lu,\"tx\":%lu,\"tx_dropped\":%lu,"
+        "\"packets\":%lu,\"overruns\":%lu,\"line_errors\":%lu,\"flow\":%s,"
+        "\"cts\":%s,\"dsr\":%s,\"ri\":%s,\"dcd\":%s,\"cts_off_packets\":%lu,"
+        "\"commands\":%lu,\"commands_dropped\":%lu,\"link_wait_max_ms\":%lu,\"rearm_max_us\":%lu}",
+        status.mounted ? "true" : "false", status.vid, status.pid, (unsigned long)status.baud,
+        (unsigned long)status.rx_bytes, (unsigned long)status.tx_bytes, (unsigned long)status.tx_dropped,
+        (unsigned long)ftdi_stats.packets, (unsigned long)ftdi_stats.overruns, (unsigned long)ftdi_stats.errors,
+        flow_on ? "true" : "false", ms & 0x10 ? "true" : "false", ms & 0x20 ? "true" : "false",
+        ms & 0x40 ? "true" : "false", ms & 0x80 ? "true" : "false", (unsigned long)cts_off_packets,
+        (unsigned long)cmd_stats.sent, (unsigned long)cmd_stats.dropped, (unsigned long)cmd_stats.max_wait_ms,
+        (unsigned long)gap_stats.max_us);
+    return n > 0 && (size_t)n < size ? (size_t)n : 0;
+}
+
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {
     critical_section_enter_blocking(&rx_lock);
     uint32_t from = *pos;

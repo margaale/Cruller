@@ -36,6 +36,8 @@ bool console_run(int owner, const char *cmd, void (*on_line)(const char *line, v
 
 // Debug: the last commands with their reply and window times, as text (GET /debug/console).
 size_t console_debug(char *out, size_t size);
+// The same as a JSON array, oldest first: [{"cmd","owner","reply_ms","window_ms"}]. 0 if it didn't fit.
+size_t console_debug_json(char *out, size_t size);
 
 // True while the last command sent hasn't been answered yet (its window is open, no line so far).
 bool console_reply_pending(void);

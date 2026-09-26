@@ -28,7 +28,17 @@ h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:u
 .kv>:nth-child(odd){color:var(--soft)}.kv>:nth-child(even){font-family:var(--mono);text-align:right}
 .mono{font-family:var(--mono)}.small{font-size:12px;color:var(--faint)}
 .big{font-size:22px;font-weight:600;font-family:var(--mono)}
-.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:stretch}
+.grid3>.row{align-self:center}
+.m2{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{font-weight:500;font-size:12px;color:var(--faint);text-align:left;padding:0 6px 6px 0}
+.tbl td{padding:5px 6px 5px 0;border-top:1px solid var(--rule);font-family:var(--mono);white-space:nowrap}
+.tbl td:first-child{font-family:var(--sans);color:var(--soft);white-space:normal}
+.tbl .r{text-align:right}
+.tbl td.warn{color:var(--warn)}.tbl td.good{color:var(--ok)}
+.pill{padding:2px 9px;border-radius:6px;background:#2B2F35;color:var(--faint);font:12px var(--mono)}
+.pill.on{background:#1F3A2C;color:var(--ok)}
 .span2{grid-column:span 2}.span3{grid-column:span 3}
 .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .metric{background:var(--raised);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
@@ -184,9 +194,49 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 <div class="panel"><div class="row"><h2 class="grow">Response time</h2><span class="small">per command</span></div>
 <div class="legend"><span><i style="background:var(--accent)"></i><span id="lg-key">key → screen –</span></span><span><i style="background:#C9CCD1"></i><span id="lg-rep">reply –</span></span></div><canvas class="chart" id="ch-lat"></canvas></div>
 
-<div class="panel"><h2>Serial link and screen</h2><pre id="d-tasks">…</pre></div>
-<div class="panel"><h2>Command queue</h2><pre id="d-console">…</pre></div>
-<div class="panel"><h2>Memory and network pools</h2><pre id="d-memory">…</pre></div>
+<div class="panel">
+<div class="row"><h2 class="grow">Serial link</h2><span class="dot" id="s-dot"></span><span class="small" id="s-usb">–</span></div>
+<div class="metrics m2">
+<div class="metric"><span>Bytes lost</span><span class="big" id="s-over">–</span><span class="small">FT232R overruns</span></div>
+<div class="metric"><span>Line errors</span><span class="big" id="s-err">–</span><span class="small">framing, parity</span></div>
+</div>
+<div class="kv">
+<span>Adapter · speed</span><span id="s-speed">–</span>
+<span>Received</span><span id="s-rx">–</span>
+<span>Sent</span><span id="s-tx">–</span>
+<span>Commands · not sent</span><span id="s-cmds">–</span>
+<span>Flow control (RTS/CTS)</span><span id="s-flow">–</span>
+<span>CTS held us off</span><span id="s-ctsoff">–</span>
+<span>Longest wait for the link</span><span id="s-wait">–</span>
+</div>
+<div class="row" style="flex-wrap:wrap;gap:6px;padding-top:10px;border-top:1px solid var(--rule)"><span class="small">lines from the RT4K</span><span class="pill" id="s-cts">CTS</span><span class="pill" id="s-dsr">DSR</span><span class="pill" id="s-dcd">DCD</span><span class="pill" id="s-ri">RI</span></div>
+</div>
+
+<div class="panel">
+<h2>Command queue</h2>
+<div class="metrics m2">
+<div class="metric"><span>Reply</span><span class="big" id="q-reply">–</span><span class="small" id="q-reply2">first line, recent commands</span></div>
+<div class="metric"><span>Window</span><span class="big" id="q-win">–</span><span class="small" id="q-win2">until the reply is complete</span></div>
+</div>
+<table class="tbl"><thead><tr><th>Command</th><th>From</th><th class="r">Reply</th><th class="r">Window</th></tr></thead><tbody id="q-rows"></tbody></table>
+</div>
+
+<div class="panel">
+<h2>Memory and network</h2>
+<div class="row"><span class="grow" style="color:var(--soft);font-size:14px">Free memory</span><span class="mono" id="n-heap">–</span></div>
+<div class="bar"><div id="n-heapbar"></div></div>
+<table class="tbl"><thead><tr><th>Pool</th><th class="r">Now</th><th class="r">Peak</th><th class="r">Failed</th><th style="width:30%"></th></tr></thead><tbody id="n-rows"></tbody></table>
+<div class="kv"><span>Clients</span><span id="n-clients">–</span></div>
+</div>
+
+<div class="panel">
+<h2>Screen mirror</h2>
+<div class="metrics m2">
+<div class="metric"><span>Key → screen</span><span class="big" id="r-key">–</span><span class="small" id="r-key2">measured by Cruller</span></div>
+<div class="metric"><span>Pages watching</span><span class="big" id="r-pages">–</span><span class="small" id="r-state">–</span></div>
+</div>
+<table class="tbl"><thead><tr><th>Plane</th><th class="r">Changes</th><th class="r">Poll</th><th class="r">Worst</th><th class="r">Errors</th></tr></thead><tbody id="r-rows"></tbody></table>
+</div>
 
 <div class="panel span2"><div class="row"><h2 class="grow">Serial log</h2><span class="small">what the RT4K sends</span></div><pre id="d-rx"></pre></div>
 <div class="panel"><h2>Tools</h2>
@@ -199,8 +249,12 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 </div><div class="small" id="d-tool"></div></div>
 
 <div class="panel span2"><div class="row"><h2 class="grow">Cruller log</h2></div><pre id="lg"></pre></div>
-<div class="panel"><div class="row"><h2 class="grow">Last restart</h2><button onclick="freeze()">Refresh</button></div><pre id="d-freeze" style="max-height:200px">…</pre></div>
-<div class="panel span3"><div class="row"><h2 class="grow">Tasks</h2><span class="small">on request: reading every stack pauses both cores for a few milliseconds</span><button onclick="stacks()">Read tasks</button></div><pre id="d-stacks">Not read yet</pre></div>
+<div class="panel"><div class="row"><h2 class="grow">Freeze recorder</h2><button onclick="freeze()">Refresh</button></div>
+<div class="small">What each core was running at the last samples; after a watchdog reset it shows the moments before it.</div>
+<table class="tbl"><thead><tr><th>Core</th><th>Task</th><th class="r">Watchdog left</th><th class="r">Fed</th></tr></thead><tbody id="z-rows"></tbody></table>
+<a class="more" href="/debug/freeze" target="_blank">Every sample →</a></div>
+<div class="panel span2"><div class="row"><h2 class="grow">Tasks</h2><span class="small">on request: reading the stacks pauses both cores for a few ms</span><button onclick="stacks()">Read tasks</button></div>
+<table class="tbl"><thead><tr><th>Task</th><th>State</th><th class="r">Priority</th><th class="r">Stack never used</th></tr></thead><tbody id="t-rows"><tr><td colspan="4" class="small">Not read yet</td></tr></tbody></table></div>
 </section>
 </main>
 <script src="/fw.js" defer></script>

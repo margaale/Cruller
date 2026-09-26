@@ -99,6 +99,11 @@ void rt4k_debug(char *out, size_t size) {
     snprintf(out, size, "bench build: no RT4K link\n");
 }
 
+size_t rt4k_debug_json(char *out, size_t size) {
+    const int n = snprintf(out, size, "{\"usb\":false}");
+    return n > 0 && (size_t)n < size ? (size_t)n : 0;
+}
+
 size_t rt4k_trace_dump(char *out, size_t size) {
     return (size_t)snprintf(out, size, "bench build: no RT4K link\n");
 }

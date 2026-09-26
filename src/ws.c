@@ -39,7 +39,6 @@
 #define MSG_IN_DEBUG      0x11 // client -> server, binary: [0x11, 1 showing Debug | 0 not]
 #define STATUS_EVERY_MS 5000
 #define DEBUG_EVERY_MS  2000
-#define DEBUG_TEXT_MAX  2048
 
 #define POLL_IDLE_MS     250      // OSD poll period
 #define POLL_ACTIVE_MS   60       // right after a key press
@@ -144,24 +143,36 @@ static bool push_log_status(client_t *c) {
     return send_tx(c, WS_OP_BINARY, 1 + strlen((char *)tx + 17));
 }
 
-// Debug tab: the status and the text reports, pushed instead of polled. Only cheap reports: the task
-// list (uxTaskGetSystemState) suspends the scheduler and stays on request (/debug/tasks?stacks).
+static size_t mirror_json(char *out, size_t size);
+
+// Debug tab: one JSON report, pushed instead of polled: {"status","serial","mirror","console","memory"}.
+// Only cheap numbers: the task list (uxTaskGetSystemState) suspends the scheduler and stays on request
+// (/debug/tasks?stacks).
 static bool push_debug(client_t *c) {
     const uint32_t t = now_ms();
     if (!c->debug || c->hidden || (c->last_debug_ms && t - c->last_debug_ms < DEBUG_EVERY_MS)) return true;
     c->last_debug_ms = t | 1;
-    char *text = (char *)tx + 18;
-    for (uint8_t kind = 1; kind <= 4; kind++) {
-        text[0] = 0;
-        if (kind == 1) http_status_json(text, DEBUG_TEXT_MAX);
-        else if (kind == 2) ws_debug(text, DEBUG_TEXT_MAX);
-        else if (kind == 3) console_debug(text, DEBUG_TEXT_MAX);
-        else http_debug_memory(text, DEBUG_TEXT_MAX);
-        tx[16] = MSG_DEBUG;
-        tx[17] = kind;
-        if (!send_tx(c, WS_OP_BINARY, 2 + strlen(text))) return false;
+    char *out = (char *)tx + 18;
+    const size_t size = sizeof(tx) - 18;
+    size_t o = (size_t)snprintf(out, size, "{\"status\":");
+    http_status_json(out + o, size - o);
+    o += strlen(out + o);
+    static const char *const keys[] = {",\"serial\":", ",\"mirror\":", ",\"console\":", ",\"memory\":"};
+    for (int k = 0; k < 4; k++) {
+        const size_t kl = strlen(keys[k]);
+        if (o + kl + 2 >= size) return true; // doesn't fit: skip this round rather than send half
+        memcpy(out + o, keys[k], kl + 1);
+        o += kl;
+        const size_t n = k == 0 ? rt4k_debug_json(out + o, size - o) : k == 1 ? mirror_json(out + o, size - o)
+            : k == 2 ? console_debug_json(out + o, size - o) : http_debug_memory_json(out + o, size - o);
+        if (!n) return true;
+        o += n;
     }
-    return true;
+    if (o + 2 >= size) return true;
+    out[o++] = '}';
+    tx[16] = MSG_DEBUG;
+    tx[17] = 5; // kind 5: the JSON report (see ws.h)
+    return send_tx(c, WS_OP_BINARY, 2 + o);
 }
 
 static bool push_terminal(client_t *c) {
@@ -481,6 +492,26 @@ void ws_debug(char *out, size_t size) {
             (unsigned long)key_lat.max, (unsigned long)key_lat.count);
     }
     if (n > 0 && (size_t)n < size) rt4k_debug(out + n, size - (size_t)n);
+}
+
+// The screen mirror for the Debug report: where it is, each plane's polls, key -> screen times.
+static size_t mirror_json(char *out, size_t size) {
+    int n = snprintf(out, size, "{\"state\":\"%s\",\"visible_pages\":%d,\"planes\":[", mirror_where, visible_count());
+    for (int p = 0; p < 2 && n > 0 && (size_t)n < size; p++) {
+        n += snprintf(out + n, size - (size_t)n,
+            "%s{\"name\":\"%s\",\"frames\":%lu,\"last\":\"%s\",\"poll_last_ms\":%lu,\"poll_max_ms\":%lu,"
+            "\"no_link\":%lu,\"timeout\":%lu,\"device\":%lu,\"protocol\":%lu}",
+            p ? "," : "", p ? "osd2" : "osd", (unsigned long)planes[p].version, rtl1_result_name(last_result[p]),
+            (unsigned long)poll_last_ms[p], (unsigned long)poll_max_ms[p],
+            (unsigned long)poll_errors[p][RTL1_ERR_NO_LINK], (unsigned long)poll_errors[p][RTL1_ERR_TIMEOUT],
+            (unsigned long)poll_errors[p][RTL1_ERR_DEVICE], (unsigned long)poll_errors[p][RTL1_ERR_PROTOCOL]);
+    }
+    if (n > 0 && (size_t)n < size) {
+        n += snprintf(out + n, size - (size_t)n, "],\"key\":{\"last\":%lu,\"avg\":%lu,\"max\":%lu,\"count\":%lu}}",
+            (unsigned long)key_lat.last, (unsigned long)(key_lat.count ? key_lat.total / key_lat.count : 0),
+            (unsigned long)key_lat.max, (unsigned long)key_lat.count);
+    }
+    return n > 0 && (size_t)n < size ? (size_t)n : 0;
 }
 
 bool ws_has_room(void) {

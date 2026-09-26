@@ -401,22 +401,83 @@ function tellDebug() {
   toldDebug = [ws, showing];
 }
 
+let report = null; // the last Debug report
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);
+const rows = (id, html) => { $(id).innerHTML = html; };
+const barCell = (used, size) => {
+  const p = size ? Math.min(100, Math.round(100 * used / size)) : 0;
+  return '<td><div class="bar"><div style="width:' + p + '%;background:' + (p > 85 ? 'var(--warn)' : '#C9CCD1') + '"></div></div></td>';
+};
+const OWNERS = ['page', 'power check', 'Cruller', 'HTTP API'];
+const owner = (n) => OWNERS[n] || 'RFC 2217 #' + (n - 3);
+
 function onDebug(kind, t) {
-  if (kind === 1) {
-    const s = JSON.parse(t);
-    samples.push({ t: Date.now(), tx: s.rt4k_tx, rx: s.rt4k_rx });
-    if (samples.length > 61) samples.shift();
-    st(s);
-  } else if (kind === 2) {
-    text('d-tasks', t);
-  } else if (kind === 3) {
-    text('d-console', t);
-    replyTimes.length = 0;
-    for (const m of t.matchAll(/reply\s+(\d+) ms/g)) replyTimes.push(+m[1]);
-  } else if (kind === 4) {
-    text('d-memory', t);
-    drawCharts(); // the last of each round
-  }
+  if (kind !== 5) return;
+  const r = report = JSON.parse(t);
+  const s = r.status;
+  samples.push({ t: Date.now(), tx: s.rt4k_tx, rx: s.rt4k_rx });
+  if (samples.length > 61) samples.shift();
+  st(s);
+
+  // Serial link
+  const se = r.serial;
+  $('s-dot').className = 'dot ' + (se.usb ? 'ok' : 'bad');
+  text('s-usb', se.usb ? 'connected' : 'not connected');
+  text('s-over', se.overruns);
+  $('s-over').style.color = se.overruns ? 'var(--warn)' : 'var(--ok)';
+  text('s-err', se.line_errors);
+  $('s-err').style.color = se.line_errors ? 'var(--warn)' : 'var(--ok)';
+  text('s-speed', 'FT232R · ' + se.baud / 1e6 + ' Mbaud');
+  text('s-rx', bytes(se.rx) + ' · ' + se.packets.toLocaleString() + ' packets');
+  text('s-tx', bytes(se.tx));
+  text('s-cmds', se.commands + ' · ' + se.commands_dropped);
+  text('s-flow', se.flow ? 'on' : 'off');
+  text('s-ctsoff', se.cts_off_packets + ' packets');
+  text('s-wait', se.link_wait_max_ms + ' ms');
+  for (const k of ['cts', 'dsr', 'dcd', 'ri']) $('s-' + k).className = 'pill' + (se[k] ? ' on' : '');
+
+  // Command queue: oldest first from Cruller; newest first here
+  const cmds = r.console.slice().reverse();
+  const answered = cmds.filter((c) => c.reply_ms >= 0);
+  replyTimes.length = 0;
+  answered.forEach((c) => replyTimes.push(c.reply_ms));
+  text('q-reply', answered.length ? avg(replyTimes) + ' ms' : '–');
+  text('q-reply2', answered.length ? 'avg of ' + answered.length + ' · max ' + Math.max(...replyTimes) + ' ms' : 'no replies yet');
+  const wins = cmds.map((c) => c.window_ms);
+  text('q-win', wins.length ? avg(wins) + ' ms' : '–');
+  text('q-win2', wins.length ? 'avg · max ' + Math.max(...wins) + ' ms' : 'until the reply is complete');
+  rows('q-rows', cmds.slice(0, 8).map((c) => '<tr><td>' + esc(c.cmd) + '</td><td>' + owner(c.owner) + '</td><td class="r' +
+    (c.reply_ms < 0 ? ' warn">none' : '">' + c.reply_ms + ' ms') + '</td><td class="r">' + c.window_ms + ' ms</td></tr>').join('') ||
+    '<tr><td colspan="4" class="small">No commands yet</td></tr>');
+
+  // Memory and network
+  const m = r.memory, h = m.heap;
+  text('n-heap', Math.round(h.free / 1024) + ' of ' + Math.round(h.size / 1024) + ' KB · lowest ' + Math.round(h.lowest / 1024));
+  $('n-heapbar').style.width = Math.round(100 * (1 - h.free / h.size)) + '%';
+  const pools = m.pools.filter((p) => !/netbufs|UDP/.test(p.name));
+  pools.push({ name: 'network heap (KB)', used: +(m.lwip_heap.used / 1024).toFixed(1), peak: +(m.lwip_heap.peak / 1024).toFixed(1),
+    size: Math.round(m.lwip_heap.size / 1024), failed: m.lwip_heap.failed });
+  rows('n-rows', pools.map((p) => '<tr><td>' + esc(p.name.replace(' (NETCONN)', '')) + ' <span class="small">of ' + p.size + '</span></td><td class="r">' +
+    p.used + '</td><td class="r">' + p.peak + '</td><td class="r ' + (p.failed ? 'warn' : 'good') + '">' + p.failed + '</td>' +
+    barCell(p.used, p.size) + '</tr>').join(''));
+  text('n-clients', m.clients.used + ' of ' + m.clients.max + ' · ' + m.clients.web + ' pages, ' + m.clients.rfc2217 + ' RFC 2217');
+
+  // Screen mirror
+  const mi = r.mirror;
+  text('r-key', mi.key.count ? mi.key.avg + ' ms' : '–');
+  text('r-key2', mi.key.count ? mi.key.count + ' keys · max ' + mi.key.max + ' ms' : 'press a key on the remote');
+  text('r-pages', mi.visible_pages);
+  text('r-state', mi.state);
+  rows('r-rows', mi.planes.map((p) => {
+    const errs = p.no_link + p.timeout + p.device + p.protocol;
+    return '<tr><td>' + (p.name === 'osd' ? 'Menu' : 'Messages') + '</td><td class="r">' + p.frames + '</td><td class="r">' + p.poll_last_ms +
+      ' ms</td><td class="r">' + p.poll_max_ms + ' ms</td><td class="r ' + (errs ? 'warn' : 'good') + '" title="no link ' + p.no_link +
+      ', timeout ' + p.timeout + ', refused ' + p.device + ', bad frame ' + p.protocol + '">' + errs + '</td></tr>';
+  }).join(''));
+
+  drawCharts();
 }
 
 async function getText(path) {
@@ -426,18 +487,30 @@ async function getText(path) {
 
 // The task list: on request only (scanning the stacks pauses both cores for a few milliseconds).
 async function stacks() {
-  text('d-stacks', '…');
+  rows('t-rows', '<tr><td colspan="4" class="small">Reading…</td></tr>');
   try {
     const t = await getText('/debug/tasks?stacks');
-    text('d-stacks', t.split('\n').filter((l) => /stack free/.test(l)).join('\n'));
+    const list = [...t.matchAll(/^(\S+)\s+(\S+)\s+prio (\d+) stack free (\d+)$/gm)].map((m) => ({ name: m[1], state: m[2], prio: +m[3], free: +m[4] }));
+    list.sort((a, b) => a.free - b.free);
+    rows('t-rows', list.map((k) => '<tr><td>' + esc(k.name) + '</td><td>' + k.state + '</td><td class="r">' + k.prio + '</td><td class="r ' +
+      (k.free < 128 ? 'warn' : '') + '">' + k.free * 4 + ' B</td></tr>').join('')); // high-water mark, in 4-byte words
   } catch (e) {
-    text('d-stacks', 'Could not read them: ' + e.message);
+    rows('t-rows', '<tr><td colspan="4" class="small">Could not read them: ' + esc(e.message) + '</td></tr>');
   }
 }
 
+// The freeze recorder: the newest sample of each core.
 async function freeze() {
   freeze.done = true;
-  try { text('d-freeze', await getText('/debug/freeze')); } catch (e) { text('d-freeze', 'Could not read it: ' + e.message); }
+  try {
+    const t = await getText('/debug/freeze');
+    const last = {};
+    for (const m of t.matchAll(/^core (\d)\s+(-?\d+) ms (\S+)\s+pc=\S+ lr=\S+ wdt left (\d+) fed (\d+) ms ago/gm)) last[m[1]] = m;
+    rows('z-rows', Object.values(last).map((m) => '<tr><td>' + m[1] + '</td><td>' + esc(m[3]) + '</td><td class="r">' + (m[4] / 1000).toFixed(1) +
+      ' s</td><td class="r">' + m[5] + ' ms ago</td></tr>').join('') || '<tr><td colspan="4" class="small">No samples</td></tr>');
+  } catch (e) {
+    rows('z-rows', '<tr><td colspan="4" class="small">Could not read it: ' + esc(e.message) + '</td></tr>');
+  }
 }
 
 async function tool(path) {
@@ -451,7 +524,7 @@ async function tool(path) {
 }
 
 function copyJson() {
-  const data = { status: S, console: $('d-console').textContent, tasks: $('d-tasks').textContent, memory: $('d-memory').textContent, keyTimes };
+  const data = { report: report || { status: S }, keyTimesSeenByThisPage: keyTimes };
   navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => text('d-state', 'Copied'), () => text('d-state', 'Could not copy'));
 }
 

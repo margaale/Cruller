@@ -218,6 +218,20 @@ static void handle_debug_tasks(int fd, const char *query) {
 // GET /debug/memory: clients against their limits, lwIP's pools and heap, the FreeRTOS heap, RAM.
 extern char __data_start__, __data_end__, __bss_start__, __bss_end__, __StackTop;
 
+static const struct {
+    int id;
+    const char *name;
+} pools[] = {
+    {MEMP_NETCONN, "sockets (NETCONN)"},
+    {MEMP_TCP_PCB, "TCP connections"},
+    {MEMP_TCP_PCB_LISTEN, "TCP listeners"},
+    {MEMP_TCP_SEG, "TCP segments"},
+    {MEMP_PBUF_POOL, "packet buffers"},
+    {MEMP_NETBUF, "netbufs"},
+    {MEMP_UDP_PCB, "UDP PCBs"},
+    {MEMP_SYS_TIMEOUT, "timeouts"},
+};
+
 static void handle_debug_memory(int fd) {
     static char out[2048];
     http_debug_memory(out, sizeof(out));
@@ -235,19 +249,6 @@ void http_debug_memory(char *out, size_t size) {
     ADD("  HTTP                    1 request at a time, %d more waiting\n", HTTP_BACKLOG);
 
     ADD("\nlwIP pools              used  peak  size  failed\n");
-    static const struct {
-        int id;
-        const char *name;
-    } pools[] = {
-        {MEMP_NETCONN, "sockets (NETCONN)"},
-        {MEMP_TCP_PCB, "TCP connections"},
-        {MEMP_TCP_PCB_LISTEN, "TCP listeners"},
-        {MEMP_TCP_SEG, "TCP segments"},
-        {MEMP_PBUF_POOL, "packet buffers"},
-        {MEMP_NETBUF, "netbufs"},
-        {MEMP_UDP_PCB, "UDP PCBs"},
-        {MEMP_SYS_TIMEOUT, "timeouts"},
-    };
     for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
         const struct stats_mem *m = lwip_stats.memp[pools[i].id];
         ADD("  %-21s %5u %5u %5u %7lu\n", pools[i].name, (unsigned)m->used, (unsigned)m->max, (unsigned)m->avail,
@@ -266,6 +267,27 @@ void http_debug_memory(char *out, size_t size) {
     ADD("RAM                     %u KB: code and data %u KB, bss %u KB (FreeRTOS heap included), rest %u KB\n",
         (unsigned)((data + bss + rest) / 1024), (unsigned)(data / 1024), (unsigned)(bss / 1024), (unsigned)(rest / 1024));
 #undef ADD
+}
+
+size_t http_debug_memory_json(char *out, size_t size) {
+    size_t o = 0;
+#define ADD(...) o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__)
+    ADD("{\"clients\":{\"used\":%d,\"max\":%d,\"web\":%d,\"rfc2217\":%d,\"http_waiting\":%d},\"pools\":[",
+        clients_used(), CLIENTS_MAX, ws_clients(NULL), rfc2217_count(NULL), HTTP_BACKLOG);
+    for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
+        const struct stats_mem *m = lwip_stats.memp[pools[i].id];
+        ADD("%s{\"name\":\"%s\",\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu}", i ? "," : "", pools[i].name,
+            (unsigned)m->used, (unsigned)m->max, (unsigned)m->avail, (unsigned long)m->err);
+    }
+    HeapStats_t hs;
+    vPortGetHeapStats(&hs);
+    ADD("],\"lwip_heap\":{\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu},"
+        "\"heap\":{\"size\":%u,\"free\":%u,\"lowest\":%u,\"largest\":%u}}",
+        (unsigned)lwip_stats.mem.used, (unsigned)lwip_stats.mem.max, (unsigned)lwip_stats.mem.avail,
+        (unsigned long)lwip_stats.mem.err, (unsigned)configTOTAL_HEAP_SIZE, (unsigned)hs.xAvailableHeapSpaceInBytes,
+        (unsigned)hs.xMinimumEverFreeBytesRemaining, (unsigned)hs.xSizeOfLargestFreeBlockInBytes);
+#undef ADD
+    return o < size ? o : 0;
 }
 
 // GET /ws: WebSocket upgrade; the connection then belongs to ws.c.

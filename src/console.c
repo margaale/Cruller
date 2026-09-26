@@ -195,6 +195,24 @@ size_t console_debug(char *out, size_t size) {
     return o < size ? o : size - 1;
 }
 
+size_t console_debug_json(char *out, size_t size) {
+    size_t o = (size_t)snprintf(out, size, "[");
+    const uint32_t n = cmd_log_n < CMD_LOG ? cmd_log_n : CMD_LOG;
+    for (uint32_t k = cmd_log_n - n; k != cmd_log_n && o < size; k++) {
+        const uint32_t i = k & (CMD_LOG - 1);
+        char cmd[sizeof(cmd_log[i].cmd)];
+        size_t c = 0;
+        for (const char *p = cmd_log[i].cmd; *p && c < sizeof(cmd) - 1; p++) {
+            cmd[c++] = *p == '"' || *p == '\\' || (unsigned char)*p < 0x20 ? '?' : *p; // no escapes needed
+        }
+        cmd[c] = 0;
+        o += (size_t)snprintf(out + o, size - o, "%s{\"cmd\":\"%s\",\"owner\":%d,\"reply_ms\":%d,\"window_ms\":%u}",
+            k == cmd_log_n - n ? "" : ",", cmd, cmd_log[i].owner, cmd_log[i].reply_ms, cmd_log[i].window_ms);
+    }
+    if (o < size) o += (size_t)snprintf(out + o, size - o, "]");
+    return o < size ? o : 0;
+}
+
 // The last line of each command's reply, when known (console_core_begin's done_when), so the window
 // closes on it instead of after the quiet wait: measured, that wait was ~50 ms of every command's
 // 60-80 ms. NULL: unknown, the quiet wait decides. *no_reply: never answered (SVS): don't wait at all.
