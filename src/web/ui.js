@@ -50,4 +50,17 @@
     st(s);
     if (s && s.rt4k_power) show(s.rt4k_power);
   };
+
+  // Tell Cruller whether this page is on screen: it stops polling the RT4K's menu for background tabs.
+  let told = null; // [socket, visible] last sent
+  function tellVisibility() {
+    const sock = typeof ws !== 'undefined' ? ws : null; // the page's WebSocket (see conn())
+    if (!sock || sock.readyState !== 1) return;
+    const visible = document.visibilityState === 'visible';
+    if (told && told[0] === sock && told[1] === visible) return;
+    sock.send(new Uint8Array([0x10, visible ? 1 : 0]));
+    told = [sock, visible];
+  }
+  document.addEventListener('visibilitychange', tellVisibility);
+  setInterval(tellVisibility, 1000); // a reconnected socket starts out counted as visible
 })();

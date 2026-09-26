@@ -7,6 +7,8 @@
 //   0x03 font: 4096 bytes (256 glyphs, 8x16, font[row * 256 + glyph], bit 0 = leftmost pixel)
 //   0x04 Cruller log text; 0x05 the /status JSON (on connect, then every 5 s)
 // Client -> server, text messages: one RT4K console command each ("remote menu", "ver", ...).
+// Client -> server, binary: [0x10, 1|0] the page is visible / hidden; the mirror polls the RT4K
+// only while some page is visible (clients count as visible until they say otherwise).
 
 #pragma once
 

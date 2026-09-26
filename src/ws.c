@@ -32,6 +32,7 @@
 #define MSG_FONT   0x03
 #define MSG_LOG    0x04   // Cruller's own log (what /log serves)
 #define MSG_STATUS 0x05   // the /status JSON, every STATUS_EVERY_MS
+#define MSG_IN_VISIBILITY 0x10 // client -> server, binary: [0x10, 1 visible | 0 hidden]
 #define STATUS_EVERY_MS 5000
 
 #define POLL_IDLE_MS     250      // OSD poll period
@@ -52,6 +53,7 @@ typedef struct {
     uint32_t log_pos;
     uint32_t last_status_ms;      // 0 = send one right away
     int status_power;             // power state in the last status sent: a change is pushed at once
+    bool hidden;                  // the page says it's not on screen (background tab)
 } client_t;
 
 typedef struct {
@@ -201,9 +203,24 @@ static bool on_frame(client_t *c, const ws_frame_t *f) {
             send_tx(c, WS_OP_CLOSE, n);
             return false;
         }
+        case WS_OP_BINARY:
+            // [0x10, 1|0]: the page is visible / hidden (a background tab needs no mirror).
+            if (f->len >= 2 && f->payload[0] == MSG_IN_VISIBILITY) {
+                const bool was_hidden = c->hidden;
+                c->hidden = f->payload[1] == 0;
+                if (was_hidden && !c->hidden && mirror_task_h) xTaskNotifyGive(mirror_task_h);
+            }
+            return true;
         default:
-            return true; // binary and pong: nothing to do
+            return true; // pong: nothing to do
     }
+}
+
+// Clients whose page is on screen: the mirror polls only for them.
+static int visible_count(void) {
+    int n = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++) n += clients[i].fd >= 0 && !clients[i].hidden;
+    return n;
 }
 
 static bool on_readable(client_t *c) {
@@ -364,8 +381,8 @@ static void mirror_task(void *param) {
     (void)param;
     static uint8_t buf[4096];
     for (;;) {
-        if (!client_count || !rt4k_connected()) {
-            mirror_where = "idle";
+        if (!visible_count() || !rt4k_connected()) {
+            mirror_where = client_count ? "idle (no page on screen)" : "idle";
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
             continue;
         }
