@@ -228,11 +228,17 @@ static void handle_rt4k_xfer(int fd, const char *query) {
 }
 
 static void handle_status(int fd) {
-    char ssid[80], body[512];
+    char body[512];
+    http_status_json(body, sizeof(body));
+    respond(fd, 200, "OK", "application/json", body);
+}
+
+void http_status_json(char *body, size_t size) {
+    char ssid[80];
     json_escape(ssid, sizeof(ssid), net_ssid());
     rt4k_status_t rt;
     rt4k_get_status(&rt);
-    snprintf(body, sizeof(body),
+    snprintf(body, size,
         "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\","
         "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,"
         "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,"
@@ -241,7 +247,6 @@ static void handle_status(int fd) {
         ssid, net_ip(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
         (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped);
-    respond(fd, 200, "OK", "application/json", body);
 }
 
 // GET <path>?since=N: text written after position N, with the new position in X-Next.
@@ -272,7 +277,8 @@ static const char PAGE[] =
     "canvas{display:block;width:100%;max-width:1280px;aspect-ratio:16/9;image-rendering:pixelated;background:#000;border-radius:4px;margin:4px auto}"
     "canvas:fullscreen{max-width:none;border-radius:0;background:#000}"
     ".stage{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}.screen{flex:1 1 560px;min-width:0}"
-    ".fs{width:auto;padding:4px 12px;font-size:.8em;background:#333}"
+    ".fs{width:auto;padding:4px 12px;font-size:.8em;background:#333}.screen{position:relative}"
+    "#stats{position:absolute;left:10px;top:10px;font:12px/1.4 ui-monospace,monospace;color:#7f7;background:#000c;padding:4px 8px;border-radius:4px;pointer-events:none;white-space:pre}"
     ".remote{flex:0 0 232px;margin:4px auto;background:#1a1a1a;border:3px solid #050505;border-radius:30px;padding:18px 14px 14px;box-shadow:0 6px 18px #0008}"
     ".remote button{margin:0;padding:7px 0;background:#8c8c8c;color:#141414;border-radius:6px;font-size:.78em;font-weight:700;width:100%}"
     ".remote button:active{background:#bbb}.remote small{display:block;font-size:.72em;font-weight:600}"
@@ -287,9 +293,9 @@ static const char PAGE[] =
     ".led.on{background:#ff2b2b;box-shadow:0 0 6px 1px #ff2b2b}"
     "</style></head><body><h1>Cruller</h1>"
     "<section><h2>RT4K <span id=link>connecting</span></h2>"
-    "<div class=stage><div class=screen>"
+    "<div class=stage><div class=screen><div id=stats hidden></div>"
     "<canvas id=tv width=1280 height=720 title='Double-click for full screen'></canvas>"
-    "<button class=fs onclick=\"$('tv').requestFullscreen()\">Full screen</button>"
+    "<button class=fs onclick=\"$('tv').requestFullscreen()\">Full screen</button> <button class=fs onclick=\"$('stats').hidden^=1\">Stats</button>"
     "<div class=term><pre id=rx></pre>"
     "<form onsubmit='return cmd()'><input id=cm placeholder='Command, e.g. remote menu' autocomplete=off autocapitalize=none></form></div>"
     "</div>"
@@ -329,24 +335,27 @@ static const char PAGE[] =
     "<section class=narrow><h2>Log</h2><pre id=lg></pre></section>"
     "<script>"
     "const $=id=>document.getElementById(id);"
-    "function st(){fetch('/status').then(r=>r.json()).then(s=>{$('st').innerHTML="
-    "Object.entries(s).map(([k,v])=>'<tr><td>'+k+'</td><td>'+String(v).replace(/</g,'&lt;')+'</td></tr>').join('')}).catch(()=>{})}"
-    "st();setInterval(st,5000);"
-    "let lg=0;setInterval(()=>fetch('/log?since='+lg).then(r=>{lg=+r.headers.get('X-Next')||lg;return r.text()})"
-    ".then(t=>{if(t){const e=$('lg');e.textContent+=t;e.scrollTop=e.scrollHeight}}).catch(()=>{}),1000);"
+    // Status and log arrive over the WebSocket (types 5 and 4): no polling.
+    "function st(s){$('st').innerHTML=Object.entries(s).map(([k,v])=>'<tr><td>'+k+'</td><td>'+String(v).replace(/</g,'&lt;')+'</td></tr>').join('')}"
+    "function lg(t){const e=$('lg');e.textContent+=t;if(e.textContent.length>30000)e.textContent=e.textContent.slice(-20000);e.scrollTop=e.scrollHeight}"
     // RT4K over the WebSocket: terminal text, OSD planes, font (see ws.h).
     "let ws,font=null;const planes=[null,null],BG=[[5,7,12],[233,237,243],[32,192,32],[208,32,32]];"
     "function out(t){const e=$('rx');e.textContent+=t;if(e.textContent.length>30000)e.textContent=e.textContent.slice(-20000);e.scrollTop=e.scrollHeight}"
     "function send(t){if(ws&&ws.readyState==1){ws.send(t);return true}return false}"
     // The remote's LED: lights while a key is sent.
-    "function blink(){const l=$('led');l.classList.add('on');clearTimeout(blink.t);blink.t=setTimeout(()=>l.classList.remove('on'),150)}"
+    // Stats overlay: screen updates per second (menu / messages), key-to-screen time, draw time.
+    "const ST={n:[0,0],lat:0,key:0,draw:0};setInterval(()=>{if(!$('stats').hidden)$('stats').textContent="
+    "'menu '+ST.n[0]+'/s  msgs '+ST.n[1]+'/s\\nkey->screen '+(ST.lat?ST.lat+' ms':'-')+'\\ndraw '+ST.draw.toFixed(1)+' ms';ST.n=[0,0]},1000);"
+    "function blink(){ST.key=performance.now();const l=$('led');l.classList.add('on');clearTimeout(blink.t);blink.t=setTimeout(()=>l.classList.remove('on'),150)}"
     "function conn(){ws=new WebSocket('ws://'+location.host+'/ws');ws.binaryType='arraybuffer';"
     "ws.onopen=()=>$('link').textContent='connected';"
     "ws.onclose=()=>{$('link').textContent='reconnecting';setTimeout(conn,2000)};"
     "ws.onmessage=e=>{const u=new Uint8Array(e.data);"
     "if(u[0]==1)out(new TextDecoder('latin1').decode(u.subarray(1)));"
     "else if(u[0]==3){font=u.slice(1);draw()}"
-    "else if(u[0]==2){const n=u[2],d=u.subarray(3+n);"
+    "else if(u[0]==4)lg(new TextDecoder('latin1').decode(u.subarray(1)));"
+    "else if(u[0]==5)st(JSON.parse(new TextDecoder().decode(u.subarray(1))));"
+    "else if(u[0]==2){const n=u[2],d=u.subarray(3+n);ST.n[u[1]-1]++;if(u[1]==1&&ST.key){ST.lat=Math.round(performance.now()-ST.key);ST.key=0}"
     "planes[u[1]-1]=d.length?{r:new TextDecoder().decode(u.subarray(3,3+n)),d:d.slice()}:null;draw()}}}"
     "function kv(r){const o={};r.split(' ').forEach(t=>{const i=t.indexOf('=');if(i>0)o[t.slice(0,i)]=+t.slice(i+1)});return o}"
     // The TV screen: 16:9, black. The main plane's rows fill its height, anchored left; the secondary
@@ -370,7 +379,8 @@ static const char PAGE[] =
     "const k=Math.ceil(s),u=document.createElement('canvas');u.width=sw*k;u.height=sh*k;const ug=u.getContext('2d');"
     "ug.imageSmoothingEnabled=false;ug.drawImage(c,sx,sy,sw,sh,0,0,sw*k,sh*k);"
     "g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(u,dx,dy,Math.round(sw*s),Math.round(sh*s))}"
-    "function draw(){const t=$('tv'),g=t.getContext('2d'),W=t.width,H=t.height;"
+    "function draw(){const t0=performance.now();draw1();ST.draw=performance.now()-t0}"
+    "function draw1(){const t=$('tv'),g=t.getContext('2d'),W=t.width,H=t.height;"
     "g.fillStyle='#000';g.fillRect(0,0,W,H);if(!font)return;"
     "const mk=planes[0]?kv(planes[0].r):{},ph=(mk.rows||32)*16,sc=H*(2048/2160)/ph;"
     "if(planes[0]){const c=render(planes[0]);blit(g,c,0,0,c.width,c.height,W*.031,H*.974-c.height*sc,sc)}"
@@ -391,7 +401,11 @@ static const char PAGE[] =
     "</script></body></html>";
 
 static bool ota_sink(const uint8_t *data, size_t len, void *ctx) {
-    (void)ctx;
+    bool *quiet = ctx;
+    if (!*quiet) {
+        if (!flash_quiet_begin()) return false; // "connection lost" is close enough: it can't proceed
+        *quiet = true;
+    }
     return ota_feed(data, len);
 }
 
@@ -401,14 +415,18 @@ static void handle_update(request_t *r) {
         return;
     }
     printf("http: firmware upload, %ld bytes\n", r->content_length);
-    if (!flash_quiet_begin()) {
-        respond(r->fd, 503, "Service Unavailable", "text/plain", "Update failed: could not stop the USB host\n");
-        return;
+    // Clients sending "Expect: 100-continue" (curl does above 1 MiB) wait for this before the body.
+    // Without it they paused ~1 s, and the board hung during that pause (root cause still unknown).
+    char expect[24];
+    if (get_header(r, "Expect", expect, sizeof(expect)) && !strcasecmp(expect, "100-continue")) {
+        static const char cont[] = "HTTP/1.1 100 Continue\r\n\r\n";
+        send_all(r->fd, cont, sizeof(cont) - 1);
     }
+    bool quiet = false; // the USB host is suspended by ota_sink, once the body is actually flowing
     ota_begin();
-    const bool received = read_body(r, ota_sink, NULL);
+    const bool received = read_body(r, ota_sink, &quiet);
     if (!received || !ota_finish()) {
-        flash_quiet_end();
+        if (quiet) flash_quiet_end();
         char msg[96];
         snprintf(msg, sizeof(msg), "Update failed: %s\n", received ? ota_error() : "connection lost");
         respond(r->fd, 400, "Bad Request", "text/plain", msg);
@@ -512,6 +530,11 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/rt4k/xfer")) handle_rt4k_xfer(r->fd, query);
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd);
+    else if (get && !strcmp(r->path, "/debug/lastfail")) {
+        const uint8_t *d;
+        const size_t n = rtl1_last_failure(&d);
+        respond_bytes(r->fd, "", d, n);
+    }
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
     else if (post && !strcmp(r->path, "/debug/wedge")) {

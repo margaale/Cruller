@@ -37,3 +37,6 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
     uint32_t ready_timeout_ms);
 
 const char *rtl1_result_name(rtl1_result_t r);
+
+// Debug: raw bytes received during the last transfer that failed with a protocol error.
+size_t rtl1_last_failure(const uint8_t **data);

@@ -81,7 +81,7 @@ static void fail_binary(bool send_abort, const char *fmt, ...) {
         vsnprintf(e.info->detail, sizeof(e.info->detail), fmt, ap);
         va_end(ap);
     }
-    if (send_abort) {
+    if (send_abort && hooks->abort_on_error) {
         uint8_t f[10];
         rtl1_encode_frame(f, e.nonce, TYPE_ABORT, e.expect_seq, NULL, 0);
         hooks->write(f, sizeof(f));

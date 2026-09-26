@@ -51,7 +51,7 @@ static void hook_finished(void) {
     finished_calls++;
 }
 
-static const rtl1_hooks_t hooks = {hook_write, hook_text, hook_sha, hook_finished};
+static rtl1_hooks_t hooks = {hook_write, hook_text, hook_sha, hook_finished, true};
 
 static uint8_t out[8192];
 static rtl1_info_t info;
@@ -424,6 +424,23 @@ static void test_bad_crc(void) {
     check_failure_drained("bad CRC", true, 0);
 }
 
+static void test_bad_crc_without_abort(void) {
+    // USB mode: no ABORT (it would arrive after the transfer); still drained, closing line ends it.
+    hooks.abort_on_error = false;
+    reset();
+    begin("osd2", sizeof(out));
+    put_str(READY_OSD2);
+    const size_t at = wire_len;
+    put_frame(NONCE, 3, 0, osd2, 2048);
+    wire[at + 500] ^= 0x01;
+    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
+    put_frame(NONCE, 2, 2, osd2_digest, 32);
+    put_str("[COM] osd done\n[COM] after\n");
+    deliver(62);
+    check_failure_drained("bad CRC", false, 0);
+    hooks.abort_on_error = true;
+}
+
 static void test_wrong_nonce(void) {
     reset();
     begin("osd2", sizeof(out));
@@ -629,6 +646,7 @@ static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_short_ready_timeout),
     T(test_stall_mid_transfer),
     T(test_bad_crc),
+    T(test_bad_crc_without_abort),
     T(test_wrong_nonce),
     T(test_sequence_gap),
     T(test_nak),

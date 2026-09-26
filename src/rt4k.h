@@ -34,6 +34,9 @@ void rt4k_link_unlock(void);
 
 bool rt4k_connected(void);
 
+// Milliseconds since rt4k_command() last sent something.
+uint32_t rt4k_ms_since_command(void);
+
 // Text for the terminal ring; rtl1_feed() passes on everything that isn't a binary frame.
 void rt4k_text_push(const uint8_t *data, size_t len);
 

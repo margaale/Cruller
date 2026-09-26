@@ -20,6 +20,7 @@ typedef struct {
     void (*text)(const uint8_t *data, size_t len);           // terminal text
     bool (*sha256)(const uint8_t *data, size_t len, uint8_t out[32]);
     void (*finished)(void);                                  // the transfer has ended (any outcome)
+    bool abort_on_error;     // send ABORT when a transfer goes wrong (acknowledged mode); else just drain
 } rtl1_hooks_t;
 
 typedef enum {

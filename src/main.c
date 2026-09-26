@@ -34,14 +34,22 @@ static void main_task(void *param) {
 
     health_start(ota_is_trial_boot());
     const uint32_t t0 = ms_since_boot();
-    if (cyw43_arch_init()) {
+    // The CYW43's async context pins its task, and registers the chip's IRQ, on the core that calls
+    // cyw43_arch_init(). Do it from core 0: core 1 belongs to the RT4K's USB (task and IRQ), and Wi-Fi
+    // work landing there made the FT232R overflow (bad RTL1 CRCs whenever the web page was busy).
+    vTaskCoreAffinitySet(NULL, 1u << 0);
+    taskYIELD();
+    const int cyw43_err = cyw43_arch_init();
+    vTaskCoreAffinitySet(NULL, tskNO_AFFINITY);
+    if (cyw43_err) {
         // Without the CYW43 there is no network and no way to update: let a trial image roll back.
         printf("cyw43_arch_init failed, resetting\n");
         health_stop_feeding(); // or the feeder keeps postponing the reboot
         watchdog_reboot(0, 0, 100);
         for (;;) vTaskDelay(portMAX_DELAY);
     }
-    printf("CYW43 up in %lu ms\n", (unsigned long)(ms_since_boot() - t0));
+    printf("CYW43 up in %lu ms, on core %u\n", (unsigned long)(ms_since_boot() - t0),
+        (unsigned)async_context_core_num(cyw43_arch_async_context()));
     health_start_net_probe();
     status_led_start();
     rt4k_start();

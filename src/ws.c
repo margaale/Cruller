@@ -11,6 +11,8 @@
 #include "pico/time.h"
 
 #include "rt4k.h"
+#include "http.h"
+#include "log.h"
 #include "rtl1.h"
 #include "ws_proto.h"
 
@@ -27,14 +29,14 @@
 #define MSG_TERM   0x01
 #define MSG_PLANE  0x02
 #define MSG_FONT   0x03
+#define MSG_LOG    0x04   // Cruller's own log (what /log serves)
+#define MSG_STATUS 0x05   // the /status JSON, every STATUS_EVERY_MS
+#define STATUS_EVERY_MS 5000
 
 #define POLL_IDLE_MS     250      // OSD poll period
 #define POLL_ACTIVE_MS   60       // right after a key press
 #define ACTIVE_WINDOW_MS 1500
-#define TRANSFER_GAP_MS  40       // between transfers: one sent right after another was often ignored
 #define POLL_READY_TIMEOUT_MS 600  // a lost poll request frees the link quickly (keys wait for it)
-#define KEY_SETTLE_MS    100      // after a key: let the RT4K act and redraw before asking (a request
-                                  // sent right behind the key was often ignored: 3 s link stalls)
 #define OFFLINE_BACKOFF_MS 2000   // RT4K not answering (standby)
 
 typedef struct {
@@ -46,6 +48,8 @@ typedef struct {
     uint32_t plane_sent[2];
     uint32_t last_rx_ms;          // any frame received (pongs included)
     uint32_t last_ping_ms;
+    uint32_t log_pos;
+    uint32_t last_status_ms;      // 0 = send one right away
 } client_t;
 
 typedef struct {
@@ -104,6 +108,22 @@ static void drop(client_t *c) {
     c->fd = -1;
     client_count--;
     printf("ws: client left (%d connected)\n", client_count);
+}
+
+// The page used to poll /log and /status: both come over the socket now.
+static bool push_log_status(client_t *c) {
+    for (int i = 0; i < 4; i++) {
+        tx[16] = MSG_LOG;
+        const size_t n = log_read(&c->log_pos, (char *)tx + 17, TERM_CHUNK);
+        if (!n) break;
+        if (!send_tx(c, WS_OP_BINARY, 1 + n)) return false;
+    }
+    const uint32_t t = now_ms();
+    if (c->last_status_ms && t - c->last_status_ms < STATUS_EVERY_MS) return true;
+    c->last_status_ms = t | 1;
+    tx[16] = MSG_STATUS;
+    http_status_json((char *)tx + 17, 1024);
+    return send_tx(c, WS_OP_BINARY, 1 + strlen((char *)tx + 17));
 }
 
 static bool push_terminal(client_t *c) {
@@ -270,6 +290,7 @@ static void ws_task(void *param) {
             ws_where = "push";
             if (ok) ok = push_terminal(c);
             if (ok) ok = push_mirror(c);
+            if (ok) ok = push_log_status(c);
             if (ok) ok = keepalive(c);
             if (!ok && c->fd >= 0) drop(c);
         }
@@ -291,8 +312,11 @@ static rtl1_result_t poll_plane(int p, uint8_t *buf) {
     if (r != RTL1_OK && (unsigned)r < 5) poll_errors[p][r]++;
     mirror_where = "compare";
     last_result[p] = r;
-    memcpy(last_detail[p], info.detail, sizeof(last_detail[p]));
-    if (r != RTL1_OK && r != RTL1_ERR_DEVICE) return r; // DEVICE = "nothing shown": an empty plane
+    if (r != RTL1_OK) memcpy(last_detail[p], info.detail, sizeof(last_detail[p])); // keep the last error
+    // "nothing shown" is an empty plane; any other refusal (busy...) keeps what we had: blanking the
+    // plane on "busy" made the menu flicker while navigating.
+    const bool empty = r == RTL1_ERR_DEVICE && strstr(info.detail, "nothing shown");
+    if (r != RTL1_OK && !empty) return r;
     const size_t len = r == RTL1_OK ? info.len : 0;
     // The nonce changes every time: compare the ready line only up to it.
     char *nonce = strstr(info.ready, " nonce=");
@@ -318,11 +342,6 @@ static void mirror_task(void *param) {
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
             continue;
         }
-        const uint32_t since_key = now_ms() - last_key_ms;
-        if (since_key < KEY_SETTLE_MS) {
-            mirror_where = "settle";
-            vTaskDelay(pdMS_TO_TICKS(KEY_SETTLE_MS - since_key));
-        }
         rtl1_result_t r = RTL1_OK;
         if (!font_version) {
             static rtl1_info_t info;
@@ -338,10 +357,7 @@ static void mirror_task(void *param) {
         if (!offline(r)) r = poll_plane(0, buf);
         // The menu is in the main plane: while keys are being pressed, poll only that one.
         const bool navigating = now_ms() - last_key_ms < ACTIVE_WINDOW_MS;
-        if (!offline(r) && !navigating) {
-            vTaskDelay(pdMS_TO_TICKS(TRANSFER_GAP_MS));
-            r = poll_plane(1, buf);
-        }
+        if (!offline(r) && !navigating) r = poll_plane(1, buf);
         // Back off only when the RT4K doesn't answer; a refusal or a bad frame is retried soon.
         const uint32_t wait = offline(r) ? OFFLINE_BACKOFF_MS : navigating ? POLL_ACTIVE_MS : POLL_IDLE_MS;
         mirror_where = "wait";
@@ -354,7 +370,7 @@ void ws_debug(char *out, size_t size) {
         (unsigned)uxQueueMessagesWaiting(adopt_q));
     for (int p = 0; p < 2 && n > 0 && (size_t)n < size; p++) {
         n += snprintf(out + n, size - (size_t)n,
-            "%s: last %s %s | poll last %lu ms max %lu ms | errors nolink %lu timeout %lu device %lu protocol %lu | version %lu\n",
+            "%s: last %s, last error '%s' | poll last %lu ms max %lu ms | errors nolink %lu timeout %lu device %lu protocol %lu | version %lu\n",
             p ? "osd2" : "osd", rtl1_result_name(last_result[p]), last_detail[p], (unsigned long)poll_last_ms[p],
             (unsigned long)poll_max_ms[p], (unsigned long)poll_errors[p][RTL1_ERR_NO_LINK],
             (unsigned long)poll_errors[p][RTL1_ERR_TIMEOUT], (unsigned long)poll_errors[p][RTL1_ERR_DEVICE],

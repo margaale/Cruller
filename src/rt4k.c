@@ -9,6 +9,7 @@
 #include "stream_buffer.h"
 #include "pico/sync.h"
 #include "pico/time.h"
+#include "hardware/irq.h"
 #include "tusb.h"
 
 #include "rtl1.h"
@@ -34,6 +35,7 @@ static volatile uint8_t cdc_idx = 0xff;
 static TaskHandle_t rt4k_handle;
 static volatile bool want_suspend, suspended;
 static struct { uint32_t sent, dropped, last_wait_ms, max_wait_ms; } cmd_stats; // debug
+static volatile uint32_t last_cmd_ms;
 
 // Every host event (most often from the USB IRQ) wakes the rt4k task right away. Polling tuh_task()
 // once per tick moved one 64-byte packet per ms (~62 KB/s), below 2 Mbaud (200 KB/s), and the
@@ -107,13 +109,14 @@ static void rt4k_task(void *param) {
     uint8_t buf[64];
     for (;;) {
         if (want_suspend) {
-            // Controller and IRQ off while flash is written (see flash_ops.h).
-            tuh_deinit(BOARD_TUH_RHPORT);
-            cdc_idx = 0xff;
-            status.mounted = false;
+            // Host quiet while flash is written (see flash_ops.h): its IRQ off (this task and the IRQ
+            // are on core 1) and this task parked. Not tuh_deinit(): TinyUSB 0.21's hcd_deinit() calls
+            // critical_section_deinit(), which force-unlocks a striped spinlock shared with other
+            // critical sections (the log's...); an OTA then hung on it about 3 times in 4.
+            irq_set_enabled(USBCTRL_IRQ, false);
             suspended = true;
             while (want_suspend) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
-            host_init();
+            irq_set_enabled(USBCTRL_IRQ, true);
             suspended = false;
             printf("rt4k: USB host resumed\n");
             continue;
@@ -157,8 +160,16 @@ void rt4k_start(void) {
     xTaskCreateAffinitySet(rt4k_task, "rt4k", RT4K_TASK_STACK, NULL, RT4K_TASK_PRIORITY, 1u << RT4K_TASK_CORE, &rt4k_handle);
 }
 
+static bool link_held_for_suspend;
+
 bool rt4k_suspend(void) {
     if (!rt4k_handle) return true; // not started: nothing running
+    // Only between transfers: tearing TinyUSB down while the FT232R is streaming an RTL1 transfer left
+    // core 1 stuck in a TinyUSB critical section, and core 0 then hung on the shared spinlock (the OTA
+    // froze right after "serial unmounted"). Every transfer holds the link, so owning it means quiet;
+    // keep it until the resume so no transfer starts with the host off.
+    if (!rt4k_link_lock(5000)) return false;
+    link_held_for_suspend = true;
     want_suspend = true;
     for (int i = 0; i < 100 && !suspended; i++) vTaskDelay(pdMS_TO_TICKS(10));
     return suspended;
@@ -167,6 +178,10 @@ bool rt4k_suspend(void) {
 void rt4k_resume(void) {
     want_suspend = false;
     if (rt4k_handle) xTaskNotifyGive(rt4k_handle);
+    if (link_held_for_suspend) {
+        link_held_for_suspend = false;
+        rt4k_link_unlock();
+    }
 }
 
 bool rt4k_write(const void *data, size_t len) {
@@ -205,7 +220,12 @@ bool rt4k_command(const char *cmd) {
     const bool ok = rt4k_write(line, (size_t)n);
     rt4k_link_unlock();
     cmd_stats.sent++;
+    last_cmd_ms = to_ms_since_boot(get_absolute_time());
     return ok;
+}
+
+uint32_t rt4k_ms_since_command(void) {
+    return to_ms_since_boot(get_absolute_time()) - last_cmd_ms;
 }
 
 void rt4k_debug(char *out, size_t size) {

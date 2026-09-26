@@ -17,4 +17,8 @@ for t in test_rtl1 test_ws; do
     ./build-tests/$t || status=1
     echo
 done
+if command -v node >/dev/null; then
+    echo "== page"
+    node tests/check_page.js || status=1
+fi
 exit $status

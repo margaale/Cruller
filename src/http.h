@@ -3,6 +3,10 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 
 void http_start(void);
+
+// The /status JSON (also pushed over the WebSocket).
+void http_status_json(char *body, size_t size);
 bool http_listening(void);   // true once the server socket is open

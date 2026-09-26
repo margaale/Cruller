@@ -5,6 +5,7 @@
 //   0x02 OSD plane: [plane 1|2][ready line length][ready line][2048 chars + 2048 colours, or nothing
 //        when the plane is empty]
 //   0x03 font: 4096 bytes (256 glyphs, 8x16, font[row * 256 + glyph], bit 0 = leftmost pixel)
+//   0x04 Cruller log text; 0x05 the /status JSON (on connect, then every 5 s)
 // Client -> server, text messages: one RT4K console command each ("remote menu", "ver", ...).
 
 #pragma once
