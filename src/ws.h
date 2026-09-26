@@ -13,10 +13,11 @@
 
 void ws_start(void);
 
-// Takes over an HTTP connection after the 101 handshake. False (the caller closes it) when full.
+// Takes over an HTTP connection after the 101 handshake (evicting the quietest client when full).
+// False (the caller closes it) only if handovers are backing up.
 bool ws_adopt(int fd);
 
-// Room for another client?
+// Can a handover be queued?
 bool ws_has_room(void);
 
 // Debug: one line on where the ws and mirror tasks are.

@@ -14,13 +14,15 @@
 #include "rtl1.h"
 #include "ws_proto.h"
 
-#define MAX_CLIENTS        2
+#define MAX_CLIENTS        3
 #define WS_TASK_STACK      1536   // words
 #define WS_TASK_PRIORITY   (tskIDLE_PRIORITY + 2)
 #define MIRROR_TASK_STACK  1024
 #define MIRROR_PRIORITY    (tskIDLE_PRIORITY + 2)
 #define RX_MAX             512    // biggest client message (console commands are short)
 #define TERM_CHUNK         1024
+#define PING_EVERY_MS      10000  // keepalive; browsers answer pings on their own
+#define SILENT_DROP_MS     25000  // nothing received for this long: the peer is gone
 
 #define MSG_TERM   0x01
 #define MSG_PLANE  0x02
@@ -38,6 +40,8 @@ typedef struct {
     uint32_t term_pos;
     uint32_t font_sent;           // versions already sent
     uint32_t plane_sent[2];
+    uint32_t last_rx_ms;          // any frame received (pongs included)
+    uint32_t last_ping_ms;
 } client_t;
 
 typedef struct {
@@ -179,6 +183,7 @@ static bool on_readable(client_t *c) {
     const int n = recv(c->fd, c->rx + c->rx_len, RX_MAX - c->rx_len, 0);
     if (n <= 0) return false;
     c->rx_len += (size_t)n;
+    c->last_rx_ms = now_ms();
     for (;;) {
         ws_frame_t f;
         const long used = ws_parse(c->rx, c->rx_len, RX_MAX - 14, &f);
@@ -193,17 +198,38 @@ static bool on_readable(client_t *c) {
 // --- tasks -------------------------------------------------------------------------------------
 
 static void add_client(int fd) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i].fd < 0) {
-            memset(&clients[i], 0, sizeof(clients[i]));
-            clients[i].fd = fd;
-            client_count++;
-            printf("ws: client joined (%d connected)\n", client_count);
-            if (mirror_task_h) xTaskNotifyGive(mirror_task_h);
-            return;
-        }
+    client_t *slot = NULL;
+    for (int i = 0; i < MAX_CLIENTS && !slot; i++) {
+        if (clients[i].fd < 0) slot = &clients[i];
     }
-    closesocket(fd); // raced for the last slot
+    if (!slot) {
+        // Full: the newcomer wins over the least recently heard-from client (often a reloaded page
+        // whose old connection never closed properly).
+        slot = &clients[0];
+        for (int i = 1; i < MAX_CLIENTS; i++) {
+            if (clients[i].last_rx_ms < slot->last_rx_ms) slot = &clients[i];
+        }
+        printf("ws: full, evicting the quietest client\n");
+        drop(slot);
+    }
+    memset(slot, 0, sizeof(*slot));
+    slot->fd = fd;
+    slot->last_rx_ms = slot->last_ping_ms = now_ms();
+    client_count++;
+    printf("ws: client joined (%d connected)\n", client_count);
+    if (mirror_task_h) xTaskNotifyGive(mirror_task_h);
+}
+
+// Pings now and then; drops clients that stopped answering.
+static bool keepalive(client_t *c) {
+    const uint32_t t = now_ms();
+    if (t - c->last_rx_ms > SILENT_DROP_MS) {
+        printf("ws: client silent for %lu s\n", (unsigned long)((t - c->last_rx_ms) / 1000));
+        return false;
+    }
+    if (t - c->last_ping_ms < PING_EVERY_MS) return true;
+    c->last_ping_ms = t;
+    return send_tx(c, WS_OP_PING, 0);
 }
 
 static void ws_task(void *param) {
@@ -239,6 +265,7 @@ static void ws_task(void *param) {
             ws_where = "push";
             if (ok) ok = push_terminal(c);
             if (ok) ok = push_mirror(c);
+            if (ok) ok = keepalive(c);
             if (!ok && c->fd >= 0) drop(c);
         }
     }
@@ -312,13 +339,13 @@ void ws_debug(char *out, size_t size) {
 }
 
 bool ws_has_room(void) {
-    return client_count + (int)uxQueueMessagesWaiting(adopt_q) < MAX_CLIENTS;
+    return uxQueueMessagesWaiting(adopt_q) < MAX_CLIENTS; // a full house evicts (see add_client)
 }
 
 bool ws_adopt(int fd) {
     if (!ws_has_room()) return false;
     // Blocking sends with a bound, so one stalled browser can't hold the others up for long.
-    const struct timeval snd = {.tv_sec = 2, .tv_usec = 0};
+    const struct timeval snd = {.tv_sec = 0, .tv_usec = 500000};
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd, sizeof(snd));
     const struct timeval rcv = {.tv_sec = 0, .tv_usec = 0};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rcv, sizeof(rcv)); // select() says when to read

@@ -6,6 +6,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+#include "timers.h"
 #include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
 #include "lwip/icmp.h"
@@ -39,6 +40,20 @@ static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
 }
 
+static volatile uint32_t last_feed_ms;
+
+// Runs in the timer task (highest priority): if the feeder is being starved, say who holds the cores
+// before the watchdog resets the board (the log survives the reset).
+static void starve_check(TimerHandle_t t) {
+    (void)t;
+    const uint32_t late = now_ms() - last_feed_ms;
+    if (!last_feed_ms || late < 3000) return;
+    char line[96];
+    snprintf(line, sizeof(line), "\n*** watchdog not fed for %lu ms; core0=%s core1=%s\n", (unsigned long)late,
+        pcTaskGetName(xTaskGetCurrentTaskHandleForCore(0)), pcTaskGetName(xTaskGetCurrentTaskHandleForCore(1)));
+    log_write_raw(line);
+}
+
 static void wdt_task(void *param) {
     (void)param;
     for (;;) {
@@ -48,6 +63,7 @@ static void wdt_task(void *param) {
             vTaskDelete(NULL);
         }
         watchdog_update();
+        last_feed_ms = now_ms();
         vTaskDelay(pdMS_TO_TICKS(WDT_FEED_MS));
     }
 }
@@ -117,6 +133,7 @@ void health_stop_net_probe(void) {
 }
 
 void health_start(void) {
+    xTimerStart(xTimerCreate("starve", pdMS_TO_TICKS(1000), pdTRUE, NULL, starve_check), 0);
     // pause_on_debug: a debugger halting the cores doesn't reset the board.
     watchdog_enable(WDT_TIMEOUT_MS, true);
     xTaskCreate(wdt_task, "wdt", 256, NULL, WDT_TASK_PRIORITY, NULL);
