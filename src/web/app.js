@@ -156,15 +156,8 @@ function send(t) {
   return false;
 }
 
-// Stats overlay: screen updates per second (menu / messages), key-to-screen time, draw time.
-const ST = { n: [0, 0], lat: 0, key: 0, draw: 0 };
-setInterval(() => {
-  if (!$('stats').hidden) {
-    $('stats').textContent = 'menu ' + ST.n[0] + '/s  msgs ' + ST.n[1] + '/s\nkey->screen ' + (ST.lat ? ST.lat + ' ms' : '-') +
-      '\ndraw ' + ST.draw.toFixed(1) + ' ms';
-  }
-  ST.n = [0, 0];
-}, 1000);
+// Key-to-screen as this page sees it: from a key sent to the next menu change received.
+const ST = { lat: 0, key: 0 };
 
 // Key-to-screen times seen by this page (for the Cruller tab and the Debug chart).
 const keyTimes = [];
@@ -200,7 +193,6 @@ function conn() {
     else if (u[0] === 6) onDebug(u[1], new TextDecoder().decode(u.subarray(2)));
     else if (u[0] === 2) {
       const n = u[2], d = u.subarray(3 + n);
-      ST.n[u[1] - 1]++;
       if (u[1] === 1 && ST.key) { ST.lat = Math.round(performance.now() - ST.key); ST.key = 0; keySeen(ST.lat); }
       planes[u[1] - 1] = d.length ? { r: new TextDecoder().decode(u.subarray(3, 3 + n)), d: d.slice() } : null;
       draw();
@@ -288,12 +280,6 @@ function blit(g, c, sx, sy, sw, sh, dx, dy, s) {
   g.drawImage(u, dx, dy, Math.round(sw * s), Math.round(sh * s));
 }
 
-function draw() {
-  const t0 = performance.now();
-  draw1();
-  ST.draw = performance.now() - t0;
-}
-
 // With no menu open, the RT4K leaves a copy of the message plane (e.g. "HDMI? / No Signal") in the
 // main plane, which the TV doesn't show: same characters and colours in every cell.
 function sameAsMessages(p0, p1) {
@@ -309,7 +295,7 @@ function sameAsMessages(p0, p1) {
   return true;
 }
 
-function draw1() {
+function draw() {
   const t = $('tv'), g = t.getContext('2d'), W = t.width, H = t.height;
   g.fillStyle = '#000';
   g.fillRect(0, 0, W, H);
@@ -357,6 +343,20 @@ function cmd(id) {
   if (i.value) { send(i.value); out('> ' + i.value + '\n'); i.value = ''; }
   return false;
 }
+
+// The remote keeps its look and is scaled to the screen panel's height (the grid row's height; the
+// remote itself is out of flow). Narrow layouts stack it instead (CSS), unscaled.
+function fitRemote() {
+  const r = $('remote'), wrap = r.parentNode;
+  if (getComputedStyle(r).position !== 'absolute') { r.style.transform = ''; return; }
+  const h = wrap.getBoundingClientRect().height, natural = r.offsetHeight;
+  if (!h || !natural) return;
+  const s = h / natural;
+  r.style.transform = 'scale(' + s + ')';
+  const w = Math.round(r.offsetWidth * s) + 'px';
+  if (wrap.style.width !== w) wrap.style.width = w; // the screen narrows a little, the row follows
+}
+new ResizeObserver(fitRemote).observe($('tv').closest('.panel'));
 
 $('tv').ondblclick = () => $('tv').requestFullscreen();
 addEventListener('resize', () => { fit(); if (tab === 'debug') drawCharts(); });
