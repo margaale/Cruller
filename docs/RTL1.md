@@ -62,8 +62,46 @@ Types: 1 command, 2 response, 3 data, 4 acknowledgement, 5 negative acknowledgem
 | `get -- <path>`  | `off len total nonce`                               | a file from the SD card, in chunks |
 
 Colour byte: bits 5-4 red, 3-2 green, 1-0 blue (2 bits each, ×85 for 8-bit), bits 7-6 background
-mode. Text-only queries: `ver`, `osd2 state`, `banner`, and `baud <rate>` / `baud ok` to change
-the line speed.
+mode. Text-only queries: `ver`, `model`, `osd2 state`, `banner`, and `baud <rate>` / `baud ok` to
+change the line speed.
+
+## Uploads (put)
+
+`put <size> <sha256hex> <path>` writes a file to the SD card; the host sends the frames:
+
+```
+> put -a 8 <sha256 of the 8 bytes> notes.txt
+< [COM] put ready nonce=0xF109
+> DATA seq 0 (8 bytes)            < ACK seq 0
+> DATA seq 1 (0 bytes: end of file)   < ACK seq 1
+< [COM] put done
+```
+
+- DATA payloads up to 2048 bytes, sequence from 0 (wrapping at 256), then an empty DATA frame.
+- With `-a` the RT4K ACKs each frame (NAK to resend); without it the host streams, which needs
+  RTS/CTS flow control on the FT232R to be safe. Cruller uses `-a` (~61 KB/s).
+- The RT4K writes to `.rtl1up.tmp`, checks size and SHA-256, then renames: a mismatch answers
+  `put fail: size/sha mismatch` and leaves nothing. Existing files are replaced.
+- It doesn't create folders (`put err: rename failed`, the temp file stays): `mkdir` first.
+- Paths are the rest of the line, relative to the SD root; spaces and brackets are fine.
+- No frames for about 6 s: a NAK (reason 6) and `put timeout`.
+- Other replies: `put: usage ...`, `put err: ...`.
+
+## Files and firmware
+
+| Command                  | Reply                                                      |
+|--------------------------|------------------------------------------------------------|
+| `ls [dir]`               | `ent t=F\|D sz=<bytes> mt=<unix time> nm=<name>` per entry, then `ls end <count>` |
+| `stat <path>`            | `stat t=F sz=... mt=... at=0x20 nm=<path>`, or `stat err=2 NOSUCH` |
+| `mkdir <path>`           | `mkdir ok`, or `mkdir err=64 EXIST`                        |
+| `rm <path>`              | `rm ok` (empty folders too)                                |
+| `mv <old>\|<new>`        | (not tried)                                                |
+| `fwup check`             | `fwup ok version=<v> token=<hex>` once `rt4kup.bin` and its `.rbf` are on the card |
+| `fwup go <token>`        | `fwup: flashing`; the RT4K restarts and installs (~40 s)   |
+
+A firmware zip from RetroTINK holds `rt4kup.bin`, one `.rbf` per model (`rt4k_` Pro, `rt4kce_` CE,
+`rt6x_` 6X) and sometimes extra folders (`lumacode/`). Cruller's page writes all of it except the
+other models' `.rbf`, `rt4kup.bin` last, then runs `fwup` (tried: 1.87.0 to 1.87.3).
 
 ## Cruller
 
@@ -72,3 +110,6 @@ end of the transfer, bytes go to the frame decoder instead, so the terminal neve
 Frames are checked for CRC, nonce and sequence, and the payload against the SHA-256 (the RP2350's
 hardware engine). One transfer runs at a time, and terminal commands wait for it.
 `GET /rt4k/xfer?cmd=osd|osd2|font` returns a verified payload, with the ready line in `X-Ready`.
+`POST /rt4k/put?path=<path>&sha=<sha256>` writes the request body to the SD card;
+`POST /rt4k/ask?expect=<text>` sends the body as a command and returns the first reply line
+containing `<text>`.
