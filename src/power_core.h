@@ -21,7 +21,8 @@ typedef enum {
 #define PWR_PROBE_UNKNOWN_MS  2000   // probe period while unknown
 #define PWR_PROBE_STANDBY_MS  5000   // while in standby (notices a power-on from the IR remote)
 #define PWR_PROBE_BOOTING_MS  1000   // while booting
-#define PWR_IDLE_MS           30000  // on, but nothing heard for this long: probe
+#define PWR_IDLE_MS           10000  // on, but nothing heard for this long: probe (standby seen in ~15 s
+                                     // with no page open; the replies are hidden, see console.h)
 #define PWR_REPLY_MS          3000   // a probe unanswered for this long counts as silence
 #define PWR_BOOT_GIVE_UP_MS   90000  // booting this long without an answer: unknown
 #define PWR_SILENT_TO_STANDBY 3      // unanswered probes / polls in a row that mean standby
