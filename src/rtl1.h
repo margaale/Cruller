@@ -31,6 +31,7 @@ void rtl1_init(void);
 void rtl1_feed(const uint8_t *data, size_t len);
 
 // Runs one transfer and waits for it (up to about 5 s). One at a time; text commands wait meanwhile.
-rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info);
+// quiet: the transfer's own lines (ready, done, refusal) stay out of the terminal (background polls).
+rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet);
 
 const char *rtl1_result_name(rtl1_result_t r);

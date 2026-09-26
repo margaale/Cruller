@@ -13,7 +13,8 @@
 #include "rtl1.h"
 
 #define RT4K_TASK_STACK     1024
-#define RT4K_TASK_PRIORITY  (tskIDLE_PRIORITY + 3)
+#define RT4K_TASK_PRIORITY  (tskIDLE_PRIORITY + 6) // above the Wi-Fi stack (4): Wi-Fi bursts delaying
+                                                   // USB reads overflowed the FT232R (bad RTL1 CRCs)
 #define RT4K_TASK_CORE      1          // TinyUSB's host IRQ is registered on the core that initializes it
 #define TX_QUEUE_SIZE       2048
 #define RX_RING_SIZE        8192u      // power of two

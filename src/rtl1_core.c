@@ -15,6 +15,7 @@ static const rtl1_hooks_t *hooks;
 
 static struct {
     rtl1_phase_t phase;
+    bool quiet;                 // this transfer's text stays out of the terminal
     char name[16];              // first word of the command ("osd2", "font", "get")
     uint8_t *out;
     size_t max;
@@ -101,7 +102,8 @@ static bool ends_with(const char *s, const char *suffix) {
     return a >= b && strcmp(s + a - b, suffix) == 0;
 }
 
-static void on_line(char *line) {
+// Returns true when the line belongs to the transfer (its ready, refusal or closing line).
+static bool on_line(char *line) {
     if (!strncmp(line, "[COM] ", 6)) line += 6;
     const size_t name_len = strlen(e.name);
     switch (e.phase) {
@@ -112,32 +114,38 @@ static void on_line(char *line) {
                     e.result = RTL1_ERR_PROTOCOL;
                     set_detail("ready line without a nonce");
                     finish();
-                    return;
+                    return true;
                 }
                 e.nonce = (uint16_t)strtoul(n + 8, NULL, 16);
                 if (e.info) {
-                    const size_t n = strnlen(line, sizeof(e.info->ready) - 1);
-                    memcpy(e.info->ready, line, n);
-                    e.info->ready[n] = 0;
+                    const size_t len = strnlen(line, sizeof(e.info->ready) - 1);
+                    memcpy(e.info->ready, line, len);
+                    e.info->ready[len] = 0;
                 }
                 e.expect_seq = 0;
                 e.st = 0;
                 e.phase = RTL1_PH_BINARY;
                 e.last_ms = e.now;
-            } else if (contains_ci(line, "busy") || contains_ci(line, "bad command") ||
-                       contains_ci(line, "unknown command") || contains_ci(line, "nothing shown") ||
-                       contains_ci(line, "error") || contains_ci(line, "failed")) {
+                return true;
+            }
+            if (contains_ci(line, "busy") || contains_ci(line, "bad command") ||
+                contains_ci(line, "unknown command") || contains_ci(line, "nothing shown") ||
+                contains_ci(line, "error") || contains_ci(line, "failed")) {
                 e.result = RTL1_ERR_DEVICE;
                 set_detail("%s", line);
                 finish();
+                return true;
             }
-            break;
+            return false;
         case RTL1_PH_DONE:
         case RTL1_PH_DRAIN:
-            if (ends_with(line, " done") || contains_ci(line, "aborted") || contains_ci(line, "failed")) finish();
-            break;
+            if (ends_with(line, " done") || contains_ci(line, "aborted") || contains_ci(line, "failed")) {
+                finish();
+                return true;
+            }
+            return false;
         default:
-            break;
+            return false;
     }
 }
 
@@ -216,24 +224,33 @@ void rtl1_core_feed(const uint8_t *data, size_t len, uint32_t now_ms) {
             if (e.phase != RTL1_PH_BINARY) text_from = i + 1; // back to text after the last frame
             continue;
         }
+        // A quiet transfer's text is judged line by line: its own lines are hidden, other lines
+        // (replies to terminal commands, console messages) still reach the terminal.
+        const bool by_line = e.quiet && (ph == RTL1_PH_READY || ph == RTL1_PH_DONE);
         if (ph == RTL1_PH_DRAIN || ph == RTL1_PH_DONE) e.last_ms = now_ms;
         if (b == '\n') {
             e.line[e.line_len] = 0;
             if (e.line_len && e.line[e.line_len - 1] == '\r') e.line[e.line_len - 1] = 0;
+            const size_t line_len = strlen(e.line);
             e.line_len = 0;
-            on_line(e.line);
+            const bool own = on_line(e.line);
+            if (by_line && !own) {
+                e.line[line_len] = '\n';
+                hooks->text((const uint8_t *)e.line, line_len + 1);
+            }
             if (e.phase == RTL1_PH_BINARY) {
-                // The ready line goes to the terminal; the frames right after it don't.
-                hooks->text(data + text_from, i + 1 - text_from);
+                // The ready line goes to the terminal (unless quiet); the frames after it don't.
+                if (!e.quiet && i + 1 > text_from) hooks->text(data + text_from, i + 1 - text_from);
                 text_from = i + 1;
             }
         } else if (ph == RTL1_PH_DRAIN && (b >= 0x80 || (b < 0x20 && b != '\r' && b != '\t'))) {
             e.line_len = 0; // binary leftovers: start the line over so the closing line is seen whole
         } else {
-            if (e.line_len >= sizeof(e.line) - 1) e.line_len = 0; // overlong: keep the latest text
+            if (e.line_len >= sizeof(e.line) - 2) e.line_len = 0; // overlong: keep the latest text
             e.line[e.line_len++] = (char)b;
         }
-        if (ph == RTL1_PH_DRAIN) text_from = i + 1; // drained bytes never reach the terminal
+        // Drained bytes never reach the terminal as a run, nor a quiet transfer's (see by_line).
+        if (ph == RTL1_PH_DRAIN || by_line) text_from = i + 1;
     }
     if (e.phase != RTL1_PH_BINARY && e.phase != RTL1_PH_DRAIN && text_from < len) hooks->text(data + text_from, len - text_from);
 }
@@ -243,7 +260,8 @@ void rtl1_core_init(const rtl1_hooks_t *h) {
     memset(&e, 0, sizeof(e));
 }
 
-void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, uint32_t now_ms) {
+void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet, uint32_t now_ms) {
+    e.quiet = quiet;
     size_t n = strcspn(cmd, " ");
     if (n >= sizeof(e.name)) n = sizeof(e.name) - 1;
     memcpy(e.name, cmd, n);

@@ -19,6 +19,7 @@
 #include "rt4k.h"
 #include "rtl1.h"
 #include "status_led.h"
+#include "ws.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
 #define MAIN_TASK_STACK    2048 // words
@@ -43,6 +44,7 @@ static void main_task(void *param) {
     health_start_net_probe();
     status_led_start();
     rt4k_start();
+    ws_start();
     http_start();
     net_start();
 

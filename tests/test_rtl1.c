@@ -66,7 +66,11 @@ static void reset(void) {
 }
 
 static void begin(const char *cmd, size_t max) {
-    rtl1_core_begin(cmd, out, max, &info, clock_ms);
+    rtl1_core_begin(cmd, out, max, &info, false, clock_ms);
+}
+
+static void begin_quiet(const char *cmd, size_t max) {
+    rtl1_core_begin(cmd, out, max, &info, true, clock_ms);
 }
 
 // Everything the RT4K sends in a test goes through here, so it can be split up as the test wants.
@@ -532,6 +536,63 @@ static void test_next_transfer_after_failure(void) {
     check_osd2_ok();
 }
 
+// --- tests: quiet transfers (background polls) ----------------------------------------------
+
+static void test_quiet_hides_transfer_lines(void) {
+    reset();
+    begin_quiet("osd2", sizeof(out));
+    put_osd2_transfer();
+    put_str("[COM] Input changed\n");
+    deliver(62);
+    CHECK(rtl1_core_result() == RTL1_OK);
+    CHECK(memcmp(out, osd2, 4096) == 0);
+    CHECK(term_equals("[COM] Input changed\n")); // only what came after the transfer
+}
+
+static void test_quiet_hides_refusal(void) {
+    reset();
+    begin_quiet("osd", sizeof(out));
+    put_str("[COM] osd: nothing shown\n[COM] later\n");
+    deliver(0);
+    CHECK(rtl1_core_result() == RTL1_ERR_DEVICE);
+    CHECK(term_equals("[COM] later\n"));
+}
+
+static void test_quiet_keeps_other_lines(void) {
+    // A terminal command's reply landing during a background poll must still be shown.
+    static const size_t chunks[] = {0, 1, 62};
+    for (size_t k = 0; k < 3; k++) {
+        reset();
+        begin_quiet("osd2", sizeof(out));
+        put_str("[COM] RT4KPRO, FW Version: 1.87.0\n");   // before the ready line
+        put_str(READY_OSD2);
+        put_frame(NONCE, 3, 0, osd2, 2048);
+        put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
+        put_frame(NONCE, 2, 2, osd2_digest, 32);
+        put_str("[COM] Build tag: b0922t\n");             // between the last frame and the closing line
+        put_str("[COM] osd done\n");
+        deliver(chunks[k]);
+        CHECK(rtl1_core_result() == RTL1_OK);
+        CHECK(term_equals("[COM] RT4KPRO, FW Version: 1.87.0\n[COM] Build tag: b0922t\n"));
+    }
+}
+
+static void test_quiet_then_loud(void) {
+    // The flag belongs to one transfer.
+    reset();
+    begin_quiet("osd2", sizeof(out));
+    put_osd2_transfer();
+    deliver(0);
+    rtl1_core_end();
+    term_len = 0;
+    finished_calls = 0;
+    memset(&info, 0, sizeof(info));
+    begin("osd2", sizeof(out));
+    put_osd2_transfer();
+    deliver(0);
+    check_osd2_ok();
+}
+
 // --- runner ------------------------------------------------------------------------------------
 
 #define T(fn) {#fn, fn}
@@ -567,6 +628,10 @@ static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_drain_gives_up),
     T(test_oversized_length_resyncs),
     T(test_next_transfer_after_failure),
+    T(test_quiet_hides_transfer_lines),
+    T(test_quiet_hides_refusal),
+    T(test_quiet_keeps_other_lines),
+    T(test_quiet_then_loud),
 };
 
 int main(void) {
