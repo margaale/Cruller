@@ -15,6 +15,7 @@
 #include "log.h"
 #include "rtl1.h"
 #include "clients.h"
+#include "console.h"
 #include "power.h"
 #include "ws_proto.h"
 
@@ -33,8 +34,12 @@
 #define MSG_FONT   0x03
 #define MSG_LOG    0x04   // Cruller's own log (what /log serves)
 #define MSG_STATUS 0x05   // the /status JSON, every STATUS_EVERY_MS
+#define MSG_DEBUG  0x06   // [0x06, kind, text...] to pages showing Debug, every DEBUG_EVERY_MS (see ws.h)
 #define MSG_IN_VISIBILITY 0x10 // client -> server, binary: [0x10, 1 visible | 0 hidden]
+#define MSG_IN_DEBUG      0x11 // client -> server, binary: [0x11, 1 showing Debug | 0 not]
 #define STATUS_EVERY_MS 5000
+#define DEBUG_EVERY_MS  2000
+#define DEBUG_TEXT_MAX  2048
 
 #define POLL_IDLE_MS     250      // OSD poll period
 #define POLL_ACTIVE_MS   60       // right after a key press
@@ -55,6 +60,8 @@ typedef struct {
     uint32_t last_status_ms;      // 0 = send one right away
     int status_power;             // power state in the last status sent: a change is pushed at once
     bool hidden;                  // the page says it's not on screen (background tab)
+    bool debug;                   // the page shows its Debug tab: gets MSG_DEBUG
+    uint32_t last_debug_ms;       // 0 = send right away
 } client_t;
 
 typedef struct {
@@ -137,6 +144,26 @@ static bool push_log_status(client_t *c) {
     return send_tx(c, WS_OP_BINARY, 1 + strlen((char *)tx + 17));
 }
 
+// Debug tab: the status and the text reports, pushed instead of polled. Only cheap reports: the task
+// list (uxTaskGetSystemState) suspends the scheduler and stays on request (/debug/tasks?stacks).
+static bool push_debug(client_t *c) {
+    const uint32_t t = now_ms();
+    if (!c->debug || c->hidden || (c->last_debug_ms && t - c->last_debug_ms < DEBUG_EVERY_MS)) return true;
+    c->last_debug_ms = t | 1;
+    char *text = (char *)tx + 18;
+    for (uint8_t kind = 1; kind <= 4; kind++) {
+        text[0] = 0;
+        if (kind == 1) http_status_json(text, DEBUG_TEXT_MAX);
+        else if (kind == 2) ws_debug(text, DEBUG_TEXT_MAX);
+        else if (kind == 3) console_debug(text, DEBUG_TEXT_MAX);
+        else http_debug_memory(text, DEBUG_TEXT_MAX);
+        tx[16] = MSG_DEBUG;
+        tx[17] = kind;
+        if (!send_tx(c, WS_OP_BINARY, 2 + strlen(text))) return false;
+    }
+    return true;
+}
+
 static bool push_terminal(client_t *c) {
     for (int i = 0; i < 8; i++) {
         tx[16] = MSG_TERM;
@@ -211,6 +238,12 @@ static bool on_frame(client_t *c, const ws_frame_t *f) {
                 const bool was_hidden = c->hidden;
                 c->hidden = f->payload[1] == 0;
                 if (was_hidden && !c->hidden && mirror_task_h) xTaskNotifyGive(mirror_task_h);
+                if (was_hidden && !c->hidden) c->last_debug_ms = 0;
+            }
+            // [0x11, 1|0]: the page shows / left its Debug tab.
+            if (f->len >= 2 && f->payload[0] == MSG_IN_DEBUG) {
+                c->debug = f->payload[1] != 0;
+                c->last_debug_ms = 0;
             }
             return true;
         default:
@@ -319,6 +352,7 @@ static void ws_task(void *param) {
             if (ok) ok = push_terminal(c);
             if (ok) ok = push_mirror(c);
             if (ok) ok = push_log_status(c);
+            if (ok) ok = push_debug(c);
             if (ok) ok = keepalive(c);
             if (!ok && c->fd >= 0) drop(c);
         }

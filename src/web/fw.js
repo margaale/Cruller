@@ -281,19 +281,18 @@
   }
 
   async function open() {
+    // The page shows and hides the box (its Firmware view); this fills it the first time.
     const box = q('fw');
-    box.hidden = !box.hidden;
-    if (box.hidden || box.dataset.ready) return;
+    if (box.dataset.ready) return;
     box.dataset.ready = 1;
     box.innerHTML =
-      '<div id=fwh>Asking the RT4K for its version...</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap"><select id=fwc style="flex:0 0 150px"></select><select id=fwv style="flex:1 1 220px"></select>' +
-      '<button id=fwi class=fs style="flex:0 0 auto" disabled>Download and install</button></div>' +
-      '<pre id=fwl style="height:120px"></pre><div id=fws></div><progress id=fwp hidden></progress>';
-    box.style.cssText = 'background:#161616;border-radius:6px;padding:8px 12px;margin:8px 0';
-    for (const s of ['fwc', 'fwv']) {
-      q(s).style.cssText += ';background:#222;color:#eee;border:1px solid #444;border-radius:4px;padding:6px;margin:4px 0';
-    }
+      '<div class=panel style="max-width:880px">' +
+      '<div><div style="font:700 26px var(--head)">RetroTINK firmware</div>' +
+      '<div id=fwh class=small>Asking the RT4K for its version...</div></div>' +
+      '<div class=row style="flex-wrap:wrap"><select id=fwc style="flex:0 0 160px"></select><select id=fwv style="flex:1 1 240px"></select>' +
+      '<button id=fwi class=primary disabled>Download and install</button></div>' +
+      '<h2>What\'s new</h2><pre id=fwl style="height:220px"></pre><div id=fws></div><progress id=fwp hidden></progress>' +
+      '<div class=small>From RetroTINK\'s firmware repository, checked against its SHA-256. Keep this page open, and don\'t power the RT4K off while it installs.</div></div>';
     q('fwc').onchange = showVersions;
     q('fwv').onchange = showChangelog;
     q('fwi').onclick = install;

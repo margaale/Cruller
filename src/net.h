@@ -18,6 +18,7 @@ void net_start(void);            // starts the network task
 net_state_t net_state(void);
 const char *net_ip(void);        // dotted address, or "" when not up
 const char *net_ssid(void);
+int net_rssi(void);              // the station link's signal in dBm (0 when not connected)
 
 // The setup access point ("Cruller_Setup", 192.168.4.1, open) is up: the real portal (NET_PORTAL,
 // station off) or a test one next to the station link (net_portal_test).

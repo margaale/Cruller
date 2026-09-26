@@ -169,6 +169,18 @@ void net_portal_test(uint32_t minutes) { portal_test_request = (int32_t)minutes;
 
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 
+int net_rssi(void) {
+    static int32_t last = 0;
+    static uint32_t at = 0;
+    if (state != NET_CONNECTED) return 0;
+    if (!at || now_ms() - at > 2000) { // an ioctl to the CYW43 (the driver takes its own lock)
+        int32_t rssi = 0;
+        if (!cyw43_wifi_get_rssi(&cyw43_state, &rssi)) last = rssi;
+        at = now_ms();
+    }
+    return (int)last;
+}
+
 // The channel the station link is on (0 if unknown). The CYW43 has one radio: an access point next
 // to the station link must use the same channel, or the station stops passing traffic (seen: the
 // driver's default AP channel 3 cut the link, and the gateway watchdog reset the board).

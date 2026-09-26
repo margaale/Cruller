@@ -25,7 +25,5 @@ if command -v node >/dev/null; then
     node tests/check_page.js || status=1
     echo "== fw.js (RT4K firmware updater)"
     node tests/test_fw.js || status=1
-    echo "== ui.js"
-    node --check src/web/ui.js && echo "ui.js: syntax ok" || status=1
 fi
 exit $status

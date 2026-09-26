@@ -6,9 +6,13 @@
 //        when the plane is empty]
 //   0x03 font: 4096 bytes (256 glyphs, 8x16, font[row * 256 + glyph], bit 0 = leftmost pixel)
 //   0x04 Cruller log text; 0x05 the /status JSON (on connect, then every 5 s)
+//   0x06 Debug report: [kind][text], every 2 s to pages showing their Debug tab. Kinds: 1 the /status
+//        JSON, 2 serial link and screen mirror (/debug/tasks without stacks), 3 command queue
+//        (/debug/console), 4 memory (/debug/memory)
 // Client -> server, text messages: one RT4K console command each ("remote menu", "ver", ...).
 // Client -> server, binary: [0x10, 1|0] the page is visible / hidden; the mirror polls the RT4K
 // only while some page is visible (clients count as visible until they say otherwise).
+// [0x11, 1|0] the page shows / left its Debug tab.
 
 #pragma once
 

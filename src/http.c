@@ -86,13 +86,16 @@ static void respond_bytes(int fd, const char *extra_headers, const uint8_t *body
 // Web assets embedded from src/web at build time (cmake/embed.cmake).
 extern const unsigned char web_fw_js[];
 extern const size_t web_fw_js_len;
-extern const unsigned char web_ui_js[];
-extern const size_t web_ui_js_len;
+extern const unsigned char web_app_js[];
+extern const size_t web_app_js_len;
+extern const unsigned char web_index_html[];
+extern const size_t web_index_html_len;
 
+// no-store: with no-cache (and no validators) browsers still ran the previous app.js after an update.
 static void respond_asset(int fd, const char *type, const unsigned char *body, size_t len) {
     char hdr[192];
     const int n = snprintf(hdr, sizeof(hdr),
-        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %u\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %u\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         type, (unsigned)len);
     send_all(fd, hdr, (size_t)n);
     send_all(fd, body, len);
@@ -217,8 +220,14 @@ extern char __data_start__, __data_end__, __bss_start__, __bss_end__, __StackTop
 
 static void handle_debug_memory(int fd) {
     static char out[2048];
+    http_debug_memory(out, sizeof(out));
+    respond(fd, 200, "OK", "text/plain", out);
+}
+
+void http_debug_memory(char *out, size_t size) {
     size_t o = 0;
-#define ADD(...) o += (size_t)snprintf(out + o, o < sizeof(out) ? sizeof(out) - o : 0, __VA_ARGS__)
+    out[0] = 0;
+#define ADD(...) o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__)
     const int ws_n = ws_clients(NULL), rfc_n = rfc2217_count(NULL);
     ADD("clients                 %d of %d, shared (see clients.h)\n", clients_used(), CLIENTS_MAX);
     ADD("  web pages (WebSocket)   %d (when full, a new one replaces the quietest page)\n", ws_n);
@@ -257,7 +266,6 @@ static void handle_debug_memory(int fd) {
     ADD("RAM                     %u KB: code and data %u KB, bss %u KB (FreeRTOS heap included), rest %u KB\n",
         (unsigned)((data + bss + rest) / 1024), (unsigned)(data / 1024), (unsigned)(bss / 1024), (unsigned)(rest / 1024));
 #undef ADD
-    respond(fd, 200, "OK", "text/plain", out);
 }
 
 // GET /ws: WebSocket upgrade; the connection then belongs to ws.c.
@@ -312,7 +320,7 @@ static void handle_rt4k_xfer(int fd, const char *query) {
 }
 
 static void handle_status(int fd) {
-    char body[512];
+    char body[768];
     http_status_json(body, sizeof(body));
     respond(fd, 200, "OK", "application/json", body);
 }
@@ -325,15 +333,18 @@ void http_status_json(char *body, size_t size) {
     char rfc2217_ips[CLIENTS_MAX * 16 + 8];
     rfc2217_clients(rfc2217_ips, sizeof(rfc2217_ips));
     snprintf(body, size,
-        "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\","
+        "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
         "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,"
-        "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,"
-        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\",\"rfc2217_clients\":\"%s\"}",
+        "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,\"rt4k_flow\":%s,"
+        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\","
+        "\"web_clients\":%d,\"rfc2217_count\":%d,\"clients_max\":%d,\"rfc2217_clients\":\"%s\"}",
         CRULLER_VERSION, (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000), state_name(net_state()),
-        ssid, net_ip(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
+        ssid, net_ip(), net_rssi(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
+        rt4k_flow_control() ? "true" : "false",
         (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
-        rt.mounted ? power_state_name(power_state()) : "unknown", rfc2217_ips);
+        rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(NULL), rfc2217_count(NULL), CLIENTS_MAX,
+        rfc2217_ips);
 }
 
 // GET <path>?since=N: text written after position N, with the new position in X-Next.
@@ -350,145 +361,6 @@ static void handle_stream(int fd, const char *query, size_t (*reader)(uint32_t *
     send_all(fd, hdr, (size_t)h);
     if (n) send_all(fd, text, n);
 }
-
-static const char PAGE[] =
-    "<!DOCTYPE html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>Cruller</title><style>"
-    "body{font-family:system-ui,sans-serif;max-width:1312px;margin:auto;padding:16px;background:#111;color:#eee}"
-    ".narrow{max-width:560px;margin-left:auto;margin-right:auto}h1.narrow{margin-top:4px}"
-    "section{background:#1c1c1c;border-radius:8px;padding:12px 16px;margin:12px 0}"
-    "h1{margin:4px 0}h2{font-size:1.05em;margin:4px 0 8px}td{padding:2px 12px 2px 0}"
-    "input,button{font-size:1em;margin:4px 0;padding:8px;box-sizing:border-box;width:100%}"
-    "button{background:#d4537e;color:#fff;border:0;border-radius:4px}progress{width:100%}"
-    "pre{background:#000;padding:8px;height:180px;overflow:auto;white-space:pre-wrap;font-size:.85em;margin:4px 0}"
-    "canvas{display:block;width:100%;max-width:1280px;aspect-ratio:16/9;image-rendering:pixelated;background:#000;border-radius:4px;margin:4px auto}"
-    "canvas:fullscreen{max-width:none;border-radius:0;background:#000}"
-    ".stage{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}.screen{flex:1 1 560px;min-width:0}"
-    ".fs{width:auto;padding:4px 12px;font-size:.8em;background:#333}.screen{position:relative}"
-    "#stats{position:absolute;left:10px;top:10px;font:12px/1.4 ui-monospace,monospace;color:#7f7;background:#000c;padding:4px 8px;border-radius:4px;pointer-events:none;white-space:pre}"
-    ".remote{flex:0 0 232px;margin:4px auto;background:#1a1a1a;border:3px solid #050505;border-radius:30px;padding:18px 14px 14px;box-shadow:0 6px 18px #0008}"
-    ".remote button{margin:0;padding:7px 0;background:#8c8c8c;color:#141414;border-radius:6px;font-size:.78em;font-weight:700;width:100%}"
-    ".remote button:active{background:#bbb}.remote small{display:block;font-size:.72em;font-weight:600}"
-    ".rg{display:grid;gap:6px;margin:0 0 10px}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}"
-    ".top{grid-template-columns:44px 1fr;align-items:center}.grp{background:#ddd;padding:5px;border-radius:4px;margin:0}.grp button{font-size:.62em;padding:5px 0}"
-    ".pwr{background:#c9202b!important;color:#fff!important;border-radius:10px!important;padding:12px 0!important;font-size:1.1em!important}"
-    ".nav{align-items:center}.nav .arw{background:#9a9a9a;border-radius:50%;aspect-ratio:1}.nav .ok{border-radius:50%;aspect-ratio:1;font-size:.62em;background:#777}"
-    ".nav .side{background:#7c7c7c;padding:4px 0}.tall{display:flex;flex-direction:column;gap:4px;align-items:center}.tall span{font-size:.62em;color:#ccc;font-weight:700}"
-    ".aux{margin-top:14px}.brand{text-align:center;color:#ddd;font-size:1.1em;line-height:1.2;margin-top:10px}.brand b{font-style:italic}"
-    "#link{float:right;font-size:.8em;color:#888}.term{margin-top:8px}"
-    ".led{width:12px;height:5px;border-radius:2px;background:#e8e8e8;margin:-6px 0 8px 16px;transition:background .05s}"
-    ".led.on{background:#ff2b2b;box-shadow:0 0 6px 1px #ff2b2b}"
-    "</style></head><body><h1>Cruller</h1>"
-    "<section><h2>RT4K <span id=link>connecting</span></h2>"
-    "<div class=stage><div class=screen><div id=stats hidden></div>"
-    "<canvas id=tv width=1280 height=720 title='Double-click for full screen'></canvas>"
-    "<button class=fs onclick=\"$('tv').requestFullscreen()\">Full screen</button> <button class=fs onclick=\"$('stats').hidden^=1\">Stats</button>"
-    " <button class=fs onclick='fwOpen()'>RT4K firmware</button><div id=fw hidden></div><script src=/fw.js defer></script><script src=/ui.js defer></script>"
-    "<div class=term><pre id=rx></pre>"
-    "<form onsubmit='return cmd()'><input id=cm placeholder='Command, e.g. remote menu' autocomplete=off autocapitalize=none></form></div>"
-    "</div>"
-    "<div class=remote><div class=led id=led></div><div class='rg top'><button class=pwr data-c='remote pwr' data-confirm='Turn the RT4K off?'>"
-    "<svg viewBox='0 0 24 24' width=18 height=18 fill=none stroke=currentColor stroke-width=2.6 stroke-linecap=round "
-    "style='display:block;margin:auto'><path d='M12 3v8'/><path d='M6.6 6.6a7.5 7.5 0 1 0 10.8 0'/></svg>"
-    "</button><div class='rg g3 grp'><button data-c='remote input'>INPUT</button><button data-c='remote out"
-    "put'>OUT</button><button data-c='remote scaler'>SCL</button><button data-c='remote sfx'>SFX</button><button da"
-    "ta-c='remote adc'>ADC</button><button data-c='remote prof'>PROF</button></div></div><div class='rg g3'><button"
-    " data-c='remote prof1'>1</button><button data-c='remote prof2'>2</button><button data-c='remote prof3'>3</butt"
-    "on><button data-c='remote prof4'>4</button><button data-c='remote prof5'>5</button><button data-c='remote prof"
-    "6'>6</button><button data-c='remote prof7'>7</button><button data-c='remote prof8'>8</button><button data-c='r"
-    "emote prof9'>9</button><button data-c='remote prof10'>10</button><button data-c='remote prof11'>11</button><bu"
-    "tton data-c='remote prof12'>12</button></div><div class='rg g3 nav'><button class=side data-c='remote menu'>&#"
-    "9776;<small>MENU</small></button><button class=arw data-c='remote up'>&#9650;</button><button class=side data-"
-    "c='remote back'>&#8630;<small>BACK</small></button><button class=arw data-c='remote left'>&#9664;</button><but"
-    "ton class=ok data-c='remote ok'>ENTER</button><button class=arw data-c='remote right'>&#9654;</button><button "
-    "class=side data-c='remote diag'>&#9906;<small>DIAG</small></button><button class=arw data-c='remote down'>&#96"
-    "60;</button><button class=side data-c='remote stat'>&#8645;<small>STAT</small></button></div><div class='rg g3"
-    " mid'><div class=tall><button data-c='remote gain'>GAIN</button><span>AUTO</span><button data-c='remote phase'"
-    ">PHA</button></div><div class=tall><button data-c='remote pause'>&#9654;&#10074;&#10074;</button><button data-"
-    "c='safemode'>SAFE</button></div><div class=tall><button data-c='remote genlock'>GEN</button><span>SYNC</span><"
-    "button data-c='remote buffer'>BUF</button></div></div><div class='rg g4'><button data-c='remote res4k'>4K</but"
-    "ton><button data-c='remote res1080p'>1080p</button><button data-c='remote res1440p'>1440p</button><button data"
-    "-c='remote res480p'>480p</button><button data-c='remote res1'>RES1</button><button data-c='remote res2'>RES2</"
-    "button><button data-c='remote res3'>RES3</button><button data-c='remote res4'>RES4</button></div><div class='r"
-    "g g4 aux'><button data-c='remote aux1'>AUX1</button><button data-c='remote aux2'>AUX2</button><button data-c='"
-    "remote aux3'>AUX3</button><button data-c='remote aux4'>AUX4</button><button data-c='remote aux5'>AUX5</button>"
-    "<button data-c='remote axu6'>AUX6</button><button data-c='remote aux7'>AUX7</button><button data-c='remote aux"
-    "8'>AUX8</button></div><div class=brand>Retro<b>TINK</b><br>4K</div></div>"
-    "</div></section>"
-    "<section class=narrow><h2>Status</h2><table id=st></table></section>"
-    "<section class=narrow><h2>Firmware update</h2><input type=file id=fw accept=.uf2>"
-    "<button onclick=upd()>Upload</button><progress id=pg value=0 max=1 hidden></progress><div id=um></div></section>"
-    "<section class=narrow><h2>Wi-Fi</h2><form method=post action=/wifi>"
-    "<input name=ssid placeholder='Network name (SSID)' required maxlength=32 autocomplete=off autocapitalize=none>"
-    "<input name=pass type=password placeholder=Password maxlength=64>"
-    "<button>Save and reboot</button></form></section>"
-    "<section class=narrow><h2>Log</h2><pre id=lg></pre></section>"
-    "<script>"
-    "const $=id=>document.getElementById(id);"
-    // Status and log arrive over the WebSocket (types 5 and 4): no polling.
-    "function st(s){$('st').innerHTML=Object.entries(s).map(([k,v])=>'<tr><td>'+k+'</td><td>'+String(v).replace(/</g,'&lt;')+'</td></tr>').join('')}"
-    "function lg(t){const e=$('lg');e.textContent+=t;if(e.textContent.length>30000)e.textContent=e.textContent.slice(-20000);e.scrollTop=e.scrollHeight}"
-    // RT4K over the WebSocket: terminal text, OSD planes, font (see ws.h).
-    "let ws,font=null;const planes=[null,null],BG=[[5,7,12],[233,237,243],[32,192,32],[208,32,32]];"
-    "function out(t){const e=$('rx');e.textContent+=t;if(e.textContent.length>30000)e.textContent=e.textContent.slice(-20000);e.scrollTop=e.scrollHeight}"
-    "function send(t){if(ws&&ws.readyState==1){ws.send(t);return true}return false}"
-    // The remote's LED: lights while a key is sent.
-    // Stats overlay: screen updates per second (menu / messages), key-to-screen time, draw time.
-    "const ST={n:[0,0],lat:0,key:0,draw:0};setInterval(()=>{if(!$('stats').hidden)$('stats').textContent="
-    "'menu '+ST.n[0]+'/s  msgs '+ST.n[1]+'/s\\nkey->screen '+(ST.lat?ST.lat+' ms':'-')+'\\ndraw '+ST.draw.toFixed(1)+' ms';ST.n=[0,0]},1000);"
-    "function blink(){ST.key=performance.now();const l=$('led');l.classList.add('on');clearTimeout(blink.t);blink.t=setTimeout(()=>l.classList.remove('on'),150)}"
-    "function conn(){ws=new WebSocket('ws://'+location.host+'/ws');ws.binaryType='arraybuffer';"
-    "ws.onopen=()=>$('link').textContent='connected';"
-    "ws.onclose=()=>{$('link').textContent='reconnecting';setTimeout(conn,2000)};"
-    "ws.onmessage=e=>{const u=new Uint8Array(e.data);"
-    "if(u[0]==1)out(new TextDecoder('latin1').decode(u.subarray(1)));"
-    "else if(u[0]==3){font=u.slice(1);draw()}"
-    "else if(u[0]==4)lg(new TextDecoder('latin1').decode(u.subarray(1)));"
-    "else if(u[0]==5)st(JSON.parse(new TextDecoder().decode(u.subarray(1))));"
-    "else if(u[0]==2){const n=u[2],d=u.subarray(3+n);ST.n[u[1]-1]++;if(u[1]==1&&ST.key){ST.lat=Math.round(performance.now()-ST.key);ST.key=0}"
-    "planes[u[1]-1]=d.length?{r:new TextDecoder().decode(u.subarray(3,3+n)),d:d.slice()}:null;draw()}}}"
-    "function kv(r){const o={};r.split(' ').forEach(t=>{const i=t.indexOf('=');if(i>0)o[t.slice(0,i)]=+t.slice(i+1)});return o}"
-    // The TV screen: 16:9, black. The main plane's rows fill its height, anchored left; the secondary
-    // plane (messages) goes top right at the same scale. Background mode 0 is transparent.
-    // Geometry as the RT4K draws it at 4K (measured on the TV): the main plane's 512-pixel grid is 2048
-    // of the 2160 lines (x4), 3% from the left, low on the screen; the secondary plane is at twice that
-    // scale near the top-right corner. The canvas has as many pixels as it shows (device pixels).
-    "function fit(){const t=$('tv'),r=t.getBoundingClientRect(),d=devicePixelRatio||1;"
-    "t.width=Math.max(1,Math.round(r.width*d));t.height=Math.max(1,Math.round(r.height*d));draw()}"
-    "function render(p){const k=kv(p.r),rows=k.rows||0,w=k.width||k.cols||0,s=k.stride||w,d=p.d;"
-    "const c=document.createElement('canvas');c.width=w*8;c.height=rows*16;if(!rows||!w)return c;"
-    "const g=c.getContext('2d'),im=g.createImageData(c.width,c.height),px=im.data;"
-    "for(let y=0;y<rows;y++)for(let x=0;x<w;x++){const j=y*s+x,ch=d[j],co=d[2048+j],m=co>>6&3,fg=[(co>>4&3)*85,(co>>2&3)*85,(co&3)*85],bg=BG[m];"
-    "for(let gy=0;gy<16;gy++){const bits=font[gy*256+ch];for(let gx=0;gx<8;gx++){const on=bits>>gx&1,q=((y*16+gy)*c.width+x*8+gx)*4,v=on?fg:bg;"
-    "px[q]=v[0];px[q+1]=v[1];px[q+2]=v[2];px[q+3]=on||m?255:0}}}"
-    "g.putImageData(im,0,0);return c}"
-    // Scales an area of an OSD bitmap by s, same factor both ways: whole numbers straight (sharp pixels),
-    // fractions via the next whole number and a smooth shrink, so the font's strokes stay even.
-    "function blit(g,c,sx,sy,sw,sh,dx,dy,s){dx=Math.round(dx);dy=Math.round(dy);g.imageSmoothingEnabled=false;"
-    "if(Math.abs(s-Math.round(s))<.01){s=Math.round(s);g.drawImage(c,sx,sy,sw,sh,dx,dy,sw*s,sh*s);return}"
-    "const k=Math.ceil(s),u=document.createElement('canvas');u.width=sw*k;u.height=sh*k;const ug=u.getContext('2d');"
-    "ug.imageSmoothingEnabled=false;ug.drawImage(c,sx,sy,sw,sh,0,0,sw*k,sh*k);"
-    "g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(u,dx,dy,Math.round(sw*s),Math.round(sh*s))}"
-    "function draw(){const t0=performance.now();draw1();ST.draw=performance.now()-t0}"
-    "function draw1(){const t=$('tv'),g=t.getContext('2d'),W=t.width,H=t.height;"
-    "g.fillStyle='#000';g.fillRect(0,0,W,H);if(!font)return;"
-    "const mk=planes[0]?kv(planes[0].r):{},ph=(mk.rows||32)*16,sc=H*(2048/2160)/ph;"
-    "if(planes[0]){const c=render(planes[0]);blit(g,c,0,0,c.width,c.height,W*.031,H*.974-c.height*sc,sc)}"
-    // Secondary plane: only its content (it's left-aligned inside a 32-column box).
-    "if(planes[1]){const p=planes[1],k=kv(p.r),rows=k.rows||0,w=k.width||k.cols||0,st=k.stride||w;let x1=-1,y1=-1;"
-    "for(let y=0;y<rows;y++)for(let x=0;x<w;x++){const j=y*st+x;if(p.d[j]>32||p.d[2048+j]&192){if(x>x1)x1=x;if(y>y1)y1=y}}"
-    "if(x1>=0){const c=render(p),sw=(x1+1)*8,sh=(y1+1)*16,s2=sc*2;blit(g,c,0,0,sw,sh,W*.955-sw*s2,H*.012,s2)}}}"
-    "document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{if(b.dataset.confirm&&!confirm(b.dataset.confirm))return;if(send(b.dataset.c))blink()});"
-    "const keys={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'ok',Escape:'back',Backspace:'back',Tab:'menu'};"
-    "document.onkeydown=e=>{if(e.target.tagName=='INPUT'||!keys[e.key])return;e.preventDefault();if(send('remote '+keys[e.key]))blink()};"
-    "function cmd(){const i=$('cm');if(i.value){send(i.value);out('> '+i.value+'\\n');i.value=''}return false}"
-    "$('tv').ondblclick=()=>$('tv').requestFullscreen();addEventListener('resize',fit);document.addEventListener('fullscreenchange',()=>setTimeout(fit,50));fit();conn();"
-    "function upd(){const f=$('fw').files[0],m=$('um'),p=$('pg');"
-    "if(!f){m.textContent='Choose a .uf2 file';return}"
-    "const x=new XMLHttpRequest();x.open('POST','/update');p.hidden=false;"
-    "x.upload.onprogress=e=>{if(e.lengthComputable){p.max=e.total;p.value=e.loaded}};"
-    "x.onload=()=>{m.textContent=x.responseText};x.onerror=()=>{m.textContent='Upload failed'};x.send(f)}"
-    "</script></body></html>";
 
 static bool ota_sink(const uint8_t *data, size_t len, void *ctx) {
     bool *quiet = ctx;
@@ -869,9 +741,9 @@ static void handle(request_t *r) {
     const bool get = !strcmp(r->method, "GET"), post = !strcmp(r->method, "POST");
     char *query = strchr(r->path, '?');
     if (query) *query++ = 0;
-    if (get && !strcmp(r->path, "/")) respond(r->fd, 200, "OK", "text/html", PAGE);
+    if (get && !strcmp(r->path, "/")) respond_asset(r->fd, "text/html; charset=utf-8", web_index_html, web_index_html_len);
     else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
-    else if (get && !strcmp(r->path, "/ui.js")) respond_asset(r->fd, "application/javascript", web_ui_js, web_ui_js_len);
+    else if (get && !strcmp(r->path, "/app.js")) respond_asset(r->fd, "application/javascript", web_app_js, web_app_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
     else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read);
