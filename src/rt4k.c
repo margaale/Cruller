@@ -14,6 +14,7 @@
 
 #include "rtl1.h"
 #include "rtl1_core.h"
+#include "console.h"
 #include "power.h"
 
 #define RT4K_TASK_STACK     1024
@@ -209,11 +210,14 @@ void tuh_cdc_rx_cb(uint8_t idx) {
 // --- task --------------------------------------------------------------------------------------
 
 void rt4k_text_push(const uint8_t *data, size_t len) {
+    console_feed(data, len); // routes each line: see console.h
+}
+
+void rt4k_term_push(const uint8_t *data, size_t len) {
     critical_section_enter_blocking(&rx_lock);
     for (size_t i = 0; i < len; i++) rx_ring[(rx_head + i) & (RX_RING_SIZE - 1)] = (char)data[i];
     rx_head += (uint32_t)len;
     critical_section_exit(&rx_lock);
-    power_feed_text(data, len);
 }
 
 static void host_init(void) {
@@ -326,6 +330,10 @@ bool rt4k_connected(void) {
 }
 
 bool rt4k_command(const char *cmd) {
+    return console_send(CON_PAGE, cmd);
+}
+
+bool rt4k_send_command(const char *cmd) {
     char line[CMD_MAX + 4];
     const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     if (n < 0 || n >= (int)sizeof(line)) return false;
@@ -347,47 +355,7 @@ bool rt4k_command(const char *cmd) {
 }
 
 bool rt4k_query(const char *cmd, const char *expect, char *out, size_t size, uint32_t timeout_ms) {
-    critical_section_enter_blocking(&rx_lock);
-    uint32_t pos = rx_head; // only what comes after the command
-    critical_section_exit(&rx_lock);
-    if (!rt4k_command(cmd)) return false;
-    char line[200], buf[128];
-    size_t len = 0;
-    for (const uint32_t t0 = to_ms_since_boot(get_absolute_time());
-         to_ms_since_boot(get_absolute_time()) - t0 < timeout_ms;) {
-        const size_t n = rt4k_rx_read(&pos, buf, sizeof(buf));
-        if (!n) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
-        }
-        for (size_t i = 0; i < n; i++) {
-            if (buf[i] != '\n') {
-                if (len < sizeof(line) - 1) line[len++] = buf[i];
-                continue;
-            }
-            if (len && line[len - 1] == '\r') len--;
-            line[len] = 0;
-            len = 0;
-            const char *l = strncmp(line, "[COM] ", 6) ? line : line + 6;
-            if (strstr(l, expect)) {
-                snprintf(out, size, "%s", l);
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-bool rt4k_send_raw(const void *data, size_t len) {
-    if (!rt4k_link_lock(2000)) { // waits for a running rtl1 transfer
-        cmd_stats.dropped++;
-        return false;
-    }
-    const bool ok = rt4k_write(data, len);
-    rt4k_link_unlock();
-    cmd_stats.sent++;
-    last_cmd_ms = to_ms_since_boot(get_absolute_time());
-    return ok;
+    return console_query(cmd, expect, out, size, timeout_ms);
 }
 
 uint32_t rt4k_rx_head(void) {

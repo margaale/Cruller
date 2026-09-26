@@ -21,17 +21,18 @@ void rt4k_start(void);
 bool rt4k_suspend(void);
 void rt4k_resume(void);
 
-// Sends a console command the way the RT4K expects it: "\r<cmd>\r\n". False when it doesn't fit,
-// or while an rtl1 transfer holds the link for more than 2 s.
+// A console command from the page (web terminal, remote), queued in console.c. False when it doesn't
+// fit or the queue is full.
 bool rt4k_command(const char *cmd);
 
 // Sends a console command and waits for the first reply line containing `expect` ("[COM] " prefix
-// dropped), copied to out. False if the command couldn't be sent or no such line came in time.
+// dropped), copied to out (console_query). False if no such line came in time.
 bool rt4k_query(const char *cmd, const char *expect, char *out, size_t size, uint32_t timeout_ms);
 
-// Bytes from another client (RFC 2217), as they are, between rtl1 transfers: waits for the link
-// like rt4k_command() and counts as a command (transfers keep their distance after it).
-bool rt4k_send_raw(const void *data, size_t len);
+// Writes a console command now, the way the RT4K expects it: "\r<cmd>\r\n" (console.c's task; others
+// queue with console_send). False when it doesn't fit, or while an rtl1 transfer holds the link for
+// more than 2 s.
+bool rt4k_send_command(const char *cmd);
 
 // The position after the last byte in the terminal ring (a starting point for rt4k_rx_read()).
 uint32_t rt4k_rx_head(void);
@@ -54,8 +55,10 @@ uint8_t rt4k_modem_status(void); // FTDI modem status byte: bit 4 CTS, bit 5 DSR
 // Milliseconds since rt4k_command() last sent something.
 uint32_t rt4k_ms_since_command(void);
 
-// Text for the terminal ring; rtl1_feed() passes on everything that isn't a binary frame.
+// Text from the RT4K; rtl1_feed() passes on everything that isn't a binary frame. It goes to
+// console.c, which routes each line and writes the web terminal's share with rt4k_term_push().
 void rt4k_text_push(const uint8_t *data, size_t len);
+void rt4k_term_push(const uint8_t *data, size_t len);
 
 // Copies terminal text received from the RT4K after *pos (see log_read()).
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max);

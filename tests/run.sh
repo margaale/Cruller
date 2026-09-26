@@ -12,9 +12,10 @@ mkdir -p build-tests
 "$CC" "${CFLAGS[@]}" src/ws_proto.c tests/test_ws.c -o build-tests/test_ws
 "$CC" "${CFLAGS[@]}" src/power_core.c tests/test_power.c -o build-tests/test_power
 "$CC" "${CFLAGS[@]}" src/rfc2217_proto.c tests/test_rfc2217.c -o build-tests/test_rfc2217
+"$CC" "${CFLAGS[@]}" src/console_core.c tests/test_console.c -o build-tests/test_console
 
 status=0
-for t in test_rtl1 test_ws test_power test_rfc2217; do
+for t in test_rtl1 test_ws test_power test_rfc2217 test_console; do
     echo "== $t"
     ./build-tests/$t || status=1
     echo

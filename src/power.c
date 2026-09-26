@@ -7,14 +7,13 @@
 #include "pico/sync.h"
 #include "pico/time.h"
 
+#include "console.h"
 #include "rt4k.h"
 
 #define POWER_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define POWER_TICK_MS       200
 
 static critical_section_t lock; // every power_core call: events come from several tasks
-static char line[160];          // text line being assembled (rt4k task only)
-static size_t line_len;
 
 static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
@@ -27,20 +26,10 @@ power_state_t power_state(void) {
     return s;
 }
 
-void power_feed_text(const uint8_t *data, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        const char c = (char)data[i];
-        if (c != '\n') {
-            if (line_len < sizeof(line) - 1) line[line_len++] = c;
-            continue;
-        }
-        if (line_len && line[line_len - 1] == '\r') line_len--;
-        line[line_len] = 0;
-        line_len = 0;
-        critical_section_enter_blocking(&lock);
-        power_core_line(line, now_ms());
-        critical_section_exit(&lock);
-    }
+void power_feed_line(const char *line) {
+    critical_section_enter_blocking(&lock);
+    power_core_line(line, now_ms());
+    critical_section_exit(&lock);
 }
 
 #define EVENT(name, call)                        \
@@ -71,7 +60,7 @@ static void power_task(void *param) {
             printf("power: RT4K %s\n", power_state_name(s));
             logged = s;
         }
-        if (probe) rt4k_command("ver"); // answered when on, ignored in standby
+        if (probe) console_send(CON_POWER, "ver"); // answered when on, ignored in standby; nobody sees it
     }
 }
 

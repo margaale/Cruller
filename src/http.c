@@ -15,6 +15,7 @@
 #include "health.h"
 #include "freeze.h"
 #include "log.h"
+#include "console.h"
 #include "power.h"
 #include "rfc2217.h"
 #include "rt4k.h"
@@ -262,18 +263,18 @@ void http_status_json(char *body, size_t size) {
     json_escape(ssid, sizeof(ssid), net_ssid());
     rt4k_status_t rt;
     rt4k_get_status(&rt);
-    char rfc2217_ip[16];
-    rfc2217_client(rfc2217_ip, sizeof(rfc2217_ip));
+    char rfc2217_ips[56];
+    rfc2217_clients(rfc2217_ips, sizeof(rfc2217_ips));
     snprintf(body, size,
         "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\","
         "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,"
         "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,"
-        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\",\"rfc2217_client\":\"%s\"}",
+        "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\",\"rfc2217_clients\":\"%s\"}",
         CRULLER_VERSION, (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000), state_name(net_state()),
         ssid, net_ip(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
         (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
-        rt.mounted ? power_state_name(power_state()) : "unknown", rfc2217_ip);
+        rt.mounted ? power_state_name(power_state()) : "unknown", rfc2217_ips);
 }
 
 // GET <path>?since=N: text written after position N, with the new position in X-Next.
@@ -661,6 +662,128 @@ static void handle_rt4k_ask(request_t *r, const char *query) {
     }
 }
 
+// --- POST /api/command -------------------------------------------------------------------------------
+//
+// For automations (Home Assistant...): console commands in, their own replies out, through the same
+// queue as everything else (console.c), so they never get another sender's replies. Body:
+//   {"command": "remote menu"}   {"commands": ["remote menu", "remote down"]}   {"button": "menu"}
+// or plain text, one command per line. "button" takes the remote's names as hass-RT4K sends them:
+// "menu" -> "remote menu"; "power_on" -> "pwr on"; "power_off" / "power" -> "remote pwr".
+// Answer: {"ok":true,"power":"on","results":[{"command":"ver","sent":true,"reply":["[COM] ..."]}]}
+
+#define API_MAX_COMMANDS 8
+#define API_CMD_MAX      200
+
+// The JSON string value after "key": ... (no nesting needed). Returns the position after it, or NULL.
+static const char *json_string(const char *p, char *out, size_t size) {
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ',' || *p == '[' || *p == ':') p++;
+    if (*p != '"') return NULL;
+    size_t n = 0;
+    for (p++; *p && *p != '"'; p++) {
+        char c = *p;
+        if (c == '\\' && p[1]) {
+            c = *++p;
+            if (c == 'n') c = '\n';
+            else if (c == 't') c = '\t';
+            else if (c == 'r') c = '\r';
+        }
+        if (n + 1 < size) out[n++] = c;
+    }
+    out[n] = 0;
+    return *p == '"' ? p + 1 : NULL;
+}
+
+static const char *json_key(const char *body, const char *key) {
+    char k[24];
+    snprintf(k, sizeof(k), "\"%s\"", key);
+    const char *p = strstr(body, k);
+    return p ? p + strlen(k) : NULL;
+}
+
+static void button_command(const char *button, char *out, size_t size) {
+    char b[48];
+    size_t n = 0;
+    for (; button[n] && n + 1 < sizeof(b); n++) b[n] = (char)tolower((unsigned char)button[n]);
+    b[n] = 0;
+    if (!strcmp(b, "power_on") || !strcmp(b, "pwr_on")) snprintf(out, size, "pwr on");
+    else if (!strcmp(b, "power_off") || !strcmp(b, "power") || !strcmp(b, "pwr")) snprintf(out, size, "remote pwr");
+    else snprintf(out, size, "remote %s", b);
+}
+
+typedef struct {
+    char *out;
+    size_t size, len;
+    int lines;
+} api_reply_t;
+
+static void api_line(const char *line, void *ctx) {
+    api_reply_t *a = ctx;
+    char esc[400];
+    json_escape(esc, sizeof(esc), line);
+    a->len += (size_t)snprintf(a->out + a->len, a->len < a->size ? a->size - a->len : 0, "%s\"%s\"",
+        a->lines++ ? "," : "", esc);
+}
+
+static void handle_api_command(request_t *r) {
+    static raw_t body;
+    body.len = 0;
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(body.buf) || !read_body(r, raw_sink, &body)) {
+        respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"send commands as the body\"}");
+        return;
+    }
+    body.buf[body.len] = 0;
+    const char *text = (const char *)body.buf;
+    static char cmds[API_MAX_COMMANDS][API_CMD_MAX];
+    int count = 0;
+    if (*text == '{') {
+        const char *p;
+        char v[API_CMD_MAX];
+        if ((p = json_key(text, "commands"))) {
+            while (count < API_MAX_COMMANDS && (p = json_string(p, cmds[count], API_CMD_MAX))) count++;
+        } else if ((p = json_key(text, "command")) && json_string(p, cmds[0], API_CMD_MAX)) {
+            count = 1;
+        } else if ((p = json_key(text, "button")) && json_string(p, v, sizeof(v))) {
+            button_command(v, cmds[0], API_CMD_MAX);
+            count = 1;
+        }
+    } else {
+        for (const char *p = text; *p && count < API_MAX_COMMANDS;) {
+            const size_t n = strcspn(p, "\r\n");
+            if (n && n < API_CMD_MAX) {
+                memcpy(cmds[count], p, n);
+                cmds[count++][n] = 0;
+            }
+            p += n;
+            while (*p == '\r' || *p == '\n') p++;
+        }
+    }
+    for (int i = 0; i < count; i++) {
+        for (char *c = cmds[i]; *c; c++) if ((unsigned char)*c < 0x20) *c = ' '; // one line each
+    }
+    if (!count) {
+        respond(r->fd, 400, "Bad Request", "application/json",
+            "{\"ok\":false,\"error\":\"no command (\\\"command\\\", \\\"commands\\\" or \\\"button\\\")\"}");
+        return;
+    }
+    static char results[3800], out[4096];
+    size_t len = 0;
+    bool all_sent = true;
+    for (int i = 0; i < count && len < sizeof(results) - 64; i++) {
+        char esc[400];
+        json_escape(esc, sizeof(esc), cmds[i]);
+        len += (size_t)snprintf(results + len, sizeof(results) - len, "%s{\"command\":\"%s\",\"reply\":[",
+            i ? "," : "", esc);
+        api_reply_t reply = {results, sizeof(results) - 32, len, 0}; // room kept for the closing parts
+        const bool sent = console_run(CON_HTTP, cmds[i], api_line, &reply);
+        len = reply.len < sizeof(results) - 32 ? reply.len : sizeof(results) - 32;
+        len += (size_t)snprintf(results + len, sizeof(results) - len, "],\"sent\":%s}", sent ? "true" : "false");
+        all_sent &= sent;
+    }
+    snprintf(out, sizeof(out), "{\"ok\":%s,\"power\":\"%s\",\"results\":[%s]}", all_sent ? "true" : "false",
+        power_state_name(power_state()), results);
+    respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", out);
+}
+
 static void handle_wifi(request_t *r) {
     static form_t form;
     form.len = 0;
@@ -710,6 +833,7 @@ static void handle(request_t *r) {
     }
     else if (post && !strcmp(r->path, "/rt4k/put")) handle_rt4k_put(r, query);
     else if (post && !strcmp(r->path, "/rt4k/ask")) handle_rt4k_ask(r, query);
+    else if (post && !strcmp(r->path, "/api/command")) handle_api_command(r);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;
         const size_t n = rtl1_last_failure(&d);

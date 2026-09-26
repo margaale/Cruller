@@ -8,27 +8,33 @@
 #include "lwip/sockets.h"
 #include "pico/time.h"
 
-#include "power.h"
+#include "console.h"
 #include "rfc2217_proto.h"
 #include "rt4k.h"
 
 #define RFC2217_PORT          2217
 #define RFC2217_TASK_STACK    1024
 #define RFC2217_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+#define MAX_CLIENTS           3   // lwIP has 12 TCP PCBs, shared with HTTP and the WebSockets
 #define TICK_MS               20
 #define CLIENT_LINE_MAX       256
 #define LINE_IDLE_MS          50  // a line without "\n" (just "\r") goes out after this pause
 
-static int client_fd = -1;
-static char client_ip[16];
-static rfc2217_t proto;
-static int modem_sent = -1; // modem state last announced to the client (-1: not yet)
+typedef struct {
+    int fd;                        // -1: free
+    char ip[16];
+    uint32_t since_ms;             // connected at (the oldest is replaced when all are taken)
+    rfc2217_t proto;
+    uint32_t seq;                  // position in the console's routed lines (console_read)
+    int modem_sent;                // modem state last announced (-1: not yet)
+    // Lines go to the RT4K whole: bytes trickling in separately could be cut apart by one of
+    // Cruller's own transfers (its "\r<cmd>\r\n" would end the client's line) or another client's.
+    uint8_t line[CLIENT_LINE_MAX];
+    size_t line_len;
+    uint32_t line_last_ms;
+} client_t;
 
-// Client data is sent to the RT4K a whole line at a time: bytes trickling in separately could be
-// cut apart by one of Cruller's own transfers (its "\r<cmd>\r\n" would end the client's line).
-static uint8_t line[CLIENT_LINE_MAX];
-static size_t line_len;
-static uint32_t line_last_ms;
+static client_t clients[MAX_CLIENTS];
 
 static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
@@ -44,55 +50,83 @@ static bool send_all(int fd, const uint8_t *p, size_t len) {
     return true;
 }
 
-static void flush_line(void) {
-    if (!line_len) return;
-    // "pwr on" wakes a sleeping RT4K: tell the power tracker, as rt4k_command() does.
-    size_t n = line_len;
-    while (n && (line[n - 1] == '\r' || line[n - 1] == '\n')) n--;
-    const size_t start = line[0] == '\r' ? 1 : 0;
-    if (n - start == 6 && !memcmp(line + start, "pwr on", 6)) power_woken();
-    rt4k_send_raw(line, line_len);
-    line_len = 0;
-}
-
-static void from_client(const uint8_t *data, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        line[line_len++] = data[i];
-        if (data[i] == '\n' || line_len == sizeof(line)) flush_line();
+// A whole line from the client, as a console command of its own (its replies come back to it only).
+static void flush_line(client_t *c) {
+    size_t start = 0, end = c->line_len;
+    while (start < end && (c->line[start] == '\r' || c->line[start] == '\n')) start++;
+    while (end > start && (c->line[end - 1] == '\r' || c->line[end - 1] == '\n')) end--;
+    if (end > start) {
+        c->line[end] = 0;
+        if (!console_send(CON_CLIENT((int)(c - clients)), (const char *)c->line + start)) {
+            printf("rfc2217: client %s: command dropped (console queue full)\n", c->ip);
+        }
     }
-    line_last_ms = now_ms();
+    c->line_len = 0;
 }
 
-static void drop_client(const char *why) {
-    if (client_fd < 0) return;
-    closesocket(client_fd);
-    client_fd = -1;
-    line_len = 0;
-    printf("rfc2217: client %s %s\n", client_ip, why);
-    client_ip[0] = 0;
+static void from_client(client_t *c, const uint8_t *data, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        c->line[c->line_len++] = data[i];
+        if (data[i] == '\n' || c->line_len == sizeof(c->line) - 1) flush_line(c); // room for the NUL
+    }
+    c->line_last_ms = now_ms();
+}
+
+static void drop_client(client_t *c, const char *why) {
+    if (c->fd < 0) return;
+    closesocket(c->fd);
+    c->fd = -1;
+    c->line_len = 0;
+    printf("rfc2217: client %s %s\n", c->ip, why);
+    c->ip[0] = 0;
+}
+
+static void add_client(int fd, const struct sockaddr_in *peer, uint8_t *buf, size_t size) {
+    client_t *c = NULL;
+    for (int i = 0; i < MAX_CLIENTS && !c; i++) if (clients[i].fd < 0) c = &clients[i];
+    if (!c) { // all taken: the oldest makes room (a crashed client can't lock the others out)
+        c = &clients[0];
+        for (int i = 1; i < MAX_CLIENTS; i++) if (clients[i].since_ms - c->since_ms > 0x80000000u) c = &clients[i];
+        drop_client(c, "replaced by a new connection");
+    }
+    const int one = 1;
+    const struct timeval snd = {.tv_sec = 1, .tv_usec = 0};
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd, sizeof(snd));
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    c->fd = fd;
+    c->since_ms = now_ms();
+    inet_ntoa_r(peer->sin_addr, c->ip, sizeof(c->ip));
+    rfc2217_init(&c->proto);
+    c->seq = console_head(); // from now on, not what came before
+    c->modem_sent = -1;
+    c->line_len = 0;
+    const size_t n = rfc2217_greeting(&c->proto, buf, size);
+    if (!send_all(fd, buf, n)) drop_client(c, "failed");
+    else printf("rfc2217: client %s connected\n", c->ip);
 }
 
 static void rfc2217_task(void *param) {
     (void)param;
+    for (int i = 0; i < MAX_CLIENTS; i++) clients[i].fd = -1;
     const int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     const int one = 1;
     setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in addr = {.sin_family = AF_INET, .sin_port = htons(RFC2217_PORT), .sin_addr.s_addr = htonl(INADDR_ANY)};
-    if (server < 0 || bind(server, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(server, 1) < 0) {
+    if (server < 0 || bind(server, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(server, 2) < 0) {
         printf("rfc2217: cannot listen on port %d\n", RFC2217_PORT);
         vTaskDelete(NULL);
     }
-    printf("rfc2217: listening on port %d\n", RFC2217_PORT);
+    printf("rfc2217: listening on port %d (up to %d clients)\n", RFC2217_PORT, MAX_CLIENTS);
     static uint8_t in[512], data[512], reply[256], text[256], out[520];
-    uint32_t rx_pos = 0;
     for (;;) {
         fd_set rd;
         FD_ZERO(&rd);
         FD_SET(server, &rd);
         int maxfd = server;
-        if (client_fd >= 0) {
-            FD_SET(client_fd, &rd);
-            if (client_fd > maxfd) maxfd = client_fd;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (clients[i].fd < 0) continue;
+            FD_SET(clients[i].fd, &rd);
+            if (clients[i].fd > maxfd) maxfd = clients[i].fd;
         }
         struct timeval tv = {.tv_sec = 0, .tv_usec = TICK_MS * 1000};
         const int ready = select(maxfd + 1, &rd, NULL, NULL, &tv);
@@ -101,53 +135,51 @@ static void rfc2217_task(void *param) {
             struct sockaddr_in peer;
             socklen_t plen = sizeof(peer);
             const int fd = accept(server, (struct sockaddr *)&peer, &plen);
-            if (fd >= 0) {
-                drop_client("replaced by a new connection");
-                client_fd = fd;
-                const struct timeval snd = {.tv_sec = 1, .tv_usec = 0};
-                setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd, sizeof(snd));
-                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-                inet_ntoa_r(peer.sin_addr, client_ip, sizeof(client_ip));
-                rfc2217_init(&proto);
-                const size_t n = rfc2217_greeting(&proto, out, sizeof(out));
-                if (!send_all(fd, out, n)) drop_client("failed");
-                else printf("rfc2217: client %s connected\n", client_ip);
-                rx_pos = rt4k_rx_head(); // from now on, not the terminal's history
-                modem_sent = -1;
-            }
+            if (fd >= 0) add_client(fd, &peer, out, sizeof(out));
         }
 
-        if (client_fd >= 0 && ready > 0 && FD_ISSET(client_fd, &rd)) {
-            const int n = recv(client_fd, in, sizeof(in), 0);
-            if (n <= 0) {
-                drop_client("left");
-            } else {
+        const uint8_t modem = (uint8_t)(rt4k_modem_status() & 0xf0);
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            client_t *c = &clients[i];
+            if (c->fd < 0) continue;
+            if (ready > 0 && FD_ISSET(c->fd, &rd)) {
+                const int n = recv(c->fd, in, sizeof(in), 0);
+                if (n <= 0) {
+                    drop_client(c, "left");
+                    continue;
+                }
                 rfc2217_io_t io = {.data = data, .data_max = sizeof(data), .reply = reply, .reply_max = sizeof(reply)};
-                rfc2217_input(&proto, in, (size_t)n, &io, (uint8_t)(rt4k_modem_status() & 0xf0));
-                if (io.reply_len && !send_all(client_fd, reply, io.reply_len)) drop_client("failed");
-                if (io.data_len) from_client(data, io.data_len);
+                rfc2217_input(&c->proto, in, (size_t)n, &io, modem);
+                if (io.reply_len && !send_all(c->fd, reply, io.reply_len)) {
+                    drop_client(c, "failed");
+                    continue;
+                }
+                if (io.data_len) from_client(c, data, io.data_len);
             }
-        }
-        if (line_len && now_ms() - line_last_ms >= LINE_IDLE_MS) flush_line();
+            if (c->line_len && now_ms() - c->line_last_ms >= LINE_IDLE_MS) flush_line(c);
 
-        // The modem state (CTS, DSR...), announced at connect and on every change.
-        const int modem = rt4k_modem_status() & 0xf0;
-        if (client_fd >= 0 && modem != modem_sent) {
-            const size_t n = rfc2217_modemstate((uint8_t)modem, out, sizeof(out));
-            if (send_all(client_fd, out, n)) modem_sent = modem;
-            else drop_client("failed");
-        }
+            // The modem state (CTS, DSR...), announced at connect and on every change.
+            if (modem != c->modem_sent) {
+                const size_t n = rfc2217_modemstate(modem, out, sizeof(out));
+                if (!send_all(c->fd, out, n)) {
+                    drop_client(c, "failed");
+                    continue;
+                }
+                c->modem_sent = modem;
+            }
 
-        // What the RT4K says, to the client.
-        if (client_fd >= 0) {
-            size_t n;
-            while (client_fd >= 0 && (n = rt4k_rx_read(&rx_pos, (char *)text, sizeof(text))) > 0) {
-                size_t off = 0;
-                while (off < n) {
+            // What the RT4K says: the replies to this client's commands, and lines outside any
+            // command's reply window (see console.h). The RT4K ends its lines with "\n".
+            int owner;
+            while (c->fd >= 0 && console_read(&c->seq, &owner, (char *)text, sizeof(text) - 1)) {
+                if (owner != CON_CLIENT(i) && owner != CON_BROADCAST) continue;
+                size_t n = strlen((char *)text);
+                text[n++] = '\n';
+                for (size_t off = 0; off < n;) {
                     size_t used;
                     const size_t m = rfc2217_escape(text + off, n - off, out, sizeof(out), &used);
-                    if (!send_all(client_fd, out, m)) {
-                        drop_client("failed");
+                    if (!send_all(c->fd, out, m)) {
+                        drop_client(c, "failed");
                         break;
                     }
                     off += used;
@@ -157,8 +189,13 @@ static void rfc2217_task(void *param) {
     }
 }
 
-void rfc2217_client(char *out, size_t size) {
-    snprintf(out, size, "%s", client_ip);
+void rfc2217_clients(char *out, size_t size) {
+    size_t o = 0;
+    out[0] = 0;
+    for (int i = 0; i < MAX_CLIENTS && o < size; i++) {
+        if (clients[i].fd < 0) continue;
+        o += (size_t)snprintf(out + o, size - o, "%s%s", o ? " " : "", clients[i].ip);
+    }
 }
 
 void rfc2217_start(void) {

@@ -16,6 +16,7 @@
 #include "http.h"
 #include "log.h"
 #include "net.h"
+#include "console.h"
 #include "ota.h"
 #include "power.h"
 #include "rfc2217.h"
@@ -56,7 +57,8 @@ static void main_task(void *param) {
         (unsigned)async_context_core_num(cyw43_arch_async_context()));
     health_start_net_probe();
     status_led_start();
-    power_start(); // before rt4k_start(): the rt4k task feeds it text from the start
+    console_start(); // before rt4k_start(): the rt4k task feeds them text from the start
+    power_start();
     rt4k_start();
     ws_start();
     http_start();

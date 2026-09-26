@@ -13,7 +13,7 @@ void power_start(void);
 power_state_t power_state(void);
 
 // Events, from wherever they're seen.
-void power_feed_text(const uint8_t *data, size_t len); // terminal text from the RT4K (rt4k task)
+void power_feed_line(const char *line);                // every text line from the RT4K (console.c)
 void power_break(void);                                // FTDI line break (rt4k task)
 void power_alive(void);                                // a transfer got its ready line or a refusal
 void power_silent(void);                               // a transfer got no ready line
