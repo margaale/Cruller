@@ -44,6 +44,7 @@ target_sources(cruller_app INTERFACE
     src/log.c
     src/health.c
     src/rtl1.c
+    src/rtl1_core.c
     third_party/picow_ap/dhcpserver.c
     third_party/picow_ap/dnsserver.c
 )

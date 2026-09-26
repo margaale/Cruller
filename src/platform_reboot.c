@@ -12,7 +12,10 @@
 
 void platform_prepare_reboot(void) {
     health_stop_net_probe();
-    cyw43_arch_deinit();
+    // Hold the driver's lock for good instead of cyw43_arch_deinit(): tearing the driver down under
+    // other tasks (network rejoin, LED, lwIP) crashed them on its freed context. Now they just
+    // block. Then power the chip off so the next boot starts it from reset.
+    cyw43_arch_lwip_begin();
     gpio_init(CYW43_DEFAULT_PIN_WL_REG_ON);
     gpio_set_dir(CYW43_DEFAULT_PIN_WL_REG_ON, GPIO_OUT);
     gpio_put(CYW43_DEFAULT_PIN_WL_REG_ON, 0);
