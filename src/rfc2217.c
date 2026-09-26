@@ -8,6 +8,7 @@
 #include "lwip/sockets.h"
 #include "pico/time.h"
 
+#include "clients.h"
 #include "console.h"
 #include "rfc2217_proto.h"
 #include "rt4k.h"
@@ -15,7 +16,7 @@
 #define RFC2217_PORT          2217
 #define RFC2217_TASK_STACK    1024
 #define RFC2217_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
-#define MAX_CLIENTS           3   // lwIP has 12 TCP PCBs, shared with HTTP and the WebSockets
+#define MAX_CLIENTS           CLIENTS_MAX // slots; the shared budget (clients.h) caps pages + RFC 2217
 #define TICK_MS               20
 #define CLIENT_LINE_MAX       256
 #define LINE_IDLE_MS          50  // a line without "\n" (just "\r") goes out after this pause
@@ -80,18 +81,29 @@ static void drop_client(client_t *c, const char *why) {
     closesocket(c->fd);
     c->fd = -1;
     c->line_len = 0;
+    clients_give();
     printf("rfc2217: client %s %s\n", c->ip, why);
     c->ip[0] = 0;
 }
 
 static void add_client(int fd, const struct sockaddr_in *peer, uint8_t *buf, size_t size) {
+    if (!clients_take()) {
+        // The shared budget is full: the oldest RFC 2217 client makes room (a crashed one can't lock
+        // the others out), but a web page is never replaced for it.
+        client_t *oldest = NULL;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (clients[i].fd >= 0 && (!oldest || clients[i].since_ms - oldest->since_ms > 0x80000000u)) oldest = &clients[i];
+        }
+        if (!oldest) {
+            printf("rfc2217: no room: all %d client slots are taken by web pages\n", CLIENTS_MAX);
+            closesocket(fd);
+            return;
+        }
+        drop_client(oldest, "replaced by a new connection");
+        clients_take(); // the slot it gave back
+    }
     client_t *c = NULL;
     for (int i = 0; i < MAX_CLIENTS && !c; i++) if (clients[i].fd < 0) c = &clients[i];
-    if (!c) { // all taken: the oldest makes room (a crashed client can't lock the others out)
-        c = &clients[0];
-        for (int i = 1; i < MAX_CLIENTS; i++) if (clients[i].since_ms - c->since_ms > 0x80000000u) c = &clients[i];
-        drop_client(c, "replaced by a new connection");
-    }
     const int one = 1;
     const struct timeval snd = {.tv_sec = 1, .tv_usec = 0};
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd, sizeof(snd));

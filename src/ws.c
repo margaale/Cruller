@@ -14,10 +14,11 @@
 #include "http.h"
 #include "log.h"
 #include "rtl1.h"
+#include "clients.h"
 #include "power.h"
 #include "ws_proto.h"
 
-#define MAX_CLIENTS        3
+#define MAX_CLIENTS        CLIENTS_MAX // slots; the shared budget (clients.h) caps pages + RFC 2217
 #define WS_TASK_STACK      1536   // words
 #define WS_TASK_PRIORITY   (tskIDLE_PRIORITY + 2)
 #define MIRROR_TASK_STACK  1024
@@ -114,6 +115,7 @@ static void drop(client_t *c) {
     closesocket(c->fd);
     c->fd = -1;
     client_count--;
+    clients_give();
     printf("ws: client left (%d connected)\n", client_count);
 }
 
@@ -243,19 +245,25 @@ static bool on_readable(client_t *c) {
 // --- tasks -------------------------------------------------------------------------------------
 
 static void add_client(int fd) {
+    if (!clients_take()) {
+        // The shared budget is full: the newcomer wins over the least recently heard-from page (often
+        // a reloaded page whose old connection never closed properly), but never over another kind.
+        client_t *quietest = NULL;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (clients[i].fd >= 0 && (!quietest || clients[i].last_rx_ms < quietest->last_rx_ms)) quietest = &clients[i];
+        }
+        if (!quietest) {
+            printf("ws: no room: all %d client slots are taken by RFC 2217 clients\n", CLIENTS_MAX);
+            closesocket(fd);
+            return;
+        }
+        printf("ws: full, replacing the quietest page\n");
+        drop(quietest);
+        clients_take(); // the slot it gave back
+    }
     client_t *slot = NULL;
     for (int i = 0; i < MAX_CLIENTS && !slot; i++) {
         if (clients[i].fd < 0) slot = &clients[i];
-    }
-    if (!slot) {
-        // Full: the newcomer wins over the least recently heard-from client (often a reloaded page
-        // whose old connection never closed properly).
-        slot = &clients[0];
-        for (int i = 1; i < MAX_CLIENTS; i++) {
-            if (clients[i].last_rx_ms < slot->last_rx_ms) slot = &clients[i];
-        }
-        printf("ws: full, evicting the quietest client\n");
-        drop(slot);
     }
     memset(slot, 0, sizeof(*slot));
     slot->fd = fd;
@@ -442,7 +450,8 @@ void ws_debug(char *out, size_t size) {
 }
 
 bool ws_has_room(void) {
-    return uxQueueMessagesWaiting(adopt_q) < MAX_CLIENTS; // a full house evicts (see add_client)
+    // A free slot in the shared budget, or a page to replace (see add_client); and handovers moving.
+    return (clients_used() < CLIENTS_MAX || client_count > 0) && uxQueueMessagesWaiting(adopt_q) < MAX_CLIENTS;
 }
 
 bool ws_adopt(int fd) {

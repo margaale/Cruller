@@ -25,12 +25,15 @@
 // MEM_LIBC_MALLOC is incompatible with the non-polling cyw43_arch variants
 #define MEM_LIBC_MALLOC             0
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    16000
-#define MEMP_NUM_TCP_SEG            32
+// Sized for 8 long-lived clients (web pages + RFC 2217, clients.h) plus HTTP. Sockets: 2 listeners +
+// 8 clients + 1 request + 4 waiting = 15. TCP connections: those plus TIME_WAIT. At 12/12/16 KB,
+// 3 pages + 3 RFC 2217 + a burst of requests peaked at every limit, with failed allocations
+// (GET /debug/memory). The FreeRTOS heap had over 100 KB to spare.
+#define MEM_SIZE                    32000
+#define MEMP_NUM_TCP_SEG            64
 #define MEMP_NUM_ARP_QUEUE          10
-#define MEMP_NUM_NETCONN            12
-#define MEMP_NUM_TCP_PCB            12   // default 5: two open pages (WebSockets) plus requests and
-                                         // TIME_WAIT ran out, and new connections were reset
+#define MEMP_NUM_NETCONN            20
+#define MEMP_NUM_TCP_PCB            24
 #define PBUF_POOL_SIZE              24
 
 #define LWIP_ARP                    1

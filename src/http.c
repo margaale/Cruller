@@ -17,6 +17,7 @@
 #include "health.h"
 #include "freeze.h"
 #include "log.h"
+#include "clients.h"
 #include "console.h"
 #include "power.h"
 #include "rfc2217.h"
@@ -211,11 +212,10 @@ static void handle_debug_memory(int fd) {
     static char out[2048];
     size_t o = 0;
 #define ADD(...) o += (size_t)snprintf(out + o, o < sizeof(out) ? sizeof(out) - o : 0, __VA_ARGS__)
-    int ws_max, rfc_max;
-    const int ws_n = ws_clients(&ws_max), rfc_n = rfc2217_count(&rfc_max);
-    ADD("clients\n");
-    ADD("  web pages (WebSocket)   %d of %d (a new one replaces the quietest)\n", ws_n, ws_max);
-    ADD("  RFC 2217 (port 2217)    %d of %d (a new one replaces the oldest)\n", rfc_n, rfc_max);
+    const int ws_n = ws_clients(NULL), rfc_n = rfc2217_count(NULL);
+    ADD("clients                 %d of %d, shared (see clients.h)\n", clients_used(), CLIENTS_MAX);
+    ADD("  web pages (WebSocket)   %d (when full, a new one replaces the quietest page)\n", ws_n);
+    ADD("  RFC 2217 (port 2217)    %d (when full, a new one replaces the oldest RFC 2217 client)\n", rfc_n);
     ADD("  HTTP                    1 request at a time, %d more waiting\n", HTTP_BACKLOG);
 
     ADD("\nlwIP pools              used  peak  size  failed\n");
@@ -315,7 +315,7 @@ void http_status_json(char *body, size_t size) {
     json_escape(ssid, sizeof(ssid), net_ssid());
     rt4k_status_t rt;
     rt4k_get_status(&rt);
-    char rfc2217_ips[56];
+    char rfc2217_ips[CLIENTS_MAX * 16 + 8];
     rfc2217_clients(rfc2217_ips, sizeof(rfc2217_ips));
     snprintf(body, size,
         "{\"version\":\"%s\",\"uptime_s\":%lu,\"net\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\","

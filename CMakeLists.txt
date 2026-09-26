@@ -44,6 +44,7 @@ target_sources(cruller_app INTERFACE
     src/log.c
     src/freeze.c
     src/health.c
+    src/clients.c
     src/console.c
     src/console_core.c
     src/power.c
