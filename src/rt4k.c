@@ -10,6 +10,8 @@
 #include "pico/sync.h"
 #include "tusb.h"
 
+#include "rtl1.h"
+
 #define RT4K_TASK_STACK     1024
 #define RT4K_TASK_PRIORITY  (tskIDLE_PRIORITY + 3)
 #define RT4K_TASK_CORE      1          // TinyUSB's host IRQ is registered on the core that initializes it
@@ -19,6 +21,7 @@
 
 static StreamBufferHandle_t tx_queue;
 static SemaphoreHandle_t tx_lock;      // stream buffers allow one writer at a time
+static SemaphoreHandle_t link_lock;    // one conversation with the RT4K at a time (rtl1 transfers)
 
 static char rx_ring[RX_RING_SIZE];
 static uint32_t rx_head;
@@ -82,12 +85,11 @@ void tuh_cdc_umount_cb(uint8_t idx) {
 
 // --- task --------------------------------------------------------------------------------------
 
-static void rx_push(const uint8_t *data, uint32_t len) {
+void rt4k_text_push(const uint8_t *data, size_t len) {
     critical_section_enter_blocking(&rx_lock);
-    for (uint32_t i = 0; i < len; i++) rx_ring[(rx_head + i) & (RX_RING_SIZE - 1)] = (char)data[i];
-    rx_head += len;
+    for (size_t i = 0; i < len; i++) rx_ring[(rx_head + i) & (RX_RING_SIZE - 1)] = (char)data[i];
+    rx_head += (uint32_t)len;
     critical_section_exit(&rx_lock);
-    status.rx_bytes += len;
 }
 
 static void host_init(void) {
@@ -120,7 +122,8 @@ static void rt4k_task(void *param) {
             while ((n = tuh_cdc_read_available(idx)) > 0) {
                 n = tuh_cdc_read(idx, buf, n < sizeof(buf) ? n : sizeof(buf));
                 if (!n) break;
-                rx_push(buf, n);
+                status.rx_bytes += n;
+                rtl1_feed(buf, n);
             }
             bool wrote = false;
             for (;;) {
@@ -146,6 +149,7 @@ static void rt4k_task(void *param) {
 void rt4k_start(void) {
     tx_queue = xStreamBufferCreate(TX_QUEUE_SIZE, 1);
     tx_lock = xSemaphoreCreateMutex();
+    link_lock = xSemaphoreCreateMutex();
     critical_section_init(&rx_lock);
     xTaskCreateAffinitySet(rt4k_task, "rt4k", RT4K_TASK_STACK, NULL, RT4K_TASK_PRIORITY, 1u << RT4K_TASK_CORE, &rt4k_handle);
 }
@@ -162,22 +166,41 @@ void rt4k_resume(void) {
     if (rt4k_handle) xTaskNotifyGive(rt4k_handle);
 }
 
+bool rt4k_write(const void *data, size_t len) {
+    if (xSemaphoreTake(tx_lock, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+    const bool ok = xStreamBufferSpacesAvailable(tx_queue) >= len && xStreamBufferSend(tx_queue, data, len, 0) == len;
+    xSemaphoreGive(tx_lock);
+    if (ok && rt4k_handle) xTaskNotifyGive(rt4k_handle);
+    return ok;
+}
+
+bool rt4k_link_lock(uint32_t timeout_ms) {
+    return xSemaphoreTake(link_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
+void rt4k_link_unlock(void) {
+    xSemaphoreGive(link_lock);
+}
+
+bool rt4k_connected(void) {
+    return status.mounted;
+}
+
 bool rt4k_command(const char *cmd) {
     char line[CMD_MAX + 4];
     const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     if (n < 0 || n >= (int)sizeof(line)) return false;
-    if (xSemaphoreTake(tx_lock, pdMS_TO_TICKS(100)) != pdTRUE) return false;
-    const bool ok = xStreamBufferSpacesAvailable(tx_queue) >= (size_t)n &&
-        xStreamBufferSend(tx_queue, line, (size_t)n, 0) == (size_t)n;
-    xSemaphoreGive(tx_lock);
-    if (ok && rt4k_handle) xTaskNotifyGive(rt4k_handle);
+    if (!rt4k_link_lock(2000)) return false; // an rtl1 transfer is running
+    const bool ok = rt4k_write(line, (size_t)n);
+    rt4k_link_unlock();
     return ok;
 }
 
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {
     critical_section_enter_blocking(&rx_lock);
     uint32_t from = *pos;
-    if (rx_head - from > RX_RING_SIZE) from = rx_head - RX_RING_SIZE;
+    // Overwritten, or ahead of us: restart at the oldest byte held.
+    if (from > rx_head || rx_head - from > RX_RING_SIZE) from = rx_head > RX_RING_SIZE ? rx_head - RX_RING_SIZE : 0;
     size_t n = rx_head - from;
     if (n > max) n = max;
     for (size_t i = 0; i < n; i++) out[i] = rx_ring[(from + i) & (RX_RING_SIZE - 1)];

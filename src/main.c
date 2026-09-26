@@ -17,6 +17,7 @@
 #include "net.h"
 #include "ota.h"
 #include "rt4k.h"
+#include "rtl1.h"
 #include "status_led.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
@@ -63,6 +64,7 @@ int main(void) {
     stdio_init_all();
     log_init(); // stdout -> ring buffer read by the web UI (/log)
     flash_ops_init();
+    rtl1_init();
     xTaskCreate(main_task, "main", MAIN_TASK_STACK, NULL, MAIN_TASK_PRIORITY, NULL);
     vTaskStartScheduler();
     return 0; // not reached

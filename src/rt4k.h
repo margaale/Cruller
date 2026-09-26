@@ -21,10 +21,23 @@ void rt4k_start(void);
 bool rt4k_suspend(void);
 void rt4k_resume(void);
 
-// Sends a console command the way the RT4K expects it: "\r<cmd>\r\n". False when it doesn't fit.
+// Sends a console command the way the RT4K expects it: "\r<cmd>\r\n". False when it doesn't fit,
+// or while an rtl1 transfer holds the link for more than 2 s.
 bool rt4k_command(const char *cmd);
 
-// Copies bytes received from the RT4K after *pos (see log_read()).
+// Raw bytes to the RT4K (rtl1 commands and frames). False if the queue is full.
+bool rt4k_write(const void *data, size_t len);
+
+// One conversation at a time: rtl1 holds this for a whole transfer; rt4k_command() takes it briefly.
+bool rt4k_link_lock(uint32_t timeout_ms);
+void rt4k_link_unlock(void);
+
+bool rt4k_connected(void);
+
+// Text for the terminal ring; rtl1_feed() passes on everything that isn't a binary frame.
+void rt4k_text_push(const uint8_t *data, size_t len);
+
+// Copies terminal text received from the RT4K after *pos (see log_read()).
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max);
 
 void rt4k_get_status(rt4k_status_t *out);

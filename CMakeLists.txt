@@ -43,6 +43,7 @@ target_sources(cruller_app INTERFACE
     src/status_led.c
     src/log.c
     src/health.c
+    src/rtl1.c
     third_party/picow_ap/dhcpserver.c
     third_party/picow_ap/dnsserver.c
 )
@@ -57,6 +58,7 @@ target_link_libraries(cruller_app INTERFACE
     pico_lwip_mdns
     pico_flash
     pico_bootrom
+    pico_sha256
     boot_uf2_headers
     hardware_flash
     littlefs

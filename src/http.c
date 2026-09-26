@@ -15,6 +15,7 @@
 #include "health.h"
 #include "log.h"
 #include "rt4k.h"
+#include "rtl1.h"
 #include "net.h"
 #include "ota.h"
 #include "platform_reboot.h"
@@ -60,6 +61,15 @@ static void respond(int fd, int code, const char *reason, const char *type, cons
         code, reason, type, (unsigned)blen);
     send_all(fd, hdr, (size_t)n);
     if (blen) send_all(fd, body, blen);
+}
+
+static void respond_bytes(int fd, const char *extra_headers, const uint8_t *body, size_t len) {
+    char hdr[400];
+    const int n = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %u\r\n%s"
+        "Cache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)len, extra_headers);
+    send_all(fd, hdr, (size_t)n);
+    if (len) send_all(fd, body, len);
 }
 
 static void redirect(int fd, const char *location) {
@@ -129,6 +139,35 @@ static void json_escape(char *out, size_t size, const char *in) {
         else out[n++] = *in;
     }
     out[n] = 0;
+}
+
+// GET /rt4k/xfer?cmd=osd|osd2|font: one RTL1 transfer, verified (CRC, sequence, SHA-256), as the
+// raw payload; the RT4K's ready line comes back in X-Ready.
+static void handle_rt4k_xfer(int fd, const char *query) {
+    const char *c = query ? strstr(query, "cmd=") : NULL;
+    char cmd[16] = "";
+    if (c) {
+        size_t n = strcspn(c + 4, "&");
+        if (n >= sizeof(cmd)) n = sizeof(cmd) - 1;
+        memcpy(cmd, c + 4, n);
+        cmd[n] = 0;
+    }
+    if (strcmp(cmd, "osd") && strcmp(cmd, "osd2") && strcmp(cmd, "font")) {
+        respond(fd, 400, "Bad Request", "text/plain", "cmd must be osd, osd2 or font\n");
+        return;
+    }
+    static uint8_t buf[4096];
+    static rtl1_info_t info;
+    const rtl1_result_t r = rtl1_transfer(cmd, buf, sizeof(buf), &info);
+    if (r != RTL1_OK) {
+        char msg[160];
+        snprintf(msg, sizeof(msg), "%s: %s\n", rtl1_result_name(r), info.detail);
+        respond(fd, 502, "Bad Gateway", "text/plain", msg);
+        return;
+    }
+    char headers[200];
+    snprintf(headers, sizeof(headers), "X-Ready: %s\r\n", info.ready);
+    respond_bytes(fd, headers, buf, info.len);
 }
 
 static void handle_status(int fd) {
@@ -319,6 +358,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
     else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read);
     else if (post && !strcmp(r->path, "/rt4k/cmd")) handle_rt4k_cmd(r);
+    else if (get && !strcmp(r->path, "/rt4k/xfer")) handle_rt4k_xfer(r->fd, query);
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
     else if (post && !strcmp(r->path, "/debug/wedge")) {

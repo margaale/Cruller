@@ -19,6 +19,29 @@ bool rt4k_command(const char *cmd) {
     return false;
 }
 
+bool rt4k_write(const void *data, size_t len) {
+    (void)data;
+    (void)len;
+    return false;
+}
+
+bool rt4k_link_lock(uint32_t timeout_ms) {
+    (void)timeout_ms;
+    return true;
+}
+
+void rt4k_link_unlock(void) {
+}
+
+bool rt4k_connected(void) {
+    return false;
+}
+
+void rt4k_text_push(const uint8_t *data, size_t len) {
+    (void)data;
+    (void)len;
+}
+
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {
     (void)pos;
     (void)out;
