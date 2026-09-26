@@ -351,8 +351,9 @@ static const char PAGE[] =
     "function kv(r){const o={};r.split(' ').forEach(t=>{const i=t.indexOf('=');if(i>0)o[t.slice(0,i)]=+t.slice(i+1)});return o}"
     // The TV screen: 16:9, black. The main plane's rows fill its height, anchored left; the secondary
     // plane (messages) goes top right at the same scale. Background mode 0 is transparent.
-    // The canvas has as many pixels as it shows (device pixels), and the OSD is drawn at an integer
-    // scale: every RT4K pixel is k x k screen pixels, so the 8x16 font keeps its shape.
+    // Geometry as the RT4K draws it at 4K (measured on the TV): the main plane's 512-pixel grid is 2048
+    // of the 2160 lines (x4), 3% from the left, low on the screen; the secondary plane is at twice that
+    // scale near the top-right corner. The canvas has as many pixels as it shows (device pixels).
     "function fit(){const t=$('tv'),r=t.getBoundingClientRect(),d=devicePixelRatio||1;"
     "t.width=Math.max(1,Math.round(r.width*d));t.height=Math.max(1,Math.round(r.height*d));draw()}"
     "function render(p){const k=kv(p.r),rows=k.rows||0,w=k.width||k.cols||0,s=k.stride||w,d=p.d;"
@@ -362,15 +363,21 @@ static const char PAGE[] =
     "for(let gy=0;gy<16;gy++){const bits=font[gy*256+ch];for(let gx=0;gx<8;gx++){const on=bits>>gx&1,q=((y*16+gy)*c.width+x*8+gx)*4,v=on?fg:bg;"
     "px[q]=v[0];px[q+1]=v[1];px[q+2]=v[2];px[q+3]=on||m?255:0}}}"
     "g.putImageData(im,0,0);return c}"
-    "function draw(){const t=$('tv'),g=t.getContext('2d'),TV_W=t.width,TV_H=t.height,MARGIN=Math.round(TV_W*.028);"
-    "g.fillStyle='#000';g.fillRect(0,0,TV_W,TV_H);if(!font)return;g.imageSmoothingEnabled=false;"
-    "const mk=planes[0]?kv(planes[0].r):{},ph=(mk.rows||32)*16,sc=TV_H>=ph?Math.floor(TV_H/ph):TV_H/ph,top=Math.floor((TV_H-ph*sc)/2);"
-    "if(planes[0]){const c=render(planes[0]);g.drawImage(c,MARGIN,top,c.width*sc,c.height*sc)}"
-    // Secondary plane: only its content (it's left-aligned inside a 32-column box), at twice the main
-    // plane's scale, near the top-right corner, as the RT4K shows it (measured from a photo of the TV).
+    // Scales an area of an OSD bitmap by s, same factor both ways: whole numbers straight (sharp pixels),
+    // fractions via the next whole number and a smooth shrink, so the font's strokes stay even.
+    "function blit(g,c,sx,sy,sw,sh,dx,dy,s){dx=Math.round(dx);dy=Math.round(dy);g.imageSmoothingEnabled=false;"
+    "if(Math.abs(s-Math.round(s))<.01){s=Math.round(s);g.drawImage(c,sx,sy,sw,sh,dx,dy,sw*s,sh*s);return}"
+    "const k=Math.ceil(s),u=document.createElement('canvas');u.width=sw*k;u.height=sh*k;const ug=u.getContext('2d');"
+    "ug.imageSmoothingEnabled=false;ug.drawImage(c,sx,sy,sw,sh,0,0,sw*k,sh*k);"
+    "g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(u,dx,dy,Math.round(sw*s),Math.round(sh*s))}"
+    "function draw(){const t=$('tv'),g=t.getContext('2d'),W=t.width,H=t.height;"
+    "g.fillStyle='#000';g.fillRect(0,0,W,H);if(!font)return;"
+    "const mk=planes[0]?kv(planes[0].r):{},ph=(mk.rows||32)*16,sc=H*(2048/2160)/ph;"
+    "if(planes[0]){const c=render(planes[0]);blit(g,c,0,0,c.width,c.height,W*.031,H*.974-c.height*sc,sc)}"
+    // Secondary plane: only its content (it's left-aligned inside a 32-column box).
     "if(planes[1]){const p=planes[1],k=kv(p.r),rows=k.rows||0,w=k.width||k.cols||0,st=k.stride||w;let x1=-1,y1=-1;"
     "for(let y=0;y<rows;y++)for(let x=0;x<w;x++){const j=y*st+x;if(p.d[j]>32||p.d[2048+j]&192){if(x>x1)x1=x;if(y>y1)y1=y}}"
-    "if(x1>=0){const c=render(p),sw=(x1+1)*8,sh=(y1+1)*16,s2=sc*2;g.drawImage(c,0,0,sw,sh,Math.round(TV_W*.955-sw*s2),Math.round(TV_H*.012),sw*s2,sh*s2)}}}"
+    "if(x1>=0){const c=render(p),sw=(x1+1)*8,sh=(y1+1)*16,s2=sc*2;blit(g,c,0,0,sw,sh,W*.955-sw*s2,H*.012,s2)}}}"
     "document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{if(b.dataset.confirm&&!confirm(b.dataset.confirm))return;if(send(b.dataset.c))blink()});"
     "const keys={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'ok',Escape:'back',Backspace:'back',Tab:'menu'};"
     "document.onkeydown=e=>{if(e.target.tagName=='INPUT'||!keys[e.key])return;e.preventDefault();if(send('remote '+keys[e.key]))blink()};"
