@@ -34,6 +34,9 @@ bool console_query(const char *cmd, const char *expect, char *out, size_t size, 
 // to on_line. False if it couldn't be queued or sent (no RT4K, link busy). One caller per owner.
 bool console_run(int owner, const char *cmd, void (*on_line)(const char *line, void *ctx), void *ctx);
 
+// Debug: the last commands with their reply and window times, as text (GET /debug/console).
+size_t console_debug(char *out, size_t size);
+
 // True while the last command sent hasn't been answered yet (its window is open, no line so far).
 bool console_reply_pending(void);
 

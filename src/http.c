@@ -857,6 +857,11 @@ static void handle(request_t *r) {
         rt4k_trace_dump(trace_text, sizeof(trace_text));
         respond(r->fd, 200, "OK", "text/plain", trace_text);
     }
+    else if (get && !strcmp(r->path, "/debug/console")) {
+        static char console_text[1600];
+        console_debug(console_text, sizeof(console_text));
+        respond(r->fd, 200, "OK", "text/plain", console_text);
+    }
     else if (get && !strcmp(r->path, "/debug/freeze")) {
         static char freeze_text[4096];
         freeze_dump(freeze_text, sizeof(freeze_text));

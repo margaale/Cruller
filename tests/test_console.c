@@ -125,13 +125,46 @@ static void test_key_closes_on_its_reply(void) {
     CHECK(console_core_line("[COM] next", now) == CON_BROADCAST);
 }
 
-static void test_key_refused_uses_quiet(void) {
+static void test_refusal_closes_at_once(void) {
     reset();
     console_core_begin(4, NULL, 0, "Serial Remote:", now);
     now += 4;
-    console_core_line("[COM] Bad Command: remote dwn", now); // not the line it hoped for
-    const uint32_t open = run_until_closed(5000);
-    CHECK(open >= CON_QUIET_MS && open < CON_QUIET_MS + 20);
+    console_core_line("[COM] Bad Command: remote dwn", now);
+    CHECK(console_core_poll(now));
+    reset();
+    console_core_begin(4, NULL, 0, NULL, now); // no final line known: a refusal still ends it
+    now += 4;
+    console_core_line("[COM] Bad Command: nonsense", now);
+    CHECK(console_core_poll(now));
+}
+
+static void test_alternative_final_lines(void) {
+    reset();
+    console_core_begin(4, NULL, 0, "ls end|ls err|ls:", now);
+    for (int i = 0; i < 5; i++) {
+        now += 2;
+        console_core_line("[COM] ent t=F sz=1 nm=x", now);
+        CHECK(!console_core_poll(now));
+    }
+    now += 2;
+    console_core_line("[COM] ls end 5", now);
+    CHECK(console_core_poll(now));
+    reset();
+    console_core_begin(4, NULL, 0, "ls end|ls err|ls:", now);
+    now += 2;
+    console_core_line("[COM] ls err=2 NOSUCH", now); // the second alternative
+    CHECK(console_core_poll(now));
+}
+
+static void test_other_line_than_final_waits(void) {
+    reset();
+    console_core_begin(4, NULL, 0, "Build tag:", now);
+    now += 5;
+    console_core_line("[COM] RT4KPRO, FW Version: 1.87.3", now);
+    CHECK(!console_core_poll(now)); // not the last line yet
+    now += 3;
+    console_core_line("[COM] Build tag: b0925a", now);
+    CHECK(console_core_poll(now));
 }
 
 static void test_waiting_reply_until_no_reply_timeout(void) {
@@ -145,7 +178,9 @@ static void test_waiting_reply_until_no_reply_timeout(void) {
 #define T(fn) {#fn, fn}
 static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_key_closes_on_its_reply),
-    T(test_key_refused_uses_quiet),
+    T(test_refusal_closes_at_once),
+    T(test_alternative_final_lines),
+    T(test_other_line_than_final_waits),
     T(test_waiting_reply_until_no_reply_timeout),
     T(test_no_window_broadcasts),
     T(test_reply_goes_to_sender),

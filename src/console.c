@@ -36,6 +36,7 @@ typedef struct {
 } entry_t;
 
 static QueueHandle_t queue;
+static TaskHandle_t console_task_h;
 static SemaphoreHandle_t query_lock;
 static critical_section_t lock;     // console_core and the history
 static entry_t history[HISTORY];
@@ -55,6 +56,7 @@ static void route(const char *text) {
     snprintf(e->text, sizeof(e->text), "%s", text);
     head++;
     critical_section_exit(&lock);
+    if (owner != CON_BROADCAST && console_task_h) xTaskNotifyGive(console_task_h); // may close its window
     power_feed_line(text);
     if (owner != CON_POWER && owner != CON_QUERY) { // the web terminal: all but Cruller's own checks
         rt4k_term_push((const uint8_t *)text, strlen(text));
@@ -171,26 +173,89 @@ bool console_query(const char *cmd, const char *expect, char *out, size_t size, 
     return found;
 }
 
+// Debug: the last commands, with when their reply started and how long their window stayed open
+// (GET /debug/console).
+#define CMD_LOG 16
+static struct {
+    char cmd[28];
+    int8_t owner;
+    int16_t reply_ms;   // first reply line after the command (-1: none)
+    uint16_t window_ms; // command sent -> window closed
+} cmd_log[CMD_LOG];
+static uint32_t cmd_log_n;
+
+size_t console_debug(char *out, size_t size) {
+    size_t o = (size_t)snprintf(out, size, "last commands (owner, first reply, window):\n");
+    const uint32_t n = cmd_log_n < CMD_LOG ? cmd_log_n : CMD_LOG;
+    for (uint32_t k = cmd_log_n - n; k != cmd_log_n && o < size; k++) {
+        const uint32_t i = k & (CMD_LOG - 1);
+        o += (size_t)snprintf(out + o, size - o, "%-28s owner %d  reply %4d ms  window %4u ms\n", cmd_log[i].cmd,
+            cmd_log[i].owner, cmd_log[i].reply_ms, cmd_log[i].window_ms);
+    }
+    return o < size ? o : size - 1;
+}
+
+// The last line of each command's reply, when known (console_core_begin's done_when), so the window
+// closes on it instead of after the quiet wait: measured, that wait was ~50 ms of every command's
+// 60-80 ms. NULL: unknown, the quiet wait decides. *no_reply: never answered (SVS): don't wait at all.
+static const char *final_line(const char *cmd, bool *no_reply) {
+    static const struct {
+        const char *prefix; // ending in ' ': the command's first word(s); else the exact command
+        const char *done;
+    } table[] = {
+        {"remote ", "Serial Remote:"},
+        {"ver", "Build tag:"},
+        {"model", "model="},
+        {"banner", "banner="},
+        {"prof get", "prof loaded="},
+        {"prof ", "prof load ok|prof save ok|prof:|prof err"},
+        {"ls", "ls end|ls err|ls:"},
+        {"ls ", "ls end|ls err|ls:"},
+        {"stat ", "stat t=|stat err|stat:"},
+        {"mkdir ", "mkdir ok|mkdir err|mkdir:"},
+        {"rm ", "rm ok|rm err|rm:"},
+        {"mv ", "mv ok|mv err|mv:"},
+        {"pwr on", "Power On Requested"}, // "Bad Command: pwr on" when it's already on
+        {"input ", "input"},
+        {"output ", "output"},
+        {"fwup ", "fwup"},
+    };
+    *no_reply = !strncmp(cmd, "SVS ", 4);
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+        const char *p = table[i].prefix;
+        const size_t n = strlen(p);
+        if (p[n - 1] == ' ' ? !strncmp(cmd, p, n) : !strcmp(cmd, p)) return table[i].done;
+    }
+    return NULL;
+}
+
 static void console_task(void *param) {
     (void)param;
     static request_t req;
     for (;;) {
         xQueueReceive(queue, &req, portMAX_DELAY);
+        const uint32_t t0 = now_ms();
         const bool sent = rt4k_send_command(req.cmd); // false: no RT4K, or the link stayed busy
-        if (sent) {
+        bool no_reply = false;
+        const char *done_when = final_line(req.cmd, &no_reply);
+        if (sent && !no_reply) {
+            ulTaskNotifyTake(pdTRUE, 0); // wake-ups from lines of an earlier window
             critical_section_enter_blocking(&lock);
-            // A remote key's whole reply is one line, "[COM] Serial Remote: <key>": done at once.
-            const bool key = !strncmp(req.cmd, "remote ", 7);
-            console_core_begin(req.owner, req.expect, req.timeout_ms, key ? "Serial Remote:" : NULL, now_ms());
+            console_core_begin(req.owner, req.expect, req.timeout_ms, done_when, now_ms());
             critical_section_exit(&lock);
-            if (key) ws_key_sent(); // from any sender: the mirror refreshes soon, and times it
+            if (!strncmp(req.cmd, "remote ", 7)) ws_key_sent(); // any sender: the mirror refreshes and times it
             for (;;) {
-                vTaskDelay(pdMS_TO_TICKS(10));
+                ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10)); // route() wakes us on each reply line
                 critical_section_enter_blocking(&lock);
                 const bool over = console_core_poll(now_ms());
                 critical_section_exit(&lock);
                 if (over) break;
             }
+            const uint32_t i = cmd_log_n++ & (CMD_LOG - 1);
+            snprintf(cmd_log[i].cmd, sizeof(cmd_log[i].cmd), "%s", req.cmd);
+            cmd_log[i].owner = (int8_t)req.owner;
+            cmd_log[i].reply_ms = (int16_t)console_core_first_reply_ms();
+            cmd_log[i].window_ms = (uint16_t)(now_ms() - t0);
         }
         if (req.notify) {
             *req.status = sent ? 1 : -1;
@@ -203,5 +268,5 @@ void console_start(void) {
     critical_section_init(&lock);
     queue = xQueueCreate(QUEUE_DEPTH, sizeof(request_t));
     query_lock = xSemaphoreCreateMutex();
-    xTaskCreate(console_task, "console", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIORITY, NULL);
+    xTaskCreate(console_task, "console", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIORITY, &console_task_h);
 }

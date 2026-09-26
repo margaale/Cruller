@@ -20,14 +20,18 @@
 #define CON_EXPECT_MAX  48
 
 // Opens a window for `owner` (>= 0). expect: a text the reply must contain (NULL/"" for none);
-// timeout_ms: how long to wait for it (0: CON_MAX_MS). done_when: the whole reply is known to be one
-// line containing this ("Serial Remote:" for a remote key): the window closes as soon as it comes,
-// without the quiet wait (NULL/"" for none; other lines still follow the usual rules).
+// timeout_ms: how long to wait for it (0: CON_MAX_MS). done_when: the reply's last line is known to
+// contain one of these '|'-separated texts ("Serial Remote:" for a remote key, "ls end|ls err|ls:"):
+// the window closes as soon as it comes, without the quiet wait (NULL/"" for none; other lines follow
+// the usual rules). A "Bad Command" line always closes it: a refusal is the whole answer.
 void console_core_begin(int owner, const char *expect, uint32_t timeout_ms, const char *done_when,
     uint32_t now_ms);
 
 // True while the window is open and nothing has come back yet.
 bool console_core_waiting_reply(void);
+
+// How long after the command its first reply line came (-1: none), for the open or last window.
+int32_t console_core_first_reply_ms(void);
 
 // A line from the RT4K: returns its owner (CON_BROADCAST outside a window).
 int console_core_line(const char *line, uint32_t now_ms);

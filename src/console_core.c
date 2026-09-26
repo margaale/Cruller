@@ -6,7 +6,7 @@
 static struct {
     bool open;
     int owner;
-    uint32_t start, last_line;
+    uint32_t start, first_line, last_line;
     bool any_line;
     char expect[CON_EXPECT_MAX];
     bool got_expect;
@@ -28,13 +28,35 @@ void console_core_begin(int owner, const char *expect, uint32_t timeout_ms, cons
     w.done = false;
 }
 
+// Whether `line` contains one of the '|'-separated texts in `list`.
+static bool contains_any(const char *line, const char *list) {
+    for (const char *p = list; *p;) {
+        const size_t n = strcspn(p, "|");
+        char one[CON_EXPECT_MAX];
+        if (n && n < sizeof(one)) {
+            memcpy(one, p, n);
+            one[n] = 0;
+            if (strstr(line, one)) return true;
+        }
+        p += n;
+        if (*p == '|') p++;
+    }
+    return false;
+}
+
 int console_core_line(const char *line, uint32_t now_ms) {
     if (!w.open) return CON_BROADCAST;
+    if (!w.any_line) w.first_line = now_ms;
     w.any_line = true;
     w.last_line = now_ms;
     if (w.expect[0] && strstr(line, w.expect)) w.got_expect = true;
-    if (w.done_when[0] && strstr(line, w.done_when)) w.done = true;
+    // A refusal is the whole answer, whatever the command.
+    if ((w.done_when[0] && contains_any(line, w.done_when)) || strstr(line, "Bad Command")) w.done = true;
     return w.owner;
+}
+
+int32_t console_core_first_reply_ms(void) {
+    return w.any_line ? (int32_t)(w.first_line - w.start) : -1;
 }
 
 bool console_core_waiting_reply(void) {
