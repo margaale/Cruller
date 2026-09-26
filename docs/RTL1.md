@@ -78,8 +78,10 @@ change the line speed.
 ```
 
 - DATA payloads up to 2048 bytes, sequence from 0 (wrapping at 256), then an empty DATA frame.
-- With `-a` the RT4K ACKs each frame (NAK to resend); without it the host streams, which needs
-  RTS/CTS flow control on the FT232R to be safe. Cruller uses `-a` (~61 KB/s).
+- With `-a` the RT4K ACKs each frame (NAK to resend), ~61 KB/s. Without it the host streams and the
+  RT4K paces it with CTS, which it wires to the FT232R: switch RTS/CTS on at the chip first (FTDI
+  `SET_FLOW_CTRL`, wIndex `0x0100` for the FT232R). ~94 KB/s, the RT4K's own pace (CTS drops while
+  it writes the card). Cruller streams, with flow control on only for the upload.
 - The RT4K writes to `.rtl1up.tmp`, checks size and SHA-256, then renames: a mismatch answers
   `put fail: size/sha mismatch` and leaves nothing. Existing files are replaced.
 - It doesn't create folders (`put err: rename failed`, the temp file stays): `mkdir` first.
