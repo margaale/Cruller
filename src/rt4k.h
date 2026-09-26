@@ -38,6 +38,12 @@ void rt4k_link_unlock(void);
 
 bool rt4k_connected(void);
 
+// RTS/CTS hardware flow control on the FT232R: off by default (TinyUSB's setup); asking survives
+// a reconnect. rt4k_flow_control() says whether the chip confirmed it.
+void rt4k_set_flow_control(bool on);
+bool rt4k_flow_control(void);
+uint8_t rt4k_modem_status(void); // FTDI modem status byte: bit 4 CTS, bit 5 DSR
+
 // Milliseconds since rt4k_command() last sent something.
 uint32_t rt4k_ms_since_command(void);
 

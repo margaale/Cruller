@@ -40,6 +40,15 @@ static volatile uint32_t last_cmd_ms;
 static volatile uint32_t last_event_us; // debug: the last host event (see tuh_cdc_rx_cb)
 static struct { uint32_t packets, overruns, errors, last_overrun_ms; } ftdi_stats; // debug
 
+// RTS/CTS flow control on the FT232R (TinyUSB turns it off at mount; we switch it with a vendor
+// request). With it on, the FT232R only sends to the RT4K while the RT4K asserts CTS, so uploads can
+// stream without per-frame ACKs.
+static volatile uint8_t modem_status_last; // FTDI modem status byte: bit 4 CTS, bit 5 DSR
+static volatile uint32_t cts_off_packets;  // debug: packets whose status showed CTS off
+static volatile bool flow_wanted, flow_on;
+static volatile int8_t flow_request = -1;  // -1 none, else 0/1: the rt4k task sends it
+static volatile uint8_t cdc_daddr;
+
 enum { TR_IRQ = 1, TR_EVENT, TR_XFER, TR_OVERRUN }; // debug trace (see trace_add)
 static void trace_add(uint16_t kind, uint16_t val);
 
@@ -84,7 +93,10 @@ void tuh_cdc_mount_cb(uint8_t idx) {
     status.pid = pid;
     status.baud = lc.bit_rate;
     status.mounted = true;
+    cdc_daddr = info.daddr;
     cdc_idx = idx;
+    flow_on = false; // TinyUSB's setup turned it off
+    if (flow_wanted) flow_request = 1;
     printf("rt4k: serial %04x:%04x mounted at %lu baud\n", vid, pid, (unsigned long)lc.bit_rate);
 }
 
@@ -92,8 +104,44 @@ void tuh_cdc_umount_cb(uint8_t idx) {
     if (idx == cdc_idx) {
         cdc_idx = 0xff;
         status.mounted = false;
+        flow_on = false;
         printf("rt4k: serial unmounted\n");
     }
+}
+
+static void flow_ctrl_done(tuh_xfer_t *xfer) {
+    const bool on = xfer->user_data != 0;
+    if (xfer->result == XFER_RESULT_SUCCESS) flow_on = on;
+    printf("rt4k: RTS/CTS flow control %s%s\n", on ? "on" : "off", xfer->result == XFER_RESULT_SUCCESS ? "" : " FAILED");
+}
+
+// In the rt4k task (TinyUSB isn't thread safe). FTDI SET_FLOW_CTRL: wIndex high byte RTS_CTS_HS,
+// low byte the channel (0 for the FT232R, as TinyUSB uses).
+static void flow_ctrl_send(void) {
+    static const tusb_control_request_t on_req = {
+        .bmRequestType = 0x40, .bRequest = 2, .wValue = 0, .wIndex = 0x0100, .wLength = 0};
+    static const tusb_control_request_t off_req = {
+        .bmRequestType = 0x40, .bRequest = 2, .wValue = 0, .wIndex = 0x0000, .wLength = 0};
+    const int8_t want = flow_request;
+    if (want < 0 || cdc_idx == 0xff) return;
+    tuh_xfer_t xfer = {
+        .daddr = cdc_daddr, .ep_addr = 0, .setup = want ? &on_req : &off_req, .buffer = NULL,
+        .complete_cb = flow_ctrl_done, .user_data = (uintptr_t)want};
+    if (tuh_control_xfer(&xfer)) flow_request = -1; // else busy: again next time round
+}
+
+void rt4k_set_flow_control(bool on) {
+    flow_wanted = on;
+    flow_request = on;
+    if (rt4k_handle) xTaskNotifyGive(rt4k_handle);
+}
+
+bool rt4k_flow_control(void) {
+    return flow_on;
+}
+
+uint8_t rt4k_modem_status(void) {
+    return modem_status_last;
 }
 
 // Debug: how long the bulk IN endpoint sits unpolled after a transfer completes (the completion IRQ
@@ -132,7 +180,8 @@ static void __not_in_flash_func(usb_irq_probe)(void) {
 // buffer filled up: the host didn't collect packets fast enough and serial bytes were lost.
 void tuh_cdc_ftdi_status_cb(uint8_t idx, uint8_t modem_status, uint8_t line_status) {
     (void)idx;
-    (void)modem_status;
+    modem_status_last = modem_status;
+    if (!(modem_status & 0x10)) cts_off_packets++; // the RT4K asked us to wait (with flow control on)
     ftdi_stats.packets++;
     xfer_packets++;
     if (line_status & 0x02) {
@@ -190,6 +239,7 @@ static void rt4k_task(void *param) {
             continue;
         }
         tuh_task();
+        flow_ctrl_send();
         const uint8_t idx = cdc_idx;
         if (idx != 0xff && tuh_cdc_mounted(idx)) {
             uint32_t n;
@@ -337,6 +387,10 @@ void rt4k_debug(char *out, size_t size) {
         (unsigned long)ftdi_stats.last_overrun_ms, (unsigned long)ftdi_stats.errors, (unsigned long)gap_stats.max_us,
         (unsigned long)gap_stats.slow, (unsigned long)gap_stats.overrun_us,
         (unsigned long)gap_stats.max_overrun_us);
+    const size_t n = strlen(out);
+    const uint8_t ms = modem_status_last;
+    snprintf(out + n, size - n, "ftdi modem status 0x%02x (CTS %s, DSR %s, CTS off in %lu packets), RTS/CTS flow control %s\n",
+        ms, ms & 0x10 ? "on" : "off", ms & 0x20 ? "on" : "off", (unsigned long)cts_off_packets, flow_on ? "on" : "off");
 }
 
 size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {

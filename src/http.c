@@ -178,7 +178,7 @@ static void json_escape(char *out, size_t size, const char *in) {
 // task's state too. Only on request: uxTaskGetSystemState() suspends the scheduler on both cores while
 // it scans every stack, for milliseconds, and the rt4k task missed USB packets (FT232R overruns).
 static void handle_debug_tasks(int fd, const char *query) {
-    static char out[1536];
+    static char out[2048];
     ws_debug(out, sizeof(out));
     size_t o = strlen(out);
     if (!query || !strstr(query, "stacks")) {
@@ -615,9 +615,10 @@ static void handle_rt4k_put(request_t *r, const char *query) {
     const uint32_t t0 = to_ms_since_boot(get_absolute_time());
     const rtl1_result_t res = rtl1_put(path, (uint32_t)r->content_length, sha, body_read, &reader, &info);
     const uint32_t ms = to_ms_since_boot(get_absolute_time()) - t0;
-    char msg[160];
+    char msg[320];
     if (res == RTL1_OK) {
-        snprintf(msg, sizeof(msg), "ok %s %ld bytes in %lu ms\n", path, r->content_length, (unsigned long)ms);
+        snprintf(msg, sizeof(msg), "ok %s %ld bytes in %lu ms (%s)\n", path, r->content_length, (unsigned long)ms,
+            info.detail);
         respond(r->fd, 200, "OK", "text/plain", msg);
     } else {
         snprintf(msg, sizeof(msg), "%s: %s\n", rtl1_result_name(res), info.detail);
@@ -687,6 +688,16 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
     else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
+    else if (post && !strcmp(r->path, "/debug/flow")) {
+        // POST /debug/flow?on=1|0: RTS/CTS flow control on the FT232R (see rt4k_set_flow_control).
+        const bool on = query && strstr(query, "on=1");
+        rt4k_set_flow_control(on);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        char msg[96];
+        snprintf(msg, sizeof(msg), "asked %s; flow control now %s, CTS %s\n", on ? "on" : "off",
+            rt4k_flow_control() ? "on" : "off", rt4k_modem_status() & 0x10 ? "on" : "off");
+        respond(r->fd, 200, "OK", "text/plain", msg);
+    }
     else if (post && !strcmp(r->path, "/rt4k/put")) handle_rt4k_put(r, query);
     else if (post && !strcmp(r->path, "/rt4k/ask")) handle_rt4k_ask(r, query);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {

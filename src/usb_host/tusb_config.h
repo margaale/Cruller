@@ -36,6 +36,9 @@
 // rt4k task to re-arm after each 64-byte packet. Needs TinyUSB to strip the FTDI's 2 status bytes
 // per packet (patches/tinyusb/0001-cdc-host-ftdi-strip-status-per-packet.patch).
 #define CFG_TUH_CDC_RX_EPSIZE         512
+// Same for TX (default: one 64-byte packet per transfer, a task round trip each). Fewer round trips;
+// uploads still top out at ~109 KB/s on the line because the RT4K holds CTS while it writes its card.
+#define CFG_TUH_CDC_TX_EPSIZE         512
 
 // On enumeration: DTR+RTS on, and 2 Mbaud 8N1 (the RT4K's USB serial rate).
 #define CFG_TUH_CDC_LINE_CONTROL_ON_ENUM  0x03

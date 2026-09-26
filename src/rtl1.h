@@ -39,9 +39,11 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
 // Where an upload's bytes come from: fills up to `max` bytes, returns how many (0 = no more).
 typedef size_t (*rtl1_read_fn)(void *ctx, uint8_t *buf, size_t max);
 
-// Writes a file to the RT4K's SD card (RTL1 put, acknowledged mode): `size` bytes read from `read`,
-// whose SHA-256 (64 hex digits) the RT4K checks at the end. Blocks for the whole upload (about
-// 100 KB/s); other transfers and text commands wait meanwhile. RTL1_OK once the RT4K said "put done".
+// Writes a file to the RT4K's SD card (RTL1 put): `size` bytes read from `read`, whose SHA-256 (64 hex
+// digits) the RT4K checks at the end. Streams with RTS/CTS flow control switched on for the upload
+// (~94 KB/s, the RT4K's pace); acknowledged mode if that fails (~61 KB/s). Blocks for the whole upload;
+// other transfers and text commands wait meanwhile. RTL1_OK once the RT4K said "put done"; info->detail
+// then says which mode ran and where the time went.
 rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, rtl1_read_fn read, void *ctx,
     rtl1_info_t *info);
 
