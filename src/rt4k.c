@@ -8,7 +8,6 @@
 #include "semphr.h"
 #include "stream_buffer.h"
 #include "pico/sync.h"
-#include "hardware/irq.h"
 #include "tusb.h"
 
 #define RT4K_TASK_STACK     1024
@@ -91,9 +90,14 @@ static void rx_push(const uint8_t *data, uint32_t len) {
     status.rx_bytes += len;
 }
 
+static void host_init(void) {
+    static const tusb_rhport_init_t rh = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
+    tusb_init(BOARD_TUH_RHPORT, &rh);
+}
+
 static void rt4k_task(void *param) {
     (void)param;
-    tuh_init(BOARD_TUH_RHPORT);
+    host_init();
     printf("rt4k: USB host started\n");
     uint8_t buf[64];
     for (;;) {
@@ -104,16 +108,11 @@ static void rt4k_task(void *param) {
             status.mounted = false;
             suspended = true;
             while (want_suspend) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
-            tuh_init(BOARD_TUH_RHPORT);
+            host_init();
             suspended = false;
             printf("rt4k: USB host resumed\n");
             continue;
         }
-        // TinyUSB's rp2040 host driver doesn't guard endpoint state between task and IRQ
-        // (hw_endpoint_lock_update() is an empty "todo add critsec"), so an IRQ landing while a
-        // transfer is being (re)armed sees it half set up. Task and IRQ share core 1: keeping the
-        // IRQ off while we call into TinyUSB is the guard that TODO asks for.
-        irq_set_enabled(USBCTRL_IRQ, false);
         tuh_task();
         const uint8_t idx = cdc_idx;
         if (idx != 0xff && tuh_cdc_mounted(idx)) {
@@ -140,7 +139,6 @@ static void rt4k_task(void *param) {
             const size_t got = xStreamBufferReceive(tx_queue, buf, sizeof(buf), 0);
             status.tx_dropped += got;
         }
-        irq_set_enabled(USBCTRL_IRQ, true);
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10)); // USB event or queued command; 10 ms at most
     }
 }

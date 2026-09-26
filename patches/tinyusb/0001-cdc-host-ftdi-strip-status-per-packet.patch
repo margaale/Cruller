@@ -1,0 +1,28 @@
+diff --git a/src/class/cdc/cdc_host.c b/src/class/cdc/cdc_host.c
+index 4441222..117ff49 100644
+--- a/src/class/cdc/cdc_host.c
++++ b/src/class/cdc/cdc_host.c
+@@ -704,11 +704,18 @@ bool cdch_xfer_cb(uint8_t daddr, uint8_t ep_addr, xfer_result_t event, uint32_t
+   } else if (ep_addr == p_cdc->stream.rx.ep_addr) {
+     #if CFG_TUH_CDC_FTDI
+     if (p_cdc->serial_drid == SERIAL_DRIVER_FTDI) {
+-      // FTDI reserve 2 bytes for status
+-      // uint8_t status[2] = {p_cdc->stream.rx.ep_buf[0], p_cdc->stream.rx.ep_buf[1]};
+-      if (xferred_bytes > 2) {
+-        tu_edpt_stream_read_xfer_complete_with_buf(&p_cdc->stream.rx, p_cdc->stream.rx.ep_buf + 2, xferred_bytes - 2);
+-
++      // FTDI reserves 2 status bytes at the start of every packet, not just of the transfer:
++      // strip them per packet so transfers can span several packets (CFG_TUH_CDC_RX_EPSIZE > mps).
++      const uint32_t mps = p_cdc->stream.rx.mps;
++      bool received = false;
++      for (uint32_t off = 0; off < xferred_bytes; off += mps) {
++        const uint32_t len = tu_min32(mps, xferred_bytes - off);
++        if (len > 2) {
++          tu_edpt_stream_read_xfer_complete_with_buf(&p_cdc->stream.rx, p_cdc->stream.rx.ep_buf + off + 2, len - 2);
++          received = true;
++        }
++      }
++      if (received) {
+         tuh_cdc_rx_cb(idx); // invoke receive callback
+       }
+     } else
