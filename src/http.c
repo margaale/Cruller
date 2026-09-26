@@ -470,6 +470,49 @@ static void handle_rt4k_cmd(request_t *r) {
     respond(r->fd, 200, "OK", "text/plain", rt.mounted ? "sent\n" : "queued, but no RT4K is connected (dropped)\n");
 }
 
+// Debug: POST /debug/raw[?pause=S]: the body goes to the RT4K as is (no framing), and transfers
+// (the mirror's polls) are refused for S seconds (default 10) so they don't interleave. For working
+// out protocols such as RTL1 put from a PC; replies show up in /rt4k/rx.
+typedef struct {
+    uint8_t buf[4608];
+    size_t len;
+} raw_t;
+
+static bool raw_sink(const uint8_t *data, size_t len, void *ctx) {
+    raw_t *b = ctx;
+    if (b->len + len > sizeof(b->buf)) return false;
+    memcpy(b->buf + b->len, data, len);
+    b->len += len;
+    return true;
+}
+
+static void handle_debug_raw(request_t *r, const char *query) {
+    static raw_t body;
+    body.len = 0;
+    const char *p = query ? strstr(query, "pause=") : NULL;
+    const uint32_t pause_s = p ? (uint32_t)strtoul(p + 6, NULL, 10) : 10;
+    rtl1_pause(pause_s * 1000);
+    if (r->content_length <= 0 || r->content_length > (long)sizeof(body.buf) || !read_body(r, raw_sink, &body)) {
+        respond(r->fd, 400, "Bad Request", "text/plain", "Send up to 4608 bytes as the body\n");
+        return;
+    }
+    if (!rt4k_link_lock(2000)) {
+        respond(r->fd, 503, "Service Unavailable", "text/plain", "link busy\n");
+        return;
+    }
+    // In chunks: the TX queue (2048 bytes) is smaller than a full frame.
+    size_t sent = 0;
+    for (int tries = 0; sent < body.len && tries < 500; tries++) {
+        const size_t n = body.len - sent < 512 ? body.len - sent : 512;
+        if (rt4k_write(body.buf + sent, n)) sent += n;
+        else vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    rt4k_link_unlock();
+    char msg[48];
+    snprintf(msg, sizeof(msg), "sent %u of %u bytes\n", (unsigned)sent, (unsigned)body.len);
+    respond(r->fd, sent == body.len ? 200 : 503, sent == body.len ? "OK" : "Service Unavailable", "text/plain", msg);
+}
+
 static bool form_sink(const uint8_t *data, size_t len, void *ctx) {
     form_t *f = ctx;
     if (f->len + len >= sizeof(f->buf)) return false;
@@ -537,6 +580,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/rt4k/xfer")) handle_rt4k_xfer(r->fd, query);
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
+    else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;
         const size_t n = rtl1_last_failure(&d);

@@ -20,6 +20,8 @@
 // gap (a 40 ms one covered the FT232R overruns, fixed since).
 #define AFTER_COMMAND_MS 100
 
+static volatile uint32_t paused_until_ms; // debug: no transfers while raw bytes go out (POST /debug/raw)
+
 static SemaphoreHandle_t feed_lock; // every rtl1_core call
 static SemaphoreHandle_t done_sem;  // given when a transfer ends
 static SemaphoreHandle_t xfer_lock; // one transfer at a time
@@ -57,6 +59,10 @@ static uint8_t capture[CAPTURE_MAX], last_fail[CAPTURE_MAX];
 static size_t capture_len, last_fail_len;
 static volatile bool capturing;
 
+void rtl1_pause(uint32_t ms) {
+    paused_until_ms = now_ms() + ms;
+}
+
 size_t rtl1_last_failure(const uint8_t **data) {
     *data = last_fail;
     return last_fail_len;
@@ -85,6 +91,10 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
     memset(info, 0, sizeof(*info));
     if (!rt4k_connected()) {
         snprintf(info->detail, sizeof(info->detail), "RT4K not connected");
+        return RTL1_ERR_NO_LINK;
+    }
+    if ((int32_t)(paused_until_ms - now_ms()) > 0) {
+        snprintf(info->detail, sizeof(info->detail), "paused (raw access)");
         return RTL1_ERR_NO_LINK;
     }
     if (xSemaphoreTake(xfer_lock, pdMS_TO_TICKS(LINK_TIMEOUT_MS)) != pdTRUE) {

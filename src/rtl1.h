@@ -40,3 +40,7 @@ const char *rtl1_result_name(rtl1_result_t r);
 
 // Debug: raw bytes received during the last transfer that failed with a protocol error.
 size_t rtl1_last_failure(const uint8_t **data);
+
+// Debug: refuse transfers (RTL1_ERR_NO_LINK) for the next `ms`, so raw bytes sent to the RT4K
+// (POST /debug/raw) don't interleave with the mirror's polls.
+void rtl1_pause(uint32_t ms);
