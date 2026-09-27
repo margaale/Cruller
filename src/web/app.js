@@ -24,6 +24,20 @@ function duration(s) {
 
 const text = (id, t) => { const e = $(id); if (e) e.textContent = t; };
 
+// A confirmation in the page's own style (instead of the browser's confirm()): resolves true on OK.
+function askUser(title, body, ok, danger) {
+  const d = $('ask');
+  text('ask-title', title);
+  text('ask-text', body || '');
+  text('ask-yes', ok || 'OK');
+  $('ask-yes').className = 'primary' + (danger ? ' danger' : '');
+  d.returnValue = '';
+  d.showModal();
+  $('ask-no').focus();
+  return new Promise((resolve) => d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true }));
+}
+window.askUser = askUser; // fw.js
+
 // --- tabs -------------------------------------------------------------------------------------------
 
 let tab = 'rt4k';
@@ -326,8 +340,8 @@ function draw() {
 // --- remote, keyboard, console input -------------------------------------------------------------------
 
 document.querySelectorAll('[data-c]').forEach((b) => {
-  b.onclick = () => {
-    if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+  b.onclick = async () => {
+    if (b.dataset.confirm && !(await askUser(b.dataset.confirm, 'The RT4K goes to standby; the power key turns it back on.', 'Turn off', true))) return;
     if (send(b.dataset.c)) blink();
   };
 });
@@ -366,10 +380,10 @@ document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
 // --- restart and factory reset -------------------------------------------------------------------------
 
 async function restart(forget) {
-  const ask = forget
-    ? 'Factory reset?\n\nCruller forgets its Wi-Fi network and restarts into the setup portal: join the "Cruller_Setup" network to set it up again.'
-    : 'Restart Cruller?\n\nThe page reconnects by itself in a few seconds.';
-  if (!confirm(ask)) return;
+  const ok = forget
+    ? await askUser('Factory reset?', 'Cruller forgets its Wi-Fi network and restarts into the setup portal: join the "Cruller_Setup" network to set it up again.', 'Erase and restart', true)
+    : await askUser('Restart Cruller?', 'The page reconnects by itself in a few seconds.', 'Restart');
+  if (!ok) return;
   text('um', forget ? 'Erasing the settings…' : 'Restarting…');
   try {
     const r = await fetch(forget ? '/factory-reset' : '/restart', { method: 'POST' });

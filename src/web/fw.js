@@ -295,7 +295,7 @@
       const token = (check.match(/token=([0-9A-Fa-f]+)/) || [])[1];
       if (!check.startsWith('fwup ok') || !token) throw new Error('the RT4K refused the update: ' + check);
       step('in', 'run', 'ready to install ' + version);
-      if (!confirm('Install RT4K firmware ' + version + ' now?\n\nThe RT4K restarts and flashes for about 40 seconds (LED pink, then blue). Do not power it off.')) {
+      if (!(await window.askUser('Install ' + version + ' now?', 'The RT4K restarts and flashes for about 40 seconds (LED pink, then blue). Don\'t power it off.', 'Install'))) {
         step('in', 'wait', 'not installed');
         status('The files are on the SD card; the RT4K menu (OSD/Firmware > Check SD Card) can install them later.');
         return;

@@ -48,6 +48,11 @@ h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:u
 button,.btn{font:500 14px var(--sans);color:var(--text);background:transparent;border:1px solid var(--line);border-radius:10px;height:38px;padding:0 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 button.primary{background:var(--accent);color:#1A0B11;border:0;font-weight:600}
 button.danger{color:#F07A74;border-color:#5A2A28}
+button.primary.danger{background:#D9443E;color:#fff}
+dialog#ask{max-width:420px;width:calc(100% - 32px);padding:22px 22px 18px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px #000a}
+dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
+dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
+dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
 button:disabled{opacity:.5;cursor:default}
 input,select{font:14px var(--sans);color:var(--text);background:var(--well);border:1px solid var(--line);border-radius:8px;height:38px;padding:0 10px;width:100%}
 pre{margin:0;background:var(--well);border-radius:8px;padding:10px 12px;font:12px/1.55 var(--mono);color:#C9CCD1;overflow:auto;white-space:pre-wrap}
@@ -276,6 +281,13 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 <table class="tbl"><thead><tr><th>Task</th><th>State</th><th class="r">Priority</th><th class="r">Stack never used</th></tr></thead><tbody id="t-rows"><tr><td colspan="4" class="small">Not read yet</td></tr></tbody></table></div>
 </section>
 </main>
+<dialog id="ask" aria-labelledby="ask-title">
+<form method="dialog">
+<h3 id="ask-title"></h3>
+<p id="ask-text"></p>
+<div class="row" style="justify-content:flex-end"><button value="no" id="ask-no">Cancel</button><button value="yes" id="ask-yes" class="primary">OK</button></div>
+</form>
+</dialog>
 <script src="/fw.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
