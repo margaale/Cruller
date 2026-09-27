@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "pico/cyw43_arch.h"
+#include "pico/unique_id.h"
 #include "pico/time.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -123,6 +124,31 @@ size_t net_scan_json(char *out, size_t size) {
     return o < size ? o : size - 1;
 }
 
+// DNS-SD services (docs/SVS.md): the web page, "_rt4k._tcp" for other boards and Home Assistant to
+// find the RT4K bridge (TXT: id, ver, api), and "_rfc2217._tcp" for serial over the network.
+static void txt_add(struct mdns_service *service, const char *item) {
+    mdns_resp_add_service_txtitem(service, item, (u8_t)strlen(item));
+}
+
+static void txt_id(struct mdns_service *service) {
+    char id[2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1], item[8 + sizeof(id)];
+    pico_get_unique_board_id_string(id, sizeof(id));
+    snprintf(item, sizeof(item), "id=%s", id);
+    txt_add(service, item);
+}
+
+static void rt4k_txt(struct mdns_service *service, void *userdata) {
+    (void)userdata;
+    txt_id(service);
+    txt_add(service, "ver=" CRULLER_VERSION);
+    txt_add(service, "api=/api");
+}
+
+static void rfc2217_txt(struct mdns_service *service, void *userdata) {
+    (void)userdata;
+    txt_id(service);
+}
+
 static void mdns_start(struct netif *nif) {
     static bool started = false;
     LOCK_TCPIP_CORE();
@@ -132,6 +158,8 @@ static void mdns_start(struct netif *nif) {
     }
     mdns_resp_add_netif(nif, MDNS_HOSTNAME);
     mdns_resp_add_service(nif, "Cruller", "_http", DNSSD_PROTO_TCP, 80, NULL, NULL);
+    mdns_resp_add_service(nif, "Cruller", "_rt4k", DNSSD_PROTO_TCP, 80, rt4k_txt, NULL);
+    mdns_resp_add_service(nif, "Cruller", "_rfc2217", DNSSD_PROTO_TCP, 2217, rfc2217_txt, NULL);
     UNLOCK_TCPIP_CORE();
 }
 

@@ -59,11 +59,11 @@
 #define TCP_SND_BUF                 (8 * TCP_MSS)
 #define TCP_SND_QUEUELEN            ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
 
-// mDNS responder (cruller.local)
+// mDNS responder (cruller.local) with three DNS-SD services: _http, _rt4k, _rfc2217 (docs/SVS.md)
 #define LWIP_MDNS_RESPONDER         1
 #define LWIP_IGMP                   1
 #define LWIP_NUM_NETIF_CLIENT_DATA  1
-#define MDNS_MAX_SERVICES           2
+#define MDNS_MAX_SERVICES           3
 #define MEMP_NUM_SYS_TIMEOUT        (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 8)
 
 // Pool and heap use for GET /debug/memory (used, peak, size, failed allocations).

@@ -23,6 +23,7 @@
 #include "rfc2217.h"
 #include "rt4k.h"
 #include "rtl1.h"
+#include "svs.h"
 #include "ws.h"
 #include "ws_proto.h"
 #include "net.h"
@@ -347,6 +348,8 @@ static void handle_status(int fd) {
     respond(fd, 200, "OK", "application/json", body);
 }
 
+static void svs_json(char *out, size_t size);
+
 void http_status_json(char *body, size_t size) {
     char ssid[80];
     json_escape(ssid, sizeof(ssid), net_ssid());
@@ -370,11 +373,19 @@ void http_status_json(char *body, size_t size) {
     // An upload to the RT4K's SD card: "put":{"path","sent","size"} (the page's progress bar).
     char path[96], path_esc[200];
     uint32_t sent, total;
-    const size_t n = strlen(body);
+    size_t n = strlen(body);
     if (n && n < size && rtl1_put_progress(path, sizeof(path), &sent, &total)) {
         json_escape(path_esc, sizeof(path_esc), path);
         snprintf(body + n - 1, size - (n - 1), ",\"put\":{\"path\":\"%s\",\"sent\":%lu,\"size\":%lu}}", path_esc,
             (unsigned long)sent, (unsigned long)total);
+    }
+    // The switch's active input, once its board has reported one: "svs":{"input","name",...}.
+    svs_state_t s;
+    n = strlen(body);
+    if (n && n < size && svs_get(&s)) {
+        char svs[256];
+        svs_json(svs, sizeof(svs));
+        snprintf(body + n - 1, size - (n - 1), ",\"svs\":%s}", svs);
     }
 }
 
@@ -746,6 +757,58 @@ static void handle_api_command(request_t *r) {
     respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", out);
 }
 
+// --- /api/svs: the Scalable Video Switch's active input (docs/SVS.md) ------------------------------
+//
+// POST {"id": "svs-bridge-…", "current_input": 3, "total_inputs": 8, "name": "PS2"} from the SVS Bridge
+// on every change, when it finds Cruller, and every 60 s ("input" works too; "name" is optional); GET
+// answers what Cruller last heard.
+
+static void svs_json(char *out, size_t size) {
+    svs_state_t s;
+    if (!svs_get(&s)) {
+        snprintf(out, size, "{\"known\":false}");
+        return;
+    }
+    char name[2 * SVS_NAME_MAX + 2], id[2 * SVS_NAME_MAX + 2];
+    json_escape(name, sizeof(name), s.name);
+    json_escape(id, sizeof(id), s.id);
+    const uint32_t now = to_ms_since_boot(get_absolute_time());
+    snprintf(out, size, "{\"known\":true,\"input\":%d,\"name\":\"%s\",\"id\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu}",
+        s.input, name, id, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000));
+}
+
+static void handle_svs(request_t *r, bool post) {
+    char out[256];
+    if (post) {
+        static raw_t body;
+        body.len = 0;
+        if (r->content_length <= 0 || r->content_length >= 512 || !read_body(r, raw_sink, &body)) {
+            respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body\"}");
+            return;
+        }
+        body.buf[body.len] = 0;
+        const char *text = (const char *)body.buf;
+        // The bridge's own field names ({"current_input": 3, ...} as in its /api/v1/state), or "input".
+        const char *p = json_key(text, "current_input");
+        if (!p) p = json_key(text, "input");
+        while (p && (*p == ' ' || *p == ':' || *p == '\t')) p++;
+        char *end = NULL;
+        const long input = p ? strtol(p, &end, 10) : -1;
+        if (!p || end == p || input < 0 || input > 255) {
+            respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"need \\\"current_input\\\": <port number>\"}");
+            return;
+        }
+        char name[SVS_NAME_MAX + 1] = "", id[SVS_NAME_MAX + 1] = "";
+        if ((p = json_key(text, "name"))) json_string(p, name, sizeof(name));
+        if ((p = json_key(text, "id"))) json_string(p, id, sizeof(id));
+        const bool changed = svs_report((int)input, name, id);
+        snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
+    } else {
+        svs_json(out, sizeof(out));
+    }
+    respond(r->fd, 200, "OK", "application/json", out);
+}
+
 static void handle_wifi(request_t *r) {
     static form_t form;
     form.len = 0;
@@ -877,6 +940,7 @@ static void handle(request_t *r) {
     }
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
+    else if ((get || post) && !strcmp(r->path, "/api/svs")) handle_svs(r, post);
     else if (post && !strcmp(r->path, "/restart")) handle_restart(r, false);
     else if (post && !strcmp(r->path, "/factory-reset")) handle_restart(r, true);
     else if (get && !strcmp(r->path, "/wifi/scan")) {
