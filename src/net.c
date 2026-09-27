@@ -169,16 +169,13 @@ void net_portal_test(uint32_t minutes) { portal_test_request = (int32_t)minutes;
 
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 
+// The signal, read by the net task with its link check: other tasks (the status JSON, pushed every
+// 0.5 s during an upload) only read the copy. Asking the CYW43 from the ws task during an upload to the
+// RT4K coincided with the board freezing.
+static volatile int rssi_now;
+
 int net_rssi(void) {
-    static int32_t last = 0;
-    static uint32_t at = 0;
-    if (state != NET_CONNECTED) return 0;
-    if (!at || now_ms() - at > 2000) { // an ioctl to the CYW43 (the driver takes its own lock)
-        int32_t rssi = 0;
-        if (!cyw43_wifi_get_rssi(&cyw43_state, &rssi)) last = rssi;
-        at = now_ms();
-    }
-    return (int)last;
+    return state == NET_CONNECTED ? rssi_now : 0;
 }
 
 // The channel the station link is on (0 if unknown). The CYW43 has one radio: an access point next
@@ -287,6 +284,8 @@ static void net_task(void *param) {
         portal_test_step();
         const int link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
         if (link == CYW43_LINK_UP) {
+            int32_t rssi = 0;
+            if (!cyw43_wifi_get_rssi(&cyw43_state, &rssi)) rssi_now = (int)rssi;
             down_ms = 0;
             continue;
         }

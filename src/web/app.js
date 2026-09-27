@@ -54,6 +54,7 @@ function st(s) {
   S = s;
   statusAt = Date.now();
   showPower(s.rt4k_power);
+  if (window.fwPutProgress) window.fwPutProgress(s.put); // the firmware updater's progress bar (fw.js)
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;
   text('rt4k-chip', usb ? 'RT4K · ' + power + (fwVersion ? ' · firmware ' + fwVersion : '') : 'RT4K not connected');

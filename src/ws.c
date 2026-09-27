@@ -38,6 +38,7 @@
 #define MSG_IN_VISIBILITY 0x10 // client -> server, binary: [0x10, 1 visible | 0 hidden]
 #define MSG_IN_DEBUG      0x11 // client -> server, binary: [0x11, 1 showing Debug | 0 not]
 #define STATUS_EVERY_MS 5000
+#define PUT_STATUS_EVERY_MS 500 // while an upload to the RT4K runs: its progress is in the status
 #define DEBUG_EVERY_MS  2000
 
 #define POLL_IDLE_MS     250      // OSD poll period
@@ -136,7 +137,10 @@ static bool push_log_status(client_t *c) {
     }
     const uint32_t t = now_ms();
     const int power = (int)power_state();
-    if (c->last_status_ms && t - c->last_status_ms < STATUS_EVERY_MS && power == c->status_power) return true;
+    char p[4];
+    uint32_t sent, size;
+    const uint32_t every = rtl1_put_progress(p, sizeof(p), &sent, &size) ? PUT_STATUS_EVERY_MS : STATUS_EVERY_MS;
+    if (c->last_status_ms && t - c->last_status_ms < every && power == c->status_power) return true;
     c->last_status_ms = t | 1;
     c->status_power = power;
     tx[16] = MSG_STATUS;

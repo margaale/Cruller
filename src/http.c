@@ -342,7 +342,7 @@ static void handle_rt4k_xfer(int fd, const char *query) {
 }
 
 static void handle_status(int fd) {
-    char body[768];
+    char body[1024];
     http_status_json(body, sizeof(body));
     respond(fd, 200, "OK", "application/json", body);
 }
@@ -367,6 +367,15 @@ void http_status_json(char *body, size_t size) {
         (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
         rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(NULL), rfc2217_count(NULL), CLIENTS_MAX,
         rfc2217_ips);
+    // An upload to the RT4K's SD card: "put":{"path","sent","size"} (the page's progress bar).
+    char path[96], path_esc[200];
+    uint32_t sent, total;
+    const size_t n = strlen(body);
+    if (n && n < size && rtl1_put_progress(path, sizeof(path), &sent, &total)) {
+        json_escape(path_esc, sizeof(path_esc), path);
+        snprintf(body + n - 1, size - (n - 1), ",\"put\":{\"path\":\"%s\",\"sent\":%lu,\"size\":%lu}}", path_esc,
+            (unsigned long)sent, (unsigned long)total);
+    }
 }
 
 // GET <path>?since=N: text written after position N, with the new position in X-Next.

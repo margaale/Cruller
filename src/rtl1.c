@@ -47,6 +47,22 @@ static SemaphoreHandle_t feed_lock; // every rtl1_core call
 static SemaphoreHandle_t done_sem;  // given when a transfer ends
 static SemaphoreHandle_t xfer_lock; // one transfer at a time
 
+// The upload in progress, for the page's progress bar (the browser's own upload progress only shows
+// what it has buffered: all of it within a fraction of a second).
+static struct {
+    volatile bool active;
+    char path[96];
+    volatile uint32_t sent, size;
+} put_now;
+
+bool rtl1_put_progress(char *path, size_t path_size, uint32_t *sent, uint32_t *size) {
+    if (!put_now.active) return false;
+    snprintf(path, path_size, "%s", put_now.path);
+    *sent = put_now.sent;
+    *size = put_now.size;
+    return put_now.active;
+}
+
 static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
 }
@@ -255,6 +271,10 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
 
     // Stream when RTS/CTS is on (always, see rt4k.c) and the RT4K asserts CTS; otherwise acknowledged.
     const bool acked = !rt4k_flow_control() || !(rt4k_modem_status() & 0x10);
+    snprintf(put_now.path, sizeof(put_now.path), "%s", path);
+    put_now.sent = 0;
+    put_now.size = size;
+    put_now.active = true;
     char cmd[200];
     snprintf(cmd, sizeof(cmd), "put%s %lu %s %s", acked ? " -a" : "", (unsigned long)size, sha256_hex, path);
     xSemaphoreTake(feed_lock, portMAX_DELAY);
@@ -306,6 +326,7 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
         ok = acked ? send_acked(frame, len, seq, info) : send_streamed(frame, len, seq, st.naks, info);
         send_ms += now_ms() - ts;
         sent += (uint32_t)got;
+        put_now.sent = sent;
         seq++; // one byte on the wire: wraps after 256 frames
     }
     if (ok) {
@@ -344,6 +365,7 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     rtl1_core_end();
     xSemaphoreGive(feed_lock);
+    put_now.active = false;
     rt4k_link_unlock();
     xSemaphoreGive(xfer_lock);
     return result;

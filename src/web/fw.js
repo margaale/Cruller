@@ -148,11 +148,10 @@
     return t;
   }
 
-  function putFile(path, data, sha, onProgress) {
+  function putFile(path, data, sha) {
     return new Promise((resolve, reject) => {
       const x = new XMLHttpRequest();
       x.open('POST', '/rt4k/put?path=' + encodeURIComponent(path) + '&sha=' + sha);
-      x.upload.onprogress = (e) => onProgress(e.loaded);
       x.onload = () => (x.status === 200 ? resolve(x.responseText.trim()) : reject(new Error(path + ': ' + x.responseText.trim())));
       x.onerror = () => reject(new Error(path + ': connection to Cruller lost'));
       x.send(data);
@@ -189,12 +188,32 @@
 
   const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
 
-  function status(text, value, max) {
+  function status(text) {
     q('fws').textContent = text;
-    const p = q('fwp');
-    p.hidden = max === undefined;
-    if (max !== undefined) { p.max = max || 1; p.value = value; }
   }
+
+  // The install steps (download, check, write, install), each waiting / running / done / failed, with
+  // a detail line and, while it runs, a bar. max 0: size unknown (an indeterminate bar).
+  const STEPS = [['dl', 'Download the zip'], ['chk', 'Check it against the SHA-256 in RetroTINK\'s index'],
+    ['wr', 'Write the files to the RT4K\'s SD card'], ['in', 'Install: the RT4K restarts for about 40 s']];
+  let current = null;
+
+  function step(id, state, detail, value, max) {
+    const li = q('fws-' + id);
+    li.dataset.state = state;
+    li.querySelector('.sd').textContent = detail || '';
+    const p = li.querySelector('progress');
+    p.hidden = state !== 'run' || max === undefined;
+    if (!p.hidden) {
+      if (max) { p.max = max; p.value = value; } else p.removeAttribute('value');
+    }
+    current = state === 'run' ? id : current;
+  }
+
+  // The page's status handler passes each status's "put" (bytes Cruller handed to the RT4K): the
+  // browser's own upload progress only counts what it buffered, all of it within a moment.
+  let onPut = null;
+  window.fwPutProgress = (put) => { if (onPut && put) onPut(put); };
 
   function selected() {
     const list = channels[q('fwc').value] || [];
@@ -224,13 +243,18 @@
     if (!f || busy) return;
     busy = true;
     q('fwi').disabled = true;
+    q('fwsteps').hidden = false;
+    STEPS.forEach(([id]) => step(id, 'wait'));
+    status('');
     try {
-      status('Downloading ' + f.version + '...', 0, 1);
-      const zip = await download(f.url, (got, total) => status('Downloading ' + f.version + ': ' + mb(got) + (total ? ' of ' + mb(total) : ''), got, total));
-      status('Checking the download...');
+      step('dl', 'run', 'starting…', 0, 0);
+      const zip = await download(f.url, (got, total) => step('dl', 'run', mb(got) + (total ? ' of ' + mb(total) : ''), got, total));
+      step('dl', 'done', mb(zip.length));
+      step('chk', 'run', 'hashing…');
       await new Promise((r) => setTimeout(r, 20));
       const zsha = sha256(zip);
       if (zsha !== f.sha) throw new Error('the download does not match the SHA-256 in RetroTINK\'s index');
+      step('chk', 'done', zsha.slice(0, 12) + '… matches');
       const entries = zipEntries(zip).filter((e) => wanted(e.name, installed.model));
       if (!entries.some((e) => e.name.toLowerCase() === 'rt4kup.bin')) throw new Error('no rt4kup.bin in the zip');
       // rt4kup.bin last: it names the .rbf to install, so it must not arrive before the .rbf does.
@@ -241,8 +265,9 @@
         const parts = e.name.split('/');
         for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
       }
+      step('wr', 'run', 'preparing…', 0, total);
       for (const d of [...dirs].sort((a, b) => a.length - b.length)) {
-        status('Creating ' + d + '/ on the SD card...');
+        step('wr', 'run', 'creating ' + d + '/', 0, total);
         const r = await ask('mkdir ' + d, 'mkdir');
         if (!/ok|EXIST/.test(r)) throw new Error('mkdir ' + d + ': ' + r);
       }
@@ -251,31 +276,40 @@
       for (const [i, e] of entries.entries()) {
         const data = await unzipEntry(e);
         const sha = sha256(data);
-        const label = 'Writing ' + e.name + ' (' + (i + 1) + ' of ' + entries.length + ')';
-        await putFile(e.name, data, sha, (sent) => {
+        const show = (sent) => {
           const now = done + Math.min(sent, e.size);
           const rate = now / Math.max(1, (Date.now() - t0) / 1000);
-          status(label + ': ' + mb(now) + ' of ' + mb(total) + (rate > 1024 ? ', ' + Math.round(rate / 1024) + ' KB/s' : ''), now, total);
-        });
+          step('wr', 'run', e.name + ' (' + (i + 1) + ' of ' + entries.length + ') · ' + mb(now) + ' of ' + mb(total) +
+            (rate > 1024 ? ' · ' + Math.round(rate / 1024) + ' KB/s' : ''), now, total);
+        };
+        show(0);
+        onPut = (put) => { if (put.path === e.name) show(put.sent); };
+        await putFile(e.name, data, sha);
+        onPut = null;
         done += e.size;
       }
-      status('Asking the RT4K to check the files...');
+      step('wr', 'done', entries.length + ' files · ' + mb(total) + ' in ' + Math.round((Date.now() - t0) / 1000) + ' s');
+      step('in', 'run', 'the RT4K checks the files…');
       const check = await ask('fwup check', 'fwup', 15000);
       const version = (check.match(/version=(\S+)/) || [])[1];
       const token = (check.match(/token=([0-9A-Fa-f]+)/) || [])[1];
       if (!check.startsWith('fwup ok') || !token) throw new Error('the RT4K refused the update: ' + check);
-      status('Files written. The RT4K is ready to install ' + version + '.');
+      step('in', 'run', 'ready to install ' + version);
       if (!confirm('Install RT4K firmware ' + version + ' now?\n\nThe RT4K restarts and flashes for about 40 seconds (LED pink, then blue). Do not power it off.')) {
-        status('Not installed. The files are on the SD card; the RT4K menu (OSD/Firmware > Check SD Card) can install them later.');
+        step('in', 'wait', 'not installed');
+        status('The files are on the SD card; the RT4K menu (OSD/Firmware > Check SD Card) can install them later.');
         return;
       }
       const go = await ask('fwup go ' + token, 'fwup', 10000);
       if (!/flashing/.test(go)) throw new Error('the RT4K did not start the install: ' + go);
-      status('Installing ' + version + '. The RT4K restarts by itself when it is done (about 40 s).');
+      step('in', 'done', 'flashing ' + version + ': the RT4K restarts by itself (about 40 s)');
     } catch (e) {
-      status('Failed: ' + e.message);
+      onPut = null;
+      if (current) step(current, 'fail', e.message);
+      else status('Failed: ' + e.message);
     } finally {
       busy = false;
+      current = null;
       showChangelog();
     }
   }
@@ -291,7 +325,10 @@
       '<div id=fwh class=small>Asking the RT4K for its version...</div></div>' +
       '<div class=row style="flex-wrap:wrap"><select id=fwc style="flex:0 0 160px"></select><select id=fwv style="flex:1 1 240px"></select>' +
       '<button id=fwi class=primary disabled>Download and install</button></div>' +
-      '<h2>What\'s new</h2><pre id=fwl style="height:220px"></pre><div id=fws></div><progress id=fwp hidden></progress>' +
+      '<h2>What\'s new</h2><pre id=fwl style="height:220px"></pre>' +
+      '<ol id=fwsteps class=steps hidden>' + STEPS.map(([id, label]) => '<li id=fws-' + id + ' data-state=wait><span class=si></span>' +
+        '<div class=sb><div class=sr><span>' + label + '</span><span class="sd small"></span></div><progress hidden></progress></div></li>').join('') +
+      '</ol><div id=fws class=small></div>' +
       '<div class=small>From RetroTINK\'s firmware repository, checked against its SHA-256. Keep this page open, and don\'t power the RT4K off while it installs.</div></div>';
     q('fwc').onchange = showVersions;
     q('fwv').onchange = showChangelog;
