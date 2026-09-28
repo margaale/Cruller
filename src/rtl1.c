@@ -8,8 +8,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
-#include "pico/sha256.h"
 
+#include "platform.h"
 #include "rt4k.h"
 #include "rtl1_core.h"
 #include "console.h"
@@ -64,16 +64,14 @@ bool rtl1_put_progress(char *path, size_t path_size, uint32_t *sent, uint32_t *s
 }
 
 static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
+    return plat_ms();
 }
 
 static bool hw_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
-    pico_sha256_state_t sha;
-    sha256_result_t digest;
-    if (pico_sha256_start_blocking(&sha, SHA256_BIG_ENDIAN, false) != PICO_OK) return false;
-    pico_sha256_update_blocking(&sha, data, len);
-    pico_sha256_finish(&sha, &digest);
-    memcpy(out, digest.bytes, 32);
+    plat_sha256_t sha;
+    if (!plat_sha256_start(&sha)) return false;
+    plat_sha256_update(&sha, data, len);
+    plat_sha256_finish(&sha, out);
     return true;
 }
 
