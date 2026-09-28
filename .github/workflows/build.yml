@@ -1,11 +1,12 @@
 # Builds Cruller for every board and runs the host tests. One job per platform (its toolchain), with
-# a matrix of that platform's boards; the images are kept as artifacts. GitVersion (GitVersion.yml)
-# gives the version, and every push to main is a release: tag vX.Y.Z and the images for every board.
+# a matrix of that platform's boards; the images are kept as artifacts, one file each (not zipped).
+# GitVersion (GitVersion.yml) gives the version. A push to main is a release (vX.Y.Z), a push to develop
+# a pre-release (vX.Y.Z-alpha.N), both with every board's images; pull requests only build.
 name: build
 
 on:
   push:
-    branches: [main] # pull requests build through pull_request (one run per push, not two)
+    branches: [main, develop] # pull requests build through pull_request (one run per push, not two)
   pull_request:
   workflow_dispatch:
 
@@ -22,7 +23,7 @@ jobs:
   version:
     runs-on: ubuntu-24.04
     outputs:
-      # main: X.Y.Z, a release; pull requests: X.Y.Z-alpha.N (GitVersion.yml).
+      # main: X.Y.Z, a release; develop: X.Y.Z-alpha.N; pull requests: X.Y.Z-pr.N (GitVersion.yml).
       version: ${{ github.ref == 'refs/heads/main' && steps.gitversion.outputs.majorMinorPatch || steps.gitversion.outputs.semVer }}
     steps:
       - uses: actions/checkout@v7
@@ -228,11 +229,10 @@ jobs:
           files: release/*
           fail_on_unmatched_files: true
 
-  # Every push to a pull request: a pre-release vX.Y.Z-alpha.N with every board's images, to try on a
-  # board (the Cruller tab offers alphas only to a board already on one). Not for pull requests from
-  # forks, whose token can't write.
+  # Every push to develop: a pre-release vX.Y.Z-alpha.N with every board's images, to try on a board
+  # (the Cruller tab offers alphas only to a board already on one).
   prerelease:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     needs: [version, tests, rp2, esp32]
     runs-on: ubuntu-24.04
     permissions:
@@ -247,9 +247,9 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.version.outputs.version }}
-          target_commitish: ${{ github.event.pull_request.head.sha }}
+          target_commitish: ${{ github.sha }}
           name: Cruller ${{ needs.version.outputs.version }}
-          body: "Alpha from #${{ github.event.pull_request.number }} (${{ github.event.pull_request.head.ref }}), commit ${{ github.event.pull_request.head.sha }}."
+          generate_release_notes: true
           prerelease: true
           files: release/*
           fail_on_unmatched_files: true

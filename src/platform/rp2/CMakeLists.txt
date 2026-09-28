@@ -20,7 +20,7 @@ set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version 
 pico_sdk_init()
 
 # The boot ROM picks between partitions A and B by image version (two 16-bit numbers), so it must
-# grow with every image: MAJOR = X*100+Y, MINOR = Z*1000 + N for an alpha X.Y.Z-alpha.N, or
+# grow with every image: MAJOR = X*100+Y, MINOR = Z*1000 + N for a pre-release X.Y.Z-alpha.N, or
 # Z*1000+999 for the release X.Y.Z, which so sorts after all its alphas. Z up to 64, N up to 998.
 string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z]+\\.([0-9]+))?$" _v "${CRULLER_VERSION}")
 if (NOT _v)

@@ -672,7 +672,7 @@ async function updLoad() {
     o.textContent = r.version + (r.date ? ' (' + r.date + ')' : '') + (r.alpha ? ' · alpha' : '') + (c === 0 ? ' · installed' : c < 0 ? ' · older' : '');
     sel.appendChild(o);
   });
-  // Alphas (pull request builds) are suggested only to a board already running one; any can be picked.
+  // Alphas (develop builds) are suggested only to a board already running one; any can be picked.
   const onAlpha = S.version.includes('-');
   const newer = upd.list.filter((r) => (onAlpha || !r.alpha) && cmpVersion(r.version, S.version) > 0);
   text('u-state', !upd.list.length ? 'No releases for this board yet' : newer.length ? newer[0].version + ' available' : 'Up to date (' + S.version + ')');

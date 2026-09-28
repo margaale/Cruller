@@ -1,10 +1,13 @@
-# Cruller's version (.github/workflows/build.yml): every push to main is a release, tagged vX.Y.Z, and
-# the patch grows with each one. A line "+semver: minor" or "+semver: major" in a commit message
-# bumps more; only at the start of a line, so a message that merely mentions them doesn't.
-# Pull requests build alphas (0.3.3-alpha.5: the next release, the commits since the last one), so an
-# image to try on a board sorts before the release it becomes and after the alphas before it.
-# The version must only grow: the Pico 2 W's boot ROM picks its A/B slot by it.
-workflow: GitHubFlow/v1
+# Cruller's version (.github/workflows/build.yml):
+#   main:          every push is a release, vX.Y.Z; the patch grows with each one.
+#   develop:       every push is a pre-release, vX.Y.Z-alpha.N (the next release, the commits since
+#                  the last one), to try on a board.
+#   pull requests: X.Y.Z-pr.N, built but not published (the images are on the run).
+# A line "+semver: minor" or "+semver: major" in a commit message bumps more; only at the start of a
+# line, so a message that merely mentions them doesn't.
+# The version must only grow: the Pico 2 W's boot ROM picks its A/B slot by it, and sorts an alpha
+# before its release (src/platform/rp2/CMakeLists.txt).
+workflow: GitFlow/v1
 next-version: 0.3.0
 tag-prefix: '[vV]?'
 major-version-bump-message: '(?m)^\s*\+semver:\s?(breaking|major)\b'
@@ -12,6 +15,10 @@ minor-version-bump-message: '(?m)^\s*\+semver:\s?(feature|minor)\b'
 patch-version-bump-message: '(?m)^\s*\+semver:\s?(fix|patch)\b'
 no-bump-message: '(?m)^\s*\+semver:\s?(none|skip)\b'
 branches:
-  pull-request:
+  develop:
     label: alpha
+    increment: Patch
+    deployment-mode: ContinuousDeployment
+  pull-request:
+    label: pr
     deployment-mode: ContinuousDeployment
