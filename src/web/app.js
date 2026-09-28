@@ -651,6 +651,9 @@ function cmpVersion(a, b) {
 
 async function updLoad() {
   upd.loaded = true;
+  $('u-refresh').classList.add('spin');
+  $('u-refresh').disabled = true;
+  text('u-state', 'Checking GitHub…');
   try {
     const rels = await (await fetch(FW_RELEASES, { cache: 'no-store' })).json();
     const suffix = FW_ASSET[S.platform];
@@ -662,6 +665,9 @@ async function updLoad() {
   } catch (e) {
     text('u-state', 'Could not read the releases from GitHub');
     return;
+  } finally {
+    $('u-refresh').classList.remove('spin');
+    $('u-refresh').disabled = false;
   }
   const sel = $('u-ver');
   sel.innerHTML = '';

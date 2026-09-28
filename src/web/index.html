@@ -54,6 +54,7 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .busy{position:fixed;inset:0;z-index:50;background:#0c0d0fe6;backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px}
 .busy-box{max-width:380px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px}
 .busy h3{margin:6px 0 0;font:700 22px var(--head)}.busy p{margin:0;font-size:15px;line-height:1.5;color:var(--soft);white-space:pre-line}
+.refresh{flex:none;width:38px;height:38px;padding:0;display:grid;place-items:center}.refresh.spin svg{animation:spin 1.1s linear infinite}
 .ring{position:relative;width:120px;height:120px}.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:6}.ring .track{stroke:#2B2F35}.ring .arc{stroke:var(--accent);stroke-linecap:round;stroke-dasharray:276.5;stroke-dashoffset:0;transition:stroke-dashoffset 1s linear,stroke .3s}
 .ring.spin svg{animation:spin 1.1s linear infinite}.ring.spin .arc{stroke-dashoffset:200;transition:none}
@@ -250,7 +251,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="row"><h2 class="grow">Cruller firmware</h2><span class="small" id="u-state">Checking GitHub…</span></div>
 <div class="upd">
 <div style="display:flex;flex-direction:column;gap:10px">
-<select id="u-ver" onchange="updShow()"></select>
+<div style="display:flex;gap:8px"><select id="u-ver" class="grow" onchange="updShow()"></select><button class="refresh" id="u-refresh" onclick="updLoad()" title="Check GitHub again" aria-label="Check GitHub again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
 <button class="primary" id="u-go" onclick="updInstall()" disabled>Download and install</button>
 <button onclick="$('u-file').click()">Install from a file…</button>
 <input type="file" id="u-file" accept=".uf2,.bin" hidden onchange="updFile(this.files[0])">
