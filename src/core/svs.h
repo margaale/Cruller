@@ -12,7 +12,7 @@
 #define SVS_HISTORY  10
 
 typedef struct {
-    int input;                   // the switch's port (1-based)
+    int input;                   // the switch's port (1-based; 0: none active)
     int total;                   // how many inputs the switch has (0: not said)
     char name[SVS_NAME_MAX + 1]; // the port's name, as the bridge calls it ("" if not given)
     char id[SVS_NAME_MAX + 1];   // the bridge that said so

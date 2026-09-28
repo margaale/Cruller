@@ -38,7 +38,8 @@ Content-Type: application/json
   every 60 s otherwise, in case a report was lost.
 - **The input:** the same names as the `svs` object of the bridge's `GET /api/v1/state`, plus `id`.
   `current_input` is required (`input` is accepted too). The active port's name can come as `name` or
-  `current_input_name`; without either, Cruller takes it from `inputs`.
+  `current_input_name`; without either, Cruller takes it from `inputs`. `current_input: 0` means no
+  input is active (the page shows "no input active", and gameID treats it as no console on screen).
 - **The switch** (what the SVS can't report itself, as the bridge's SVS tab sets it up; the rest of
   what the bridge knows about the SVS stays on the bridge):
   - `inputs`, one per input in order (index 0 is input 1): `kind` is the module (`scart`, `component`,

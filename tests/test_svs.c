@@ -28,6 +28,8 @@ static void test_input_only(void) {
     CHECK(!strcmp(m.name, ""));
     CHECK(!m.has_switch);
     CHECK(parse("{\"input\":1}") && m.input == 1 && m.total == 0 && !m.id[0]);
+    // 0: no input active (and no name from the layout for it).
+    CHECK(parse("{\"current_input\":0,\"inputs\":[{\"name\":\"A\"}]}") && m.input == 0 && !m.name[0]);
 }
 
 static void test_rejects(void) {
