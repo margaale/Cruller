@@ -635,7 +635,7 @@ document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
 // .github/workflows/release.yml): the page reads them from raw.githubusercontent.com, which allows
 // cross-origin reads (a release's own assets don't). Each platform takes its own file.
 
-const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases';
+const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases?per_page=100'; // alphas add up
 const FW_ASSET = { rp2: '-pico2_w-cruller.uf2', esp32: '-esp32s3_devkitc1_n16r8-cruller.bin' }; // each platform's image among a release's assets
 const upd = { loaded: false, list: [], onProgress: null };
 
@@ -656,7 +656,7 @@ async function updLoad() {
     const suffix = FW_ASSET[S.platform];
     upd.list = rels.filter((r) => !r.draft).map((r) => {
       const a = suffix && r.assets.find((x) => x.name.endsWith(suffix));
-      return a && { version: r.tag_name.replace(/^v/, ''), date: (r.published_at || '').slice(0, 10), notes: r.body || '',
+      return a && { version: r.tag_name.replace(/^v/, ''), alpha: r.prerelease, date: (r.published_at || '').slice(0, 10), notes: r.body || '',
         file: { url: a.browser_download_url, name: a.name, size: a.size, sha256: (a.digest || '').replace(/^sha256:/, '') } };
     }).filter(Boolean);
   } catch (e) {
@@ -669,10 +669,12 @@ async function updLoad() {
     const c = cmpVersion(r.version, S.version);
     const o = document.createElement('option');
     o.value = i;
-    o.textContent = r.version + (r.date ? ' (' + r.date + ')' : '') + (c === 0 ? ' · installed' : c < 0 ? ' · older' : '');
+    o.textContent = r.version + (r.date ? ' (' + r.date + ')' : '') + (r.alpha ? ' · alpha' : '') + (c === 0 ? ' · installed' : c < 0 ? ' · older' : '');
     sel.appendChild(o);
   });
-  const newer = upd.list.filter((r) => cmpVersion(r.version, S.version) > 0);
+  // Alphas (pull request builds) are suggested only to a board already running one; any can be picked.
+  const onAlpha = S.version.includes('-');
+  const newer = upd.list.filter((r) => (onAlpha || !r.alpha) && cmpVersion(r.version, S.version) > 0);
   text('u-state', !upd.list.length ? 'No releases for this board yet' : newer.length ? newer[0].version + ' available' : 'Up to date (' + S.version + ')');
   updShow();
 }

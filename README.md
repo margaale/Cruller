@@ -21,7 +21,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RT
 
 ## Releases
 
-Every push to `main` is a release: CI takes the version from GitVersion (`GitVersion.yml`; the patch grows with each release, a line `+semver: minor` in a commit message bumps the minor), builds every board with it, tags `vX.Y.Z` and publishes the images on the GitHub release. Pull requests build alphas (`X.Y.Z-alpha.N`, the next release and the commits since the last one) to try on a board: each sorts after the one before and before its release. The ESP32-S3 images include `cruller-factory.bin`, to flash a new board over USB at 0x0.
+Every push to `main` is a release: CI takes the version from GitVersion (`GitVersion.yml`; the patch grows with each release, a line `+semver: minor` in a commit message bumps the minor), builds every board with it, tags `vX.Y.Z` and publishes the images on the GitHub release. Pull requests build alphas (`X.Y.Z-alpha.N`, the next release and the commits since the last one) to try on a board: each sorts after the one before and before its release. Every push to a pull request publishes one as a GitHub pre-release, and the images are also on the run as plain files (not zipped). The Cruller tab lists alphas but suggests them only to a board already running one. The ESP32-S3 images include `cruller-factory.bin`, to flash a new board over USB at 0x0.
 
 ## License
 
