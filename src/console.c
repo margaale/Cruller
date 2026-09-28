@@ -7,9 +7,8 @@
 #include "task.h"
 #include "queue.h"
 #include "semphr.h"
-#include "pico/sync.h"
-#include "pico/time.h"
 
+#include "platform.h"
 #include "power.h"
 #include "rt4k.h"
 #include "ws.h"
@@ -38,24 +37,24 @@ typedef struct {
 static QueueHandle_t queue;
 static TaskHandle_t console_task_h;
 static SemaphoreHandle_t query_lock;
-static critical_section_t lock;     // console_core and the history
+static plat_lock_t lock;     // console_core and the history
 static entry_t history[HISTORY];
 static uint32_t head;               // lines ever routed
 static char line[LINE_MAX_LEN];     // being assembled (rt4k task only)
 static size_t line_len;
 
 static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
+    return plat_ms();
 }
 
 static void route(const char *text) {
-    critical_section_enter_blocking(&lock);
+    plat_lock_enter(&lock);
     const int owner = console_core_line(text, now_ms());
     entry_t *e = &history[head & (HISTORY - 1)];
     e->owner = owner;
     snprintf(e->text, sizeof(e->text), "%s", text);
     head++;
-    critical_section_exit(&lock);
+    plat_lock_exit(&lock);
     if (owner != CON_BROADCAST && console_task_h) xTaskNotifyGive(console_task_h); // may close its window
     power_feed_line(text);
     if (owner != CON_POWER && owner != CON_QUERY) { // the web terminal: all but Cruller's own checks
@@ -79,21 +78,21 @@ void console_feed(const uint8_t *data, size_t len) {
 }
 
 bool console_reply_pending(void) {
-    critical_section_enter_blocking(&lock);
+    plat_lock_enter(&lock);
     const bool waiting = console_core_waiting_reply();
-    critical_section_exit(&lock);
+    plat_lock_exit(&lock);
     return waiting;
 }
 
 uint32_t console_head(void) {
-    critical_section_enter_blocking(&lock);
+    plat_lock_enter(&lock);
     const uint32_t h = head;
-    critical_section_exit(&lock);
+    plat_lock_exit(&lock);
     return h;
 }
 
 bool console_read(uint32_t *seq, int *owner, char *out, size_t size) {
-    critical_section_enter_blocking(&lock);
+    plat_lock_enter(&lock);
     if (head - *seq > HISTORY) *seq = head - HISTORY; // fell behind: the oldest still kept
     const bool have = *seq != head;
     if (have) {
@@ -102,7 +101,7 @@ bool console_read(uint32_t *seq, int *owner, char *out, size_t size) {
         snprintf(out, size, "%s", e->text);
         (*seq)++;
     }
-    critical_section_exit(&lock);
+    plat_lock_exit(&lock);
     return have;
 }
 
@@ -258,15 +257,15 @@ static void console_task(void *param) {
         const char *done_when = final_line(req.cmd, &no_reply);
         if (sent && !no_reply) {
             ulTaskNotifyTake(pdTRUE, 0); // wake-ups from lines of an earlier window
-            critical_section_enter_blocking(&lock);
+            plat_lock_enter(&lock);
             console_core_begin(req.owner, req.expect, req.timeout_ms, done_when, now_ms());
-            critical_section_exit(&lock);
+            plat_lock_exit(&lock);
             if (!strncmp(req.cmd, "remote ", 7)) ws_key_sent(); // any sender: the mirror refreshes and times it
             for (;;) {
                 ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10)); // route() wakes us on each reply line
-                critical_section_enter_blocking(&lock);
+                plat_lock_enter(&lock);
                 const bool over = console_core_poll(now_ms());
-                critical_section_exit(&lock);
+                plat_lock_exit(&lock);
                 if (over) break;
             }
             const uint32_t i = cmd_log_n++ & (CMD_LOG - 1);
@@ -283,7 +282,7 @@ static void console_task(void *param) {
 }
 
 void console_start(void) {
-    critical_section_init(&lock);
+    plat_lock_init(&lock);
     queue = xQueueCreate(QUEUE_DEPTH, sizeof(request_t));
     query_lock = xSemaphoreCreateMutex();
     xTaskCreate(console_task, "console", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIORITY, &console_task_h);

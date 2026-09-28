@@ -38,6 +38,7 @@ target_sources(cruller_app INTERFACE
     src/creds.c
     src/ota.c
     src/platform_reboot.c
+    src/platform/rp2/platform.c
     src/net.c
     src/http.c
     src/status_led.c
@@ -60,7 +61,7 @@ target_sources(cruller_app INTERFACE
     third_party/picow_ap/dhcpserver.c
     third_party/picow_ap/dnsserver.c
 )
-target_include_directories(cruller_app INTERFACE src third_party/picow_ap)
+target_include_directories(cruller_app INTERFACE src src/platform src/platform/rp2 third_party/picow_ap)
 
 # Web assets kept as real files (src/web), embedded as C arrays (see cmake/embed.cmake).
 set(WEB_FW_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_fw_js.c)

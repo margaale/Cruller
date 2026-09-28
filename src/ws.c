@@ -8,8 +8,8 @@
 #include "queue.h"
 #include "semphr.h"
 #include "lwip/sockets.h"
-#include "pico/time.h"
 
+#include "platform.h"
 #include "rt4k.h"
 #include "http.h"
 #include "log.h"
@@ -98,7 +98,7 @@ static char last_detail[2][96];
 static uint32_t poll_last_ms[2], poll_max_ms[2], poll_errors[2][5]; // debug: per plane, errors by result
 
 static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
+    return plat_ms();
 }
 
 // --- sending (ws task) -------------------------------------------------------------------------

@@ -6,8 +6,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "lwip/sockets.h"
-#include "pico/time.h"
 
+#include "platform.h"
 #include "clients.h"
 #include "console.h"
 #include "rfc2217_proto.h"
@@ -41,7 +41,7 @@ typedef struct {
 static client_t clients[MAX_CLIENTS];
 
 static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
+    return plat_ms();
 }
 
 static bool send_all(int fd, const uint8_t *p, size_t len) {

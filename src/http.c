@@ -10,7 +10,6 @@
 #include "lwip/sockets.h"
 #include "lwip/memp.h"
 #include "lwip/stats.h"
-#include "pico/stdlib.h"
 
 #include "creds.h"
 #include "flash_ops.h"
@@ -29,7 +28,7 @@
 #include "ws_proto.h"
 #include "net.h"
 #include "ota.h"
-#include "platform_reboot.h"
+#include "platform.h"
 
 #define HTTP_TASK_STACK     3072
 #define HTTP_TASK_PRIORITY  (tskIDLE_PRIORITY + 2)
@@ -218,8 +217,6 @@ static void handle_debug_tasks(int fd, const char *query) {
 }
 
 // GET /debug/memory: clients against their limits, lwIP's pools and heap, the FreeRTOS heap, RAM.
-extern char __data_start__, __data_end__, __bss_start__, __bss_end__, __StackTop;
-
 static const struct {
     int id;
     const char *name;
@@ -259,15 +256,14 @@ void http_debug_memory(char *out, size_t size) {
     ADD("  %-21s %5u %5u %5u %7lu  (bytes)\n", "lwIP heap", (unsigned)lwip_stats.mem.used, (unsigned)lwip_stats.mem.max,
         (unsigned)lwip_stats.mem.avail, (unsigned long)lwip_stats.mem.err);
 
-    HeapStats_t hs;
-    vPortGetHeapStats(&hs);
+    plat_memory_t m;
+    plat_memory(&m);
     ADD("\nFreeRTOS heap           %u KB: free %u, lowest ever %u, largest block %u (bytes)\n",
-        (unsigned)(configTOTAL_HEAP_SIZE / 1024), (unsigned)hs.xAvailableHeapSpaceInBytes,
-        (unsigned)hs.xMinimumEverFreeBytesRemaining, (unsigned)hs.xSizeOfLargestFreeBlockInBytes);
-    const uint32_t data = (uint32_t)(&__data_end__ - &__data_start__), bss = (uint32_t)(&__bss_end__ - &__bss_start__);
-    const uint32_t rest = (uint32_t)(&__StackTop - &__bss_end__);
+        (unsigned)(m.heap_size / 1024), (unsigned)m.heap_free, (unsigned)m.heap_lowest, (unsigned)m.heap_largest);
+    const uint32_t rest = m.ram_total - m.ram_data - m.ram_bss;
     ADD("RAM                     %u KB: code and data %u KB, bss %u KB (FreeRTOS heap included), rest %u KB\n",
-        (unsigned)((data + bss + rest) / 1024), (unsigned)(data / 1024), (unsigned)(bss / 1024), (unsigned)(rest / 1024));
+        (unsigned)(m.ram_total / 1024), (unsigned)(m.ram_data / 1024), (unsigned)(m.ram_bss / 1024),
+        (unsigned)(rest / 1024));
 #undef ADD
 }
 
@@ -281,13 +277,13 @@ size_t http_debug_memory_json(char *out, size_t size) {
         ADD("%s{\"name\":\"%s\",\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu}", i ? "," : "", pools[i].name,
             (unsigned)m->used, (unsigned)m->max, (unsigned)m->avail, (unsigned long)m->err);
     }
-    HeapStats_t hs;
-    vPortGetHeapStats(&hs);
+    plat_memory_t mem;
+    plat_memory(&mem);
     ADD("],\"lwip_heap\":{\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu},"
         "\"heap\":{\"size\":%u,\"free\":%u,\"lowest\":%u,\"largest\":%u}}",
         (unsigned)lwip_stats.mem.used, (unsigned)lwip_stats.mem.max, (unsigned)lwip_stats.mem.avail,
-        (unsigned long)lwip_stats.mem.err, (unsigned)configTOTAL_HEAP_SIZE, (unsigned)hs.xAvailableHeapSpaceInBytes,
-        (unsigned)hs.xMinimumEverFreeBytesRemaining, (unsigned)hs.xSizeOfLargestFreeBlockInBytes);
+        (unsigned long)lwip_stats.mem.err, (unsigned)mem.heap_size, (unsigned)mem.heap_free,
+        (unsigned)mem.heap_lowest, (unsigned)mem.heap_largest);
 #undef ADD
     return o < size ? o : 0;
 }
@@ -364,7 +360,7 @@ void http_status_json(char *body, size_t size) {
         "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,\"rt4k_flow\":%s,"
         "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\","
         "\"web_clients\":%d,\"rfc2217_count\":%d,\"clients_max\":%d,\"rfc2217_clients\":\"%s\"}",
-        CRULLER_VERSION, (unsigned long)(to_ms_since_boot(get_absolute_time()) / 1000), state_name(net_state()),
+        CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), state_name(net_state()),
         ssid, net_ip(), net_rssi(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
         rt4k_flow_control() ? "true" : "false",
@@ -609,9 +605,9 @@ static void handle_rt4k_put(request_t *r, const char *query) {
     printf("http: RT4K upload %s, %ld bytes\n", path, r->content_length);
     body_reader_t reader = {r, r->content_length, 0};
     static rtl1_info_t info;
-    const uint32_t t0 = to_ms_since_boot(get_absolute_time());
+    const uint32_t t0 = plat_ms();
     const rtl1_result_t res = rtl1_put(path, (uint32_t)r->content_length, sha, body_read, &reader, &info);
-    const uint32_t ms = to_ms_since_boot(get_absolute_time()) - t0;
+    const uint32_t ms = plat_ms() - t0;
     char msg[320];
     if (res == RTL1_OK) {
         snprintf(msg, sizeof(msg), "ok %s %ld bytes in %lu ms (%s)\n", path, r->content_length, (unsigned long)ms,
@@ -790,7 +786,7 @@ static void svs_json(char *out, size_t size) {
     char name[2 * SVS_NAME_MAX + 2], id[2 * SVS_NAME_MAX + 2];
     json_escape(name, sizeof(name), s.name);
     json_escape(id, sizeof(id), s.id);
-    const uint32_t now = to_ms_since_boot(get_absolute_time());
+    const uint32_t now = plat_ms();
     int n = snprintf(out, size, "{\"known\":true,\"input\":%d,\"total\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu,\"history\":[",
         s.input, s.total, name, id, paired, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000));
     // The last input changes, newest first: [[input, seconds ago], ...].
@@ -885,7 +881,7 @@ static void handle_wifi(request_t *r) {
         "<html><body style='font-family:sans-serif;background:#111;color:#eee'>"
         "<h3>Saved. Cruller is rebooting and joining the network.</h3></body></html>");
     vTaskDelay(pdMS_TO_TICKS(500));
-    platform_reboot();
+    plat_reboot();
 }
 
 // --- the setup wizard (portal) and the name ------------------------------------------------------------
@@ -958,7 +954,7 @@ static void handle_settings(request_t *r) {
     respond(r->fd, 200, "OK", "text/plain", msg);
     printf("http: renamed to \"%s\" (%s.local), restarting\n", name, host);
     vTaskDelay(pdMS_TO_TICKS(500));
-    platform_reboot();
+    plat_reboot();
 }
 
 // POST /restart: reboots into the current image. POST /factory-reset: forgets the Wi-Fi network, the
@@ -971,7 +967,7 @@ static void handle_restart(request_t *r, bool forget) {
     respond(r->fd, 200, "OK", "text/plain", forget ? "Settings erased; restarting into the setup portal\n" : "Restarting\n");
     printf("http: %s requested\n", forget ? "factory reset" : "restart");
     vTaskDelay(pdMS_TO_TICKS(500)); // let the response leave
-    platform_reboot();
+    plat_reboot();
 }
 
 static void handle(request_t *r) {

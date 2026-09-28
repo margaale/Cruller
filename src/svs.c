@@ -5,14 +5,15 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "pico/time.h"
+
+#include "platform.h"
 
 static svs_state_t now_state;
 static bool known;
 static volatile uint32_t version;
 
 bool svs_report(int input, int total, const char *name, const char *id) {
-    const uint32_t t = to_ms_since_boot(get_absolute_time());
+    const uint32_t t = plat_ms();
     taskENTER_CRITICAL();
     const bool changed = !known || now_state.input != input;
     now_state.input = input;

@@ -4,8 +4,6 @@
 #include <string.h>
 
 #include "pico/cyw43_arch.h"
-#include "pico/unique_id.h"
-#include "pico/time.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "lwip/ip4_addr.h"
@@ -16,7 +14,7 @@
 #include "creds.h"
 #include "dhcpserver.h"
 #include "dnsserver.h"
-#include "platform_reboot.h"
+#include "platform.h"
 #include "settings.h"
 #include "status_led.h"
 
@@ -156,8 +154,8 @@ static void txt_add(struct mdns_service *service, const char *item) {
 }
 
 static void txt_id(struct mdns_service *service) {
-    char id[2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1], item[8 + sizeof(id)];
-    pico_get_unique_board_id_string(id, sizeof(id));
+    char id[33], item[8 + sizeof(id)];
+    plat_board_id(id, sizeof(id));
     snprintf(item, sizeof(item), "id=%s", id);
     txt_add(service, item);
 }
@@ -227,7 +225,7 @@ bool net_portal_active(void) { return portal_up; }
 
 void net_portal_test(uint32_t minutes) { portal_test_request = (int32_t)minutes; }
 
-static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
+static uint32_t now_ms(void) { return plat_ms(); }
 
 // The signal, read by the net task with its link check: other tasks (the status JSON, pushed every
 // 0.5 s during an upload) only read the copy. Asking the CYW43 from the ws task during an upload to the
@@ -401,7 +399,7 @@ static void portal_forever(void) {
         }
         if (setup.st == SETUP_OK && (int32_t)(now_ms() - setup.restart_at_ms) >= 0) {
             printf("net: setup done, restarting on \"%s\"\n", setup.ssid);
-            platform_reboot();
+            plat_reboot();
         }
     }
 }
