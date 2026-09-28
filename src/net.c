@@ -13,6 +13,7 @@
 
 #include "creds.h"
 #include "dhcpserver.h"
+#include "donutshop.h"
 #include "dnsserver.h"
 #include "platform.h"
 #include "settings.h"
@@ -428,7 +429,7 @@ static void net_task(void *param) {
     (void)param;
     if (!creds_load(&creds) && !creds_present()) { // never set up (a factory reset leaves a record)
         wifi_creds_t imported;
-        if (creds_import_donutshop(&imported)) {
+        if (donutshop_import_creds(&imported)) {
             creds = imported;
             printf("net: imported Wi-Fi \"%s\" from DonutShop, saving: %s\n", creds.ssid, creds_save(&creds) ? "ok" : "FAILED");
         }

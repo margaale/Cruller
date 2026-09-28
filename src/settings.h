@@ -1,4 +1,4 @@
-// Cruller's own settings (two alternating flash sectors after the Wi-Fi credentials, like creds.c):
+// Cruller's own settings (kept in store.h):
 // its name, and the SVS Bridge it's paired with (docs/SVS.md). A factory reset clears them.
 
 #pragma once
@@ -16,7 +16,7 @@ typedef struct {
 // The stored settings (all empty if none were saved). Cheap: a copy from RAM after the first call.
 void settings_get(settings_t *out);
 
-// Saves them (erase + program one sector). False if the flash write failed.
+// Saves them. False if the write failed.
 bool settings_save(const settings_t *s);
 
 // Factory reset: back to empty.

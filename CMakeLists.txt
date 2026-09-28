@@ -36,6 +36,8 @@ target_sources(cruller_app INTERFACE
     src/freertos_hooks.c
     src/flash_ops.c
     src/creds.c
+    src/donutshop.c
+    src/store_flash.c
     src/ota.c
     src/platform_reboot.c
     src/platform/rp2/platform.c

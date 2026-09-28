@@ -1,4 +1,4 @@
-// Wi-Fi credentials store (two alternating flash sectors in the data partition).
+// The Wi-Fi network to join (kept in store.h).
 
 #pragma once
 
@@ -20,6 +20,3 @@ bool creds_save(const wifi_creds_t *creds);
 bool creds_forget(void);
 // Whether a record was ever written (including a forgotten network).
 bool creds_present(void);
-
-// First boot after migrating from DonutShop: read /wifi.json from its LittleFS, if present.
-bool creds_import_donutshop(wifi_creds_t *out);
