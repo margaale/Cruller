@@ -636,7 +636,7 @@ document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
 // cross-origin reads (a release's own assets don't). Each platform takes its own file.
 
 const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases';
-const FW_ASSET = { rp2: '-pico2_w-cruller.uf2' }; // each platform's image among a release's assets
+const FW_ASSET = { rp2: '-pico2_w-cruller.uf2', esp32: '-esp32s3_devkitc1_n16r8-cruller.bin' }; // each platform's image among a release's assets
 const upd = { loaded: false, list: [], onProgress: null };
 
 // "0.3.10" vs "0.3.9": -1, 0, 1.
