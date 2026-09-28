@@ -142,7 +142,8 @@ static bool push_log_status(client_t *c) {
     const int power = (int)power_state();
     char p[4];
     uint32_t sent, size;
-    const uint32_t every = rtl1_put_progress(p, sizeof(p), &sent, &size) ? PUT_STATUS_EVERY_MS : STATUS_EVERY_MS;
+    const uint32_t every = rtl1_put_progress(p, sizeof(p), &sent, &size) || http_update_progress(&sent, &size)
+        ? PUT_STATUS_EVERY_MS : STATUS_EVERY_MS; // uploads (to the RT4K, or firmware): their progress is in it
     const uint32_t setup = net_setup_version() + svs_version(); // the wizard's progress, the switch's input
     if (c->last_status_ms && t - c->last_status_ms < every && power == c->status_power && setup == c->status_setup) return true;
     c->last_status_ms = t | 1;

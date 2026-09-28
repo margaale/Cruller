@@ -110,6 +110,8 @@ function st(s) {
   if (document.activeElement !== $('f-name')) $('f-name').value = s.name || '';
   text('f-host', 'Reached at ' + (s.hostname || 'cruller') + '.local' + (s.name ? '' : ' · give it a name to tell it apart'));
   showSvs(s.svs);
+  if (s.platform && !upd.loaded) updLoad();
+  if (s.update && upd.onProgress) upd.onProgress(s.update);
   if (s.setup) wzProgress(s.setup);
   showUptime();
 }
@@ -627,6 +629,136 @@ $('tv').ondblclick = () => $('tv').requestFullscreen();
 addEventListener('resize', () => { fit(); if (tab === 'debug') drawCharts(); });
 document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
 
+// --- Cruller firmware updates ----------------------------------------------------------------------------
+//
+// The CI publishes each release's images and an index to the repository's "firmware" branch (see
+// .github/workflows/release.yml): the page reads them from raw.githubusercontent.com, which allows
+// cross-origin reads (a release's own assets don't). Each platform takes its own file.
+
+const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases';
+const FW_ASSET = { rp2: '-pico2_w-cruller.uf2' }; // each platform's image among a release's assets
+const upd = { loaded: false, list: [], onProgress: null };
+
+// "0.3.10" vs "0.3.9": -1, 0, 1.
+function cmpVersion(a, b) {
+  const x = a.split('.').map(Number), y = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0) ? -1 : 1;
+  return 0;
+}
+
+async function updLoad() {
+  upd.loaded = true;
+  try {
+    const rels = await (await fetch(FW_RELEASES, { cache: 'no-store' })).json();
+    const suffix = FW_ASSET[S.platform];
+    upd.list = rels.filter((r) => !r.draft).map((r) => {
+      const a = suffix && r.assets.find((x) => x.name.endsWith(suffix));
+      return a && { version: r.tag_name.replace(/^v/, ''), date: (r.published_at || '').slice(0, 10), notes: r.body || '',
+        file: { url: a.browser_download_url, name: a.name, size: a.size, sha256: (a.digest || '').replace(/^sha256:/, '') } };
+    }).filter(Boolean);
+  } catch (e) {
+    text('u-state', 'Could not read the releases from GitHub');
+    return;
+  }
+  const sel = $('u-ver');
+  sel.innerHTML = '';
+  upd.list.forEach((r, i) => {
+    const c = cmpVersion(r.version, S.version);
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = r.version + (r.date ? ' (' + r.date + ')' : '') + (c === 0 ? ' · installed' : c < 0 ? ' · older' : '');
+    sel.appendChild(o);
+  });
+  const newer = upd.list.filter((r) => cmpVersion(r.version, S.version) > 0);
+  text('u-state', !upd.list.length ? 'No releases for this board yet' : newer.length ? newer[0].version + ' available' : 'Up to date (' + S.version + ')');
+  updShow();
+}
+
+function updShow() {
+  const r = upd.list[+$('u-ver').value];
+  text('u-notes', r ? r.notes || '(no notes)' : '');
+  // The Pico's boot ROM starts the newer of its two slots: an older version wouldn't boot.
+  $('u-go').disabled = !r || cmpVersion(r.version, S.version) <= 0;
+  text('u-go', r && cmpVersion(r.version, S.version) <= 0 ? (cmpVersion(r.version, S.version) ? 'Older than installed' : 'Installed') : 'Download and install');
+}
+
+async function updInstall() {
+  const r = upd.list[+$('u-ver').value], f = r && r.file;
+  if (!f || !(await askUser('Install Cruller ' + r.version + '?', 'It downloads from GitHub, checks it, and Cruller restarts into it (about 20 s).', 'Install'))) return;
+  let data;
+  try {
+    busy({ mode: 'progress', frac: 0, title: 'Downloading ' + r.version, text: 'From GitHub.' });
+    let resp;
+    try {
+      resp = await fetch(f.url, { cache: 'no-store' });
+    } catch (e) {
+      // GitHub serves release assets without CORS headers: the browser may refuse to hand them over.
+      busy({ mode: 'bad', title: 'GitHub won\'t let the page download it', text: 'Download ' + f.name + ' yourself, then install it with "Install from a file…".',
+        actions: [{ label: 'Download ' + r.version, primary: true, href: f.url }, { label: 'Install from a file…', onclick: () => { busyHide(); $('u-file').click(); } }] });
+      return;
+    }
+    if (!resp.ok) throw new Error('GitHub answered ' + resp.status);
+    const reader = resp.body.getReader(), parts = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      got += value.length;
+      busy({ mode: 'progress', frac: f.size ? got / f.size : 0, title: 'Downloading ' + r.version, text: (got / 1048576).toFixed(2) + ' of ' + (f.size / 1048576).toFixed(2) + ' MB' });
+    }
+    data = new Uint8Array(got);
+    let o = 0;
+    for (const p of parts) { data.set(p, o); o += p.length; }
+    busy({ mode: 'spin', title: 'Checking the download…', text: 'SHA-256' });
+    await sleep(30);
+    if (f.sha256 && window.fwInternals.sha256(data) !== f.sha256) throw new Error('The download doesn\'t match the SHA-256 GitHub lists for it.');
+  } catch (e) {
+    busy({ mode: 'bad', title: 'Download failed', text: e.message, actions: [{ label: 'Close', onclick: busyHide }] });
+    return;
+  }
+  updSend(data, r.version);
+}
+
+async function updFile(file) {
+  $('u-file').value = '';
+  if (!file) return;
+  if (!(await askUser('Install ' + file.name + '?', 'Cruller writes it and restarts into it (about 20 s). Only images built for this board work.', 'Install'))) return;
+  updSend(new Uint8Array(await file.arrayBuffer()), file.name);
+}
+
+// Sends an image to /update; the bar follows what Cruller has received (pushed in the status).
+function updSend(data, label) {
+  const show = (got) => busy({ mode: 'progress', frac: got / data.length, title: 'Installing ' + label, text: 'Sending it to Cruller: ' + (got / 1048576).toFixed(2) + ' of ' + (data.length / 1048576).toFixed(2) + ' MB' });
+  show(0);
+  upd.onProgress = (u) => show(u.got);
+  const x = new XMLHttpRequest();
+  x.open('POST', '/update');
+  x.onload = async () => {
+    upd.onProgress = null;
+    if (x.status !== 200) {
+      busy({ mode: 'bad', title: 'The update failed', text: x.responseText.trim(), actions: [{ label: 'Close', onclick: busyHide }] });
+      return;
+    }
+    busy({ mode: 'spin', title: 'Restarting into ' + label + '…', text: 'Cruller checks the new firmware and keeps it once it runs.' });
+    await sleep(4000);
+    let version = '';
+    const back = await waitFor(async () => { const s = await (await fetch('/status', { cache: 'no-store' })).json(); version = s.version; return s.uptime_s < 120; }, 90000);
+    if (back) {
+      busy({ mode: 'ok', title: 'Cruller ' + version + ' is running', text: 'Reloading the page…' });
+      await sleep(1500);
+      location.reload();
+    } else {
+      busy({ mode: 'bad', title: 'Taking longer than expected', text: 'Cruller hasn\'t answered for a minute and a half. If it doesn\'t come back, it returns to the previous firmware by itself.', actions: [{ label: 'Reload', primary: true, onclick: () => location.reload() }] });
+    }
+  };
+  x.onerror = () => {
+    upd.onProgress = null;
+    busy({ mode: 'bad', title: 'The connection to Cruller dropped', text: 'The update didn\'t finish; Cruller keeps its current firmware.', actions: [{ label: 'Close', onclick: busyHide }] });
+  };
+  x.send(data);
+}
+
 // --- restart and factory reset -------------------------------------------------------------------------
 
 // A full-page overlay while Cruller restarts: a ring that spins (waiting), counts down (seconds), or
@@ -644,6 +776,10 @@ function busy(o) {
   clearInterval(busy.t);
   arc.style.transition = 'none';
   arc.style.strokeDashoffset = o.mode === 'count' ? 0 : '';
+  if (o.mode === 'progress') { // a share done: the arc fills, the percentage in the middle
+    arc.style.strokeDashoffset = ARC * (1 - Math.min(1, Math.max(0, o.frac || 0)));
+    text('busy-num', Math.round(100 * (o.frac || 0)) + '%');
+  }
   const acts = $('busy-actions');
   acts.textContent = '';
   for (const a of o.actions || []) {
