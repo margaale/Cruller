@@ -127,9 +127,11 @@ function showSvs(v) {
   document.querySelectorAll('.svs-wait').forEach((e) => { e.hidden = !!(paired || known); });
   $('v-dot').className = 'dot ' + (!paired && !known ? '' : live ? 'ok' : 'warn');
   text('v-state', !paired && !known ? 'no bridge yet' : live ? 'live' : 'not heard lately');
-  text('v-input', known ? v.input : '–');
-  text('v-name', known ? v.name || 'input ' + v.input : 'waiting for the SVS Bridge');
-  text('v-since', known ? (v.since_s < 5 ? 'switched just now' : 'on screen for ' + duration(v.since_s)) : '');
+  // Input 0: the switch has no input active.
+  const on = known && v.input > 0;
+  text('v-input', on ? v.input : '–');
+  text('v-name', on ? v.name || 'input ' + v.input : known ? 'no input active' : 'waiting for the SVS Bridge');
+  text('v-since', !known ? '' : v.since_s < 5 ? 'switched just now' : (on ? 'on screen for ' : 'for ') + duration(v.since_s));
   // One tile per input, the active one lit: only once the bridge has said how many the switch has
   // (SVS models differ in inputs and outputs).
   const total = known && v.total ? v.total : 0;
@@ -143,7 +145,7 @@ function showSvs(v) {
   $('v-hint').hidden = !!paired;
   $('v-unpair').hidden = !paired;
   const hist = known && v.history ? v.history : [];
-  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>Input ' + input + (i === 0 ? ' <span class="small">(now)</span>' : '') +
+  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>' + (input ? 'Input ' + input : 'None active') + (i === 0 ? ' <span class="small">(now)</span>' : '') +
     '</td><td class="r">' + ago(s) + '</td></tr>').join('') || '<tr><td colspan="2" class="small">None yet</td></tr>';
 }
 

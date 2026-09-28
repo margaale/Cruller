@@ -35,6 +35,8 @@ Content-Type: application/json
   and announced itself again), and every 60 s otherwise, in case a report was lost.
 - **Fields:** the same names as the `svs` object of the bridge's `GET /api/v1/state`, plus `id`.
   `current_input` is required (`input` is accepted too); a port `name` may be added later.
+  `current_input: 0` means no input is active (the page shows "no input active", and gameID
+  treats it as no console on screen).
 - **Answer:** `{"ok": true, "changed": true|false}`. A repeat changes nothing on Cruller.
 - **No token:** Cruller has no authentication anywhere (it's a LAN device, like its page and its
   RFC 2217 port), and it only records the report. The bridge's own API keeps its token.
