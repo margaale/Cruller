@@ -1,0 +1,30 @@
+# ESP32-S3-DevKitC-1 N16R8: 16 MB flash, 8 MB octal PSRAM.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+
+# A/B OTA with rollback: a new image boots on trial and is confirmed once healthy (ota.c).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# FreeRTOS: 1 ms ticks like the Pico 2 W; task lists for /debug/tasks.
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Watchdog (health.c): 8 s, then reset (and roll back an image on trial).
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=8
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# lwIP: the core lock (health.c's pings, the portal's DNS), stats for /debug/memory, and room for
+# 8 clients plus HTTP (see src/core/clients.h).
+CONFIG_LWIP_TCPIP_CORE_LOCKING=y
+CONFIG_LWIP_STATS=y
+CONFIG_LWIP_MAX_SOCKETS=20
+CONFIG_LWIP_MAX_ACTIVE_TCP=24
+CONFIG_LWIP_MAX_LISTENING_TCP=4
+CONFIG_LWIP_LOCAL_HOSTNAME="cruller"

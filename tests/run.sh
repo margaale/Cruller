@@ -5,14 +5,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CC="${CC:-gcc}"
-CFLAGS=(-std=c11 -Wall -Wextra -Werror -O1 -g -I src -I tests)
+CFLAGS=(-std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -O1 -g -I src/core -I tests)
 mkdir -p build-tests
 
-"$CC" "${CFLAGS[@]}" src/rtl1_core.c tests/sha256_ref.c tests/test_rtl1.c -o build-tests/test_rtl1
-"$CC" "${CFLAGS[@]}" src/ws_proto.c tests/test_ws.c -o build-tests/test_ws
-"$CC" "${CFLAGS[@]}" src/power_core.c tests/test_power.c -o build-tests/test_power
-"$CC" "${CFLAGS[@]}" src/rfc2217_proto.c tests/test_rfc2217.c -o build-tests/test_rfc2217
-"$CC" "${CFLAGS[@]}" src/console_core.c tests/test_console.c -o build-tests/test_console
+"$CC" "${CFLAGS[@]}" src/core/rtl1_core.c tests/sha256_ref.c tests/test_rtl1.c -o build-tests/test_rtl1
+"$CC" "${CFLAGS[@]}" src/core/ws_proto.c tests/test_ws.c -o build-tests/test_ws
+"$CC" "${CFLAGS[@]}" src/core/power_core.c tests/test_power.c -o build-tests/test_power
+"$CC" "${CFLAGS[@]}" src/core/rfc2217_proto.c tests/test_rfc2217.c -o build-tests/test_rfc2217
+"$CC" "${CFLAGS[@]}" src/core/console_core.c tests/test_console.c -o build-tests/test_console
 
 status=0
 for t in test_rtl1 test_ws test_power test_rfc2217 test_console; do

@@ -1,4 +1,4 @@
-// Host unit tests for the RTL1 engine (src/rtl1_core.c). Run with tests/run.sh.
+// Host unit tests for the RTL1 engine (src/core/rtl1_core.c). Run with tests/run.sh.
 //
 // The RT4K side is simulated: tests build the text lines and frames it would send, feed them to
 // the engine (whole, in chunks, byte by byte), advance a fake clock, and check the outcome, the

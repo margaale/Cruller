@@ -1,4 +1,4 @@
-// Host unit tests for the WebSocket protocol pieces (src/ws_proto.c). Run with tests/run.sh.
+// Host unit tests for the WebSocket protocol pieces (src/core/ws_proto.c). Run with tests/run.sh.
 
 #include <stdio.h>
 #include <string.h>

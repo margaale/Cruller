@@ -17,7 +17,17 @@ See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RT
 
 ## Building
 
-`scripts/build.sh` (paths default to the author's machine; override them through the environment). Host tests: `tests/run.sh`.
+`scripts/build.sh [rp2] [Debug|Release]` or `scripts/build.sh esp32` (in an ESP-IDF 6.1 shell) builds a target (`src/platform/<target>`) into `build/<target>`; paths default to the author's machine, override them through the environment. Host tests: `tests/run.sh`.
+
+## Releases
+
+Work goes to `develop` (the default branch) through pull requests; `master` takes what is released. Versions come from GitVersion (`GitVersion.yml`), and CI builds every board with them:
+
+- **`master`:** every push is a release, tagged `vX.Y.Z`, with every board's images. The patch grows with each one; a line `+semver: minor` in a commit message bumps the minor.
+- **`develop`:** every push is a pre-release, `vX.Y.Z-alpha.N` (the next release, the commits since the last one), to try on a board. Each alpha sorts after the one before and before its release. The Cruller tab lists alphas but suggests them only to a board already running one.
+- **Pull requests** (into `develop`): built as `X.Y.Z-pr.N`, not published; the images are on the run, one file each.
+
+The ESP32-S3 images include `cruller-factory.bin`, to flash a new board over USB at 0x0.
 
 ## License
 
