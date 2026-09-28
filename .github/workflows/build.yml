@@ -1,6 +1,4 @@
-# Builds main as it is (Pico 2 W) and runs the host tests: a CI baseline. The images are kept as
-# artifacts. Note: Linux names objects *.c.o, which main's RAM linker override (*.c.obj) doesn't match,
-# so these images run the RT4K receive path from flash; the Windows build is the tested one.
+# Builds main (Pico 2 W) and runs the host tests: a CI baseline. The images are kept as artifacts.
 name: build
 
 on:
