@@ -1,15 +1,11 @@
-# Builds main (Pico 2 W) and runs the host tests: a CI baseline. The images are kept as artifacts.
+# Builds main (Pico 2 W) and runs the host tests; the images are kept as artifacts. GitVersion
+# (GitVersion.yml) gives the version, and every push to main is a release: tag vX.Y.Z and the images.
 name: build
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      version:
-        description: "CRULLER_VERSION (X.Y.Z); empty for the default in CMakeLists.txt"
-        required: false
-        default: ""
 
 env:
   PICO_SDK_VERSION: "2.3.0"
@@ -17,8 +13,24 @@ env:
   TINYUSB_VERSION: "0.21.0"
   FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
   ARM_GCC_RELEASE: "14.2.Rel1"
+  GITVERSION_VERSION: "6.x"
 
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.gitversion.outputs.majorMinorPatch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # GitVersion reads the tags and the history
+      - uses: gittools/actions/gitversion/setup@v4
+        with:
+          versionSpec: ${{ env.GITVERSION_VERSION }}
+      - id: gitversion
+        uses: gittools/actions/gitversion/execute@v4
+      - run: echo "Cruller ${{ steps.gitversion.outputs.majorMinorPatch }}"
+
   tests:
     runs-on: ubuntu-24.04
     steps:
@@ -33,6 +45,7 @@ jobs:
 
   rp2:
     name: rp2 (pico2_w)
+    needs: version
     runs-on: ubuntu-24.04
     env:
       TOOLS: ${{ github.workspace }}/.tools
@@ -77,7 +90,7 @@ jobs:
 
       - name: Build
         env:
-          CRULLER_VERSION: ${{ inputs.version }}
+          CRULLER_VERSION: ${{ needs.version.outputs.version }}
           PICO_SDK_PATH: ${{ env.TOOLS }}/pico-sdk
           FREERTOS_KERNEL_PATH: ${{ env.TOOLS }}/FreeRTOS-Kernel
           PICO_TINYUSB_PATH: ${{ env.TOOLS }}/tinyusb
@@ -85,15 +98,46 @@ jobs:
           PICOTOOL_DIR: ${{ env.TOOLS }}/picotool-install/lib/cmake/picotool
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
         run: |
-          [ -n "$CRULLER_VERSION" ] || unset CRULLER_VERSION
           bash scripts/build.sh Release
           ninja -C build cruller_bench
 
       - uses: actions/upload-artifact@v7
         with:
-          name: cruller-pico2_w-${{ inputs.version || 'default' }}-${{ github.sha }}
+          name: cruller-pico2_w
           path: |
             build/cruller.uf2
             build/cruller_bench.uf2
             build/cruller_migration.bin
           if-no-files-found: error
+
+  # Every push to main: tag vX.Y.Z and a GitHub release with the images, named
+  # cruller-<version>-<board>-<file>.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [version, tests, rp2]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Name the images
+        run: |
+          mkdir release
+          for dir in artifacts/cruller-*; do
+            board=${dir#artifacts/cruller-}
+            find "$dir" -type f | while read -r f; do
+              cp "$f" "release/cruller-${VERSION}-${board}-$(basename "$f")"
+            done
+          done
+          ls -l release
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Cruller ${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: release/*
