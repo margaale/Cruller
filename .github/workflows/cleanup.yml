@@ -1,0 +1,24 @@
+# Deletes a pull request's branch once it's merged (the same as the repository setting "Automatically
+# delete head branches"). Never develop or master, and never a fork's branch.
+name: cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-branch:
+    if: >-
+      github.event.pull_request.merged &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != 'develop' &&
+      github.event.pull_request.head.ref != 'master'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - run: gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
