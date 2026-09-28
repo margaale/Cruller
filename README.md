@@ -21,7 +21,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RT
 
 ## Releases
 
-Every push to `main` is a release: CI takes the version from GitVersion (`GitVersion.yml`; the patch grows with each release, `+semver: minor` in a commit message bumps the minor), builds every board with it, tags `vX.Y.Z` and publishes the images on the GitHub release.
+Every push to `main` is a release: CI takes the version from GitVersion (`GitVersion.yml`; the patch grows with each release, a line `+semver: minor` in a commit message bumps the minor), builds every board with it, tags `vX.Y.Z` and publishes the images on the GitHub release.
 
 ## License
 
