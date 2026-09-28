@@ -120,8 +120,31 @@ function st(s) {
 
 const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
 
+// The switch as the bridge describes it (GET /api/svs "switch"): fetched when its switch_seq changes.
+const svsSw = { seq: 0, loading: 0, data: null, last: null };
+const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
+const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
+
+async function svsLoad(seq) {
+  if (svsSw.loading === seq) return;
+  svsSw.loading = seq;
+  try {
+    const v = await (await fetch('/api/svs')).json();
+    svsSw.data = v.switch || null;
+    svsSw.seq = v.switch_seq || 0;
+  } catch (e) { /* the next status tries again */ }
+  svsSw.loading = 0;
+  if (svsSw.last) showSvs(svsSw.last);
+}
+
 function showSvs(v) {
+  svsSw.last = v;
   const paired = v && v.paired, known = v && v.known, live = known && v.heard_s < 150;
+  if (known && v.switch_seq && v.switch_seq !== svsSw.seq) svsLoad(v.switch_seq);
+  const sw = known && v.switch_seq ? svsSw.data : null;
+  const ins = sw ? sw.inputs : [], out = sw ? sw.output : null;
+  const port = (n) => ins[n - 1] || {};
+  const label = (n) => port(n).name || 'Input ' + n;
   // Until a bridge has reported or is paired there's nothing to show but that it's awaited.
   document.querySelectorAll('.svs-more').forEach((e) => { e.hidden = !paired && !known; });
   document.querySelectorAll('.svs-wait').forEach((e) => { e.hidden = !!(paired || known); });
@@ -130,23 +153,32 @@ function showSvs(v) {
   // Input 0: the switch has no input active.
   const on = known && v.input > 0;
   text('v-input', on ? v.input : '–');
-  text('v-name', on ? v.name || 'input ' + v.input : known ? 'no input active' : 'waiting for the SVS Bridge');
+  text('v-name', on ? [v.name || port(v.input).name || 'input ' + v.input, kindName(port(v.input).kind)].filter(Boolean).join(' · ')
+    : known ? 'no input active' : 'waiting for the SVS Bridge');
   text('v-since', !known ? '' : v.since_s < 5 ? 'switched just now' : (on ? 'on screen for ' : 'for ') + duration(v.since_s));
-  // One tile per input, the active one lit: only once the bridge has said how many the switch has
-  // (SVS models differ in inputs and outputs).
-  const total = known && v.total ? v.total : 0;
+  // One tile per input, the active one lit: once the bridge has said how many the switch has, or
+  // described them (SVS models differ in inputs and outputs).
+  const total = known ? Math.max(v.total || 0, ins.length) : 0;
   text('v-total', total ? total + ' inputs' : '');
   $('v-grid').hidden = !total;
   $('v-nogrid').hidden = !!total;
-  $('v-grid').innerHTML = Array.from({ length: total }, (_, i) =>
-    '<div class="' + (v.input === i + 1 ? 'on' : '') + '">' + (i + 1) + '<small>' + (v.input === i + 1 ? 'ON SCREEN' : 'S' + (i + 1)) + '</small></div>').join('');
+  $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
+    const n = i + 1, p = port(n), on = v.input === n;
+    return '<div class="' + (on ? 'on' : '') + (p.name ? ' named' : '') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') + '">' +
+      '<b>' + n + '</b>' + (p.name ? '<span>' + esc(p.name) + '</span>' : '') +
+      '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small></div>';
+  }).join('');
+  $('v-noname').hidden = !total || ins.some((p) => p.name);
+  // The output that goes to the RetroTINK.
+  text('v-out', out ? kindName(out.kind) || '–' : '–');
   text('v-paired', paired || '–');
   text('v-heard', known ? ago(v.heard_s) : '–');
   $('v-hint').hidden = !!paired;
   $('v-unpair').hidden = !paired;
   const hist = known && v.history ? v.history : [];
-  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>' + (input ? 'Input ' + input : 'None active') + (i === 0 ? ' <span class="small">(now)</span>' : '') +
-    '</td><td class="r">' + ago(s) + '</td></tr>').join('') || '<tr><td colspan="2" class="small">None yet</td></tr>';
+  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>' + (input ? esc(label(input)) + (port(input).name ? ' <span class="small">S' + input + '</span>' : '') : 'None active') +
+    (i === 0 ? ' <span class="small">(now)</span>' : '') + '</td><td class="r">' + ago(s) + '</td></tr>').join('') ||
+    '<tr><td colspan="2" class="small">None yet</td></tr>';
 }
 
 async function unpair() {
