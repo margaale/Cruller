@@ -101,17 +101,23 @@ jobs:
           bash scripts/build.sh Release
           ninja -C build cruller_bench
 
+      # Named as released: cruller-<version>-<board>-<file>.
+      - name: Name the images
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir dist
+          for f in build/cruller.uf2 build/cruller_bench.uf2 build/cruller_migration.bin; do
+            cp "$f" "dist/cruller-${VERSION}-pico2_w-$(basename "$f")"
+          done
+
       - uses: actions/upload-artifact@v7
         with:
           name: cruller-pico2_w
-          path: |
-            build/cruller.uf2
-            build/cruller_bench.uf2
-            build/cruller_migration.bin
+          path: dist/*
           if-no-files-found: error
 
-  # Every push to main: tag vX.Y.Z and a GitHub release with the images, named
-  # cruller-<version>-<board>-<file>.
+  # Every push to main: tag vX.Y.Z and a GitHub release with every board's images.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [version, tests, rp2]
@@ -121,19 +127,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          path: artifacts
-      - name: Name the images
-        run: |
-          mkdir release
-          for dir in artifacts/cruller-*; do
-            board=${dir#artifacts/cruller-}
-            find "$dir" -type f | while read -r f; do
-              cp "$f" "release/cruller-${VERSION}-${board}-$(basename "$f")"
-            done
-          done
-          ls -l release
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
+          pattern: cruller-*
+          path: release
+          merge-multiple: true # every board's images in one place, already named
+      - run: ls -l release
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.version.outputs.version }}
@@ -141,3 +138,4 @@ jobs:
           name: Cruller ${{ needs.version.outputs.version }}
           generate_release_notes: true
           files: release/*
+          fail_on_unmatched_files: true
