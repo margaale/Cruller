@@ -1,4 +1,5 @@
-# Builds Cruller for every board and runs the host tests. The images are kept as artifacts.
+# Builds Cruller for every board and runs the host tests. One job per platform (its toolchain), with
+# a matrix of that platform's boards; the images are kept as artifacts.
 name: build
 
 on:
@@ -16,6 +17,7 @@ env:
   ESP_IDF_VERSION: "v6.1"
 
 jobs:
+  # src/core's pure modules and the page's JavaScript, on the host: the same for every board.
   tests:
     runs-on: ubuntu-24.04
     steps:
@@ -25,28 +27,14 @@ jobs:
           node-version: 22
       - run: bash tests/run.sh
 
-  firmware:
-    name: firmware (${{ matrix.board }})
+  # Raspberry Pi RP2 boards: Pico SDK, target src/platform/rp2.
+  rp2:
+    name: rp2 (${{ matrix.board }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Raspberry Pi Pico 2 W: Pico SDK, target src/platform/rp2.
-          - board: pico2_w
-            platform: rp2
-            artifacts: |
-              build/rp2/cruller.uf2
-              build/rp2/cruller_bench.uf2
-              build/rp2/cruller_migration.bin
-          # ESP32-S3-DevKitC-1 N16R8: ESP-IDF, target src/platform/esp32.
-          - board: esp32s3
-            platform: esp32
-            artifacts: |
-              build/esp32/cruller.bin
-              build/esp32/bootloader/bootloader.bin
-              build/esp32/partition_table/partition-table.bin
-              build/esp32/ota_data_initial.bin
+        board: [pico2_w]
     env:
       TOOLS: ${{ github.workspace }}/.tools
     steps:
@@ -56,16 +44,13 @@ jobs:
 
       - name: Arm GNU toolchain
         id: arm
-        if: matrix.platform == 'rp2'
         uses: carlosperate/arm-none-eabi-gcc-action@v1
         with:
           release: ${{ env.ARM_GCC_RELEASE }}
 
-      - if: matrix.platform == 'rp2'
-        run: sudo apt-get install -y ninja-build
+      - run: sudo apt-get install -y ninja-build
 
       - name: Pico SDK, TinyUSB, FreeRTOS
-        if: matrix.platform == 'rp2'
         run: |
           mkdir -p "$TOOLS"
           git clone -q --depth 1 -b "$PICO_SDK_VERSION" https://github.com/raspberrypi/pico-sdk "$TOOLS/pico-sdk"
@@ -77,14 +62,13 @@ jobs:
 
       - name: picotool (cached)
         id: picotool-cache
-        if: matrix.platform == 'rp2'
         uses: actions/cache@v6
         with:
           path: .tools/picotool-install
           key: picotool-${{ env.PICOTOOL_VERSION }}-${{ runner.os }}
 
       - name: picotool (build)
-        if: matrix.platform == 'rp2' && steps.picotool-cache.outputs.cache-hit != 'true'
+        if: steps.picotool-cache.outputs.cache-hit != 'true'
         run: |
           git clone -q --depth 1 -b "$PICOTOOL_VERSION" https://github.com/raspberrypi/picotool "$TOOLS/picotool"
           cmake -S "$TOOLS/picotool" -B "$TOOLS/picotool/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -92,8 +76,7 @@ jobs:
           cmake --build "$TOOLS/picotool/build"
           cmake --install "$TOOLS/picotool/build" --prefix "$TOOLS/picotool-install"
 
-      - name: Build (rp2)
-        if: matrix.platform == 'rp2'
+      - name: Build
         env:
           PICO_BOARD: ${{ matrix.board }}
           PICO_SDK_PATH: ${{ env.TOOLS }}/pico-sdk
@@ -106,27 +89,51 @@ jobs:
           bash scripts/build.sh rp2 Release
           ninja -C build/rp2 cruller_bench
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cruller-${{ matrix.board }}-${{ github.sha }}
+          path: |
+            build/rp2/cruller.uf2
+            build/rp2/cruller_bench.uf2
+            build/rp2/cruller_migration.bin
+          if-no-files-found: error
+
+  # Espressif ESP32 boards: ESP-IDF in Espressif's container, target src/platform/esp32.
+  esp32:
+    name: esp32 (${{ matrix.board }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: esp32s3_devkitc1_n16r8
+            chip: esp32s3
+    steps:
+      - uses: actions/checkout@v7
+
       # ESP-IDF compiles through ccache: keep its directory between runs (inside the workspace, which
       # the container mounts), so only what changed is compiled again.
-      - name: ccache (esp32)
-        if: matrix.platform == 'esp32'
+      - name: ccache
         uses: actions/cache@v6
         with:
           path: .ccache
-          key: ccache-esp32-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
-          restore-keys: ccache-esp32-${{ env.ESP_IDF_VERSION }}-
+          key: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-
 
-      - name: Build (esp32)
-        if: matrix.platform == 'esp32'
+      - name: Build
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: ${{ env.ESP_IDF_VERSION }}
-          target: ${{ matrix.board }}
+          target: ${{ matrix.chip }}
           extra_docker_args: -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=1
           command: bash scripts/build.sh esp32 && ccache -s
 
       - uses: actions/upload-artifact@v7
         with:
           name: cruller-${{ matrix.board }}-${{ github.sha }}
-          path: ${{ matrix.artifacts }}
+          path: |
+            build/esp32/cruller.bin
+            build/esp32/bootloader/bootloader.bin
+            build/esp32/partition_table/partition-table.bin
+            build/esp32/ota_data_initial.bin
           if-no-files-found: error
