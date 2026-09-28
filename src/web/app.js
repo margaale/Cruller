@@ -639,7 +639,8 @@ const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases?per_
 const FW_ASSET = { rp2: '-pico2_w-cruller.uf2', esp32: '-esp32s3_devkitc1_n16r8-cruller.bin' }; // each platform's image among a release's assets
 const upd = { loaded: false, list: [], onProgress: null };
 
-// "0.3.10" vs "0.3.9": -1, 0, 1. An alpha comes before its release: 0.3.3-alpha.5 < 0.3.3-alpha.12 < 0.3.3.
+// "0.3.10" vs "0.3.9": -1, 0, 1. A pre-release comes before its release, and pre-releases compare by N,
+// CI's run number, whatever their label: 0.3.3-pr.40 < 0.3.3-alpha.41 < 0.3.3.
 function cmpVersion(a, b) {
   const [ca, pa] = a.split('-'), [cb, pb] = b.split('-');
   const x = ca.split('.').map(Number), y = cb.split('.').map(Number);

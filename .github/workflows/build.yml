@@ -23,8 +23,11 @@ jobs:
   version:
     runs-on: ubuntu-24.04
     outputs:
-      # master: X.Y.Z, a release; develop: X.Y.Z-alpha.N; pull requests: X.Y.Z-pr.N (GitVersion.yml).
-      version: ${{ github.ref == 'refs/heads/master' && steps.gitversion.outputs.majorMinorPatch || steps.gitversion.outputs.semVer }}
+      # master: X.Y.Z, a release; develop: X.Y.Z-alpha.N; pull requests: X.Y.Z-pr.N, where N is this
+      # run's number (GitVersion.yml gives X.Y.Z and the label). The run number grows with every run
+      # in the repository, so the newest build is the newest version whatever its branch: squash
+      # merges leave no commit count to compare.
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,7 +37,15 @@ jobs:
           versionSpec: ${{ env.GITVERSION_VERSION }}
       - id: gitversion
         uses: gittools/actions/gitversion/execute@v4
-      - run: echo "Cruller ${{ steps.gitversion.outputs.semVer }} (release ${{ steps.gitversion.outputs.majorMinorPatch }})"
+      - id: version
+        env:
+          CORE: ${{ steps.gitversion.outputs.majorMinorPatch }}
+          LABEL: ${{ steps.gitversion.outputs.preReleaseLabel }}
+          RELEASE: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          if [ "$RELEASE" = true ] || [ -z "$LABEL" ]; then v="$CORE"; else v="$CORE-$LABEL.$GITHUB_RUN_NUMBER"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Cruller $v (build $GITHUB_RUN_NUMBER)"
 
   # src/core's pure modules and the page's JavaScript, on the host: the same for every board.
   tests:
@@ -99,6 +110,7 @@ jobs:
       - name: Build
         env:
           CRULLER_VERSION: ${{ needs.version.outputs.version }}
+          CRULLER_BUILD: ${{ github.run_number }}
           PICO_BOARD: ${{ matrix.board }}
           PICO_SDK_PATH: ${{ env.TOOLS }}/pico-sdk
           FREERTOS_KERNEL_PATH: ${{ env.TOOLS }}/FreeRTOS-Kernel
