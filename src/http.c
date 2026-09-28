@@ -351,6 +351,10 @@ static void handle_status(int fd) {
 
 static void svs_json(char *out, size_t size);
 
+#ifndef PLAT_NAME
+#define PLAT_NAME "rp2" // the firmware's platform: which release image the page installs (a .uf2)
+#endif
+
 void http_status_json(char *body, size_t size) {
     char ssid[80];
     json_escape(ssid, sizeof(ssid), net_ssid());
@@ -380,6 +384,15 @@ void http_status_json(char *body, size_t size) {
         snprintf(body + n - 1, size - (n - 1), ",\"put\":{\"path\":\"%s\",\"sent\":%lu,\"size\":%lu}}", path_esc,
             (unsigned long)sent, (unsigned long)total);
     }
+    // A firmware upload: "update":{"got","size"}.
+    uint32_t got, want;
+    n = strlen(body);
+    if (n && n < size && http_update_progress(&got, &want)) {
+        snprintf(body + n - 1, size - (n - 1), ",\"update\":{\"got\":%lu,\"size\":%lu}}", (unsigned long)got, (unsigned long)want);
+    }
+    // The platform: which image the firmware index has for it ("rp2": a .uf2).
+    n = strlen(body);
+    if (n && n < size) snprintf(body + n - 1, size - (n - 1), ",\"platform\":\"%s\"}", PLAT_NAME);
     // The switch's active input once its bridge has reported one, or the paired bridge:
     // "svs":{"input","name","paired",...}.
     svs_state_t s;
@@ -418,12 +431,25 @@ static void handle_stream(int fd, const char *query, size_t (*reader)(uint32_t *
     if (n) send_all(fd, text, n);
 }
 
+// The firmware upload in progress, for the page's progress bar (like "put": the browser's own upload
+// progress only counts what it buffered).
+static volatile bool update_active;
+static volatile uint32_t update_got, update_size;
+
+bool http_update_progress(uint32_t *got, uint32_t *size) {
+    if (!update_active) return false;
+    *got = update_got;
+    *size = update_size;
+    return true;
+}
+
 static bool ota_sink(const uint8_t *data, size_t len, void *ctx) {
     bool *quiet = ctx;
     if (!*quiet) {
         if (!flash_quiet_begin()) return false; // "connection lost" is close enough: it can't proceed
         *quiet = true;
     }
+    update_got += (uint32_t)len;
     return ota_feed(data, len);
 }
 
@@ -442,7 +468,11 @@ static void handle_update(request_t *r) {
     }
     bool quiet = false; // the USB host is suspended by ota_sink, once the body is actually flowing
     ota_begin();
+    update_got = 0;
+    update_size = (uint32_t)r->content_length;
+    update_active = true;
     const bool received = read_body(r, ota_sink, &quiet);
+    update_active = false;
     if (!received || !ota_finish()) {
         if (quiet) flash_quiet_end();
         char msg[96];

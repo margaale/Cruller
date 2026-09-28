@@ -4,8 +4,12 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 void http_start(void);
+
+// A firmware upload (POST /update) in progress: bytes received of size. False when none.
+bool http_update_progress(uint32_t *got, uint32_t *size);
 
 // The /status JSON (also pushed over the WebSocket).
 void http_status_json(char *body, size_t size);

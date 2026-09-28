@@ -61,6 +61,8 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .ring>span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 30px var(--mono)}
 .ring>#busy-icon{font:600 44px var(--sans)}.ring.ok>#busy-icon{color:var(--ok)}
 .wz-ring{width:88px;height:88px;align-self:center}.wz-ring>span{font-size:22px}
+.upd{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px}
+@media (max-width:1000px){.upd{grid-template-columns:minmax(0,1fr)}}
 /* SVS tab */
 .svs-now{display:flex;flex-direction:column;align-items:center;padding:12px 0}
 .svs-now>span:first-child{font:700 72px/1 var(--head)}
@@ -242,6 +244,20 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <button onclick="restart(false)">Restart</button>
 <button class="danger" onclick="restart(true)">Factory reset</button>
 </div><div id="um" class="small"></div>
+</div>
+
+<div class="panel span3">
+<div class="row"><h2 class="grow">Cruller firmware</h2><span class="small" id="u-state">Checking GitHub…</span></div>
+<div class="upd">
+<div style="display:flex;flex-direction:column;gap:10px">
+<select id="u-ver" onchange="updShow()"></select>
+<button class="primary" id="u-go" onclick="updInstall()" disabled>Download and install</button>
+<button onclick="$('u-file').click()">Install from a file…</button>
+<input type="file" id="u-file" accept=".uf2,.bin" hidden onchange="updFile(this.files[0])">
+<div class="small">From the releases at <a class="more" href="https://github.com/margaale/Cruller/releases" target="_blank">github.com/margaale/Cruller</a>.</div>
+</div>
+<pre id="u-notes" style="height:150px"></pre>
+</div>
 </div>
 </section>
 
