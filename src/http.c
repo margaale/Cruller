@@ -12,7 +12,6 @@
 #include "lwip/stats.h"
 
 #include "creds.h"
-#include "flash_ops.h"
 #include "health.h"
 #include "freeze.h"
 #include "log.h"
@@ -415,11 +414,7 @@ static void handle_stream(int fd, const char *query, size_t (*reader)(uint32_t *
 }
 
 static bool ota_sink(const uint8_t *data, size_t len, void *ctx) {
-    bool *quiet = ctx;
-    if (!*quiet) {
-        if (!flash_quiet_begin()) return false; // "connection lost" is close enough: it can't proceed
-        *quiet = true;
-    }
+    (void)ctx;
     return ota_feed(data, len);
 }
 
@@ -436,11 +431,10 @@ static void handle_update(request_t *r) {
         static const char cont[] = "HTTP/1.1 100 Continue\r\n\r\n";
         send_all(r->fd, cont, sizeof(cont) - 1);
     }
-    bool quiet = false; // the USB host is suspended by ota_sink, once the body is actually flowing
     ota_begin();
-    const bool received = read_body(r, ota_sink, &quiet);
+    const bool received = read_body(r, ota_sink, NULL);
     if (!received || !ota_finish()) {
-        if (quiet) flash_quiet_end();
+        ota_abort();
         char msg[96];
         snprintf(msg, sizeof(msg), "Update failed: %s\n", received ? ota_error() : "connection lost");
         respond(r->fd, 400, "Bad Request", "text/plain", msg);

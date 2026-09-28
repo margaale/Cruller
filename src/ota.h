@@ -6,11 +6,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// An update may quiet other work while it writes (on the Pico 2 W, the RT4K's USB host) from the
+// first byte fed until ota_abort() or the reboot into it.
 void ota_begin(void);
 // Feeds any number of bytes; returns false on the first error (see ota_error()).
 bool ota_feed(const uint8_t *data, size_t len);
 // True when every UF2 block was written.
 bool ota_finish(void);
+// Gives up on an update that failed or was cut off: whatever was quieted runs again.
+void ota_abort(void);
 const char *ota_error(void);
 
 // Reboots into the partition just written ("flash update" boot, try before you buy).

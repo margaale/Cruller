@@ -21,6 +21,7 @@ static struct {
     size_t fill;
     bool started;
     bool failed;
+    bool quiet;              // flash_quiet_begin() held (from the first byte fed)
     const char *error;
     uint32_t num_blocks;
     uint32_t blocks_done;
@@ -44,6 +45,7 @@ static bool fail(const char *why) {
 }
 
 void ota_begin(void) {
+    ota_abort();
     memset(&ota, 0, sizeof(ota));
     ota.sector = -1;
 }
@@ -113,6 +115,10 @@ static bool write_block(const struct uf2_block *b) {
 
 bool ota_feed(const uint8_t *data, size_t len) {
     if (ota.failed) return false;
+    if (len && !ota.quiet) {
+        if (!flash_quiet_begin()) return fail("could not stop the USB host");
+        ota.quiet = true;
+    }
     while (len) {
         size_t take = sizeof(ota.block) - ota.fill;
         if (take > len) take = len;
@@ -135,6 +141,11 @@ bool ota_finish(void) {
     if (!flush_sector()) return false;
     printf("ota: image complete\n");
     return true;
+}
+
+void ota_abort(void) {
+    if (ota.quiet) flash_quiet_end();
+    ota.quiet = false;
 }
 
 const char *ota_error(void) {
