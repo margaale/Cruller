@@ -15,18 +15,27 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 include(${CRULLER_ROOT}/src/version.cmake)
-set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z); must grow with every image, the boot ROM picks A/B by it")
+set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z or X.Y.Z-label.N); must grow with every image, the boot ROM picks A/B by it")
 
 pico_sdk_init()
 
-# The boot ROM picks between partitions A and B by image version, so it must grow with every
-# release: MAJOR = X*100+Y, MINOR = Z.
-string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$" _v "${CRULLER_VERSION}")
+# The boot ROM picks between partitions A and B by image version (two 16-bit numbers), so it must
+# grow with every image: MAJOR = X*100+Y, MINOR = Z*1000 + N for an alpha X.Y.Z-alpha.N, or
+# Z*1000+999 for the release X.Y.Z, which so sorts after all its alphas. Z up to 64, N up to 998.
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z]+\\.([0-9]+))?$" _v "${CRULLER_VERSION}")
 if (NOT _v)
-    message(FATAL_ERROR "CRULLER_VERSION must be X.Y.Z, got '${CRULLER_VERSION}'")
+    message(FATAL_ERROR "CRULLER_VERSION must be X.Y.Z or X.Y.Z-label.N, got '${CRULLER_VERSION}'")
 endif()
 math(EXPR CRULLER_BIN_MAJOR "${CMAKE_MATCH_1} * 100 + ${CMAKE_MATCH_2}")
-set(CRULLER_BIN_MINOR ${CMAKE_MATCH_3})
+if (CMAKE_MATCH_4)
+    set(_pre ${CMAKE_MATCH_5})
+else()
+    set(_pre 999)
+endif()
+if (CMAKE_MATCH_3 GREATER 64 OR _pre GREATER 999 OR (CMAKE_MATCH_4 AND _pre GREATER 998))
+    message(FATAL_ERROR "CRULLER_VERSION '${CRULLER_VERSION}' doesn't fit the boot ROM's version (Z <= 64, N <= 998)")
+endif()
+math(EXPR CRULLER_BIN_MINOR "${CMAKE_MATCH_3} * 1000 + ${_pre}")
 
 # --- third-party ------------------------------------------------------------------------------
 

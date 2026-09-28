@@ -16,7 +16,9 @@ if [ "$target" = esp32 ]; then
     # Optimization comes from sdkconfig.defaults, not a build type.
     idf.py -C "$src" -B "$out" ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} reconfigure
     ninja -C "$out" -k 0 # every error at once, not just the first
-    ls -l "$out/cruller.bin"
+    # A new board over USB: bootloader, partition table, OTA data and app in one file, at 0x0.
+    idf.py -C "$src" -B "$out" merge-bin -o "$PWD/$out/cruller-factory.bin"
+    ls -l "$out/cruller.bin" "$out/cruller-factory.bin"
     exit 0
 fi
 

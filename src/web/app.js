@@ -639,11 +639,14 @@ const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases';
 const FW_ASSET = { rp2: '-pico2_w-cruller.uf2', esp32: '-esp32s3_devkitc1_n16r8-cruller.bin' }; // each platform's image among a release's assets
 const upd = { loaded: false, list: [], onProgress: null };
 
-// "0.3.10" vs "0.3.9": -1, 0, 1.
+// "0.3.10" vs "0.3.9": -1, 0, 1. An alpha comes before its release: 0.3.3-alpha.5 < 0.3.3-alpha.12 < 0.3.3.
 function cmpVersion(a, b) {
-  const x = a.split('.').map(Number), y = b.split('.').map(Number);
+  const [ca, pa] = a.split('-'), [cb, pb] = b.split('-');
+  const x = ca.split('.').map(Number), y = cb.split('.').map(Number);
   for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0) ? -1 : 1;
-  return 0;
+  if (!pa || !pb) return pa ? -1 : pb ? 1 : 0;
+  const na = Number(pa.split('.').pop()), nb = Number(pb.split('.').pop());
+  return na === nb ? 0 : na < nb ? -1 : 1;
 }
 
 async function updLoad() {

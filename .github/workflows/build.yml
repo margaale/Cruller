@@ -22,7 +22,8 @@ jobs:
   version:
     runs-on: ubuntu-24.04
     outputs:
-      version: ${{ steps.gitversion.outputs.majorMinorPatch }}
+      # main: X.Y.Z, a release; pull requests: X.Y.Z-alpha.N (GitVersion.yml).
+      version: ${{ github.ref == 'refs/heads/main' && steps.gitversion.outputs.majorMinorPatch || steps.gitversion.outputs.semVer }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,7 +33,7 @@ jobs:
           versionSpec: ${{ env.GITVERSION_VERSION }}
       - id: gitversion
         uses: gittools/actions/gitversion/execute@v4
-      - run: echo "Cruller ${{ steps.gitversion.outputs.majorMinorPatch }}"
+      - run: echo "Cruller ${{ steps.gitversion.outputs.semVer }} (release ${{ steps.gitversion.outputs.majorMinorPatch }})"
 
   # src/core's pure modules and the page's JavaScript, on the host: the same for every board.
   tests:
@@ -163,7 +164,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           mkdir dist
-          for f in build/esp32/cruller.bin build/esp32/bootloader/bootloader.bin \
+          for f in build/esp32/cruller.bin build/esp32/cruller-factory.bin build/esp32/bootloader/bootloader.bin \
                    build/esp32/partition_table/partition-table.bin build/esp32/ota_data_initial.bin; do
             cp "$f" "dist/cruller-${VERSION}-${{ matrix.board }}-$(basename "$f")"
           done
