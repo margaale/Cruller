@@ -69,14 +69,15 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .svs-now>span:first-child{font:700 72px/1 var(--head)}
 .svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
 .svs-grid div{min-height:64px;padding:6px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--faint);min-width:0}
-.svs-grid div b{font:700 22px/1 var(--head)}
-.svs-grid div.named b{font-size:15px;color:var(--muted)}
+.svs-grid div b{font:700 15px/1 var(--head);color:var(--muted)}
 .svs-grid div>span{font:600 14px/1.2 var(--sans);color:var(--soft);overflow-wrap:anywhere}
 .svs-grid div small{font:500 11px var(--sans);letter-spacing:.04em}
 .svs-grid div.on{background:#3A1E2A;border-color:var(--accent);color:var(--text)}
 .svs-grid div.on>span{color:var(--text)}
 .svs-grid .con{width:60px;height:40px;color:var(--soft)}
 .svs-grid div.on .con{color:var(--text)}
+.svs-grid div.empty .con,.svs-grid div.empty>span{color:var(--faint)}
+.svs-grid div.empty>span{font-weight:500}
 .svs-now #v-icon .con{width:96px;height:64px;color:var(--text);margin-top:6px}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
