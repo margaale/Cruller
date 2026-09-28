@@ -41,8 +41,8 @@ bool svs_report(const svs_msg_t *m) {
     known = true;
     plat_critical_exit();
     if (changed) printf("svs: input %d%s%s\n", input, m->name[0] ? " " : "", m->name);
-    if (new_switch) printf("svs: %d inputs, %d outputs described, %s\n", m->sw.inputs_n, m->sw.outputs_n,
-        m->sw.firmware[0] ? m->sw.firmware : "firmware not seen");
+    if (new_switch) printf("svs: %d inputs described, output to the RetroTINK: %s\n", m->sw.inputs_n,
+        m->sw.has_output ? m->sw.output.kind : "not said");
     return changed;
 }
 

@@ -73,8 +73,6 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .svs-grid div.named b{font-size:15px;color:var(--muted)}
 .svs-grid div>span{font:600 14px/1.2 var(--sans);color:var(--soft);overflow-wrap:anywhere}
 .svs-grid div small{font:500 11px var(--sans);letter-spacing:.04em}
-.svs-grid div em{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;font-style:normal}
-.svs-grid div em i{font:500 10px var(--mono);font-style:normal;padding:1px 5px;border-radius:4px;background:#2B2F35;color:var(--faint)}
 .svs-grid div.on{background:#3A1E2A;border-color:var(--accent);color:var(--text)}
 .svs-grid div.on>span{color:var(--text)}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
@@ -281,13 +279,13 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="row"><h2 class="grow">Inputs</h2><span class="small" id="v-total"></span></div>
 <div class="svs-grid" id="v-grid" hidden></div>
 <div class="small" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
-<div class="small" id="v-noname" hidden>Name the inputs, and say which module each one has, in the SVS Bridge's SVS tab: they show up here.</div>
+<div class="small" id="v-noname" hidden>Say which module each input has and what is connected to it in the SVS Bridge's SVS tab: they show up here.</div>
 <div class="small">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
 </div>
 
 <div class="panel svs-more">
 <h2>SVS Bridge</h2>
-<div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span><span>SVS firmware</span><span id="v-fw">–</span></div>
+<div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span><span>Output to the RetroTINK</span><span id="v-out">–</span></div>
 <div class="small" id="v-hint">The SVS Bridge finds this Cruller on the network and pairs with it by itself.</div>
 <div class="grow"></div>
 <button onclick="unpair()" id="v-unpair" hidden>Unpair</button>
@@ -296,11 +294,6 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="panel span2 svs-more">
 <h2>Recent switches</h2>
 <table class="tbl"><thead><tr><th>Input</th><th class="r">When</th></tr></thead><tbody id="v-hist"><tr><td colspan="2" class="small">None yet</td></tr></tbody></table>
-</div>
-
-<div class="panel svs-more" id="v-outs" hidden>
-<h2>Outputs</h2>
-<table class="tbl"><thead><tr><th>Goes to</th><th class="r">Module</th></tr></thead><tbody id="v-out-rows"></tbody></table>
 </div>
 </section>
 

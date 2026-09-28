@@ -4,10 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-const char *const svs_flag_names[SVS_F_COUNT] = {
-    "auto_profile", "rgsb", "sync_bypass", "rgb_to_ypbpr", "ypbpr_to_rgb", "v3",
-};
-
 // --- a small JSON reader: enough for the report, nested arrays and objects included ------------------
 
 #define DEPTH_MAX 8
@@ -118,12 +114,6 @@ static const char *number(const char *p, long *v) {
     return end == p ? NULL : skip(p, 0); // (past a fraction or exponent too)
 }
 
-static const char *boolean(const char *p, bool *v) {
-    if (!strncmp(p, "true", 4)) { *v = true; return p + 4; }
-    if (!strncmp(p, "false", 5)) { *v = false; return p + 5; }
-    return NULL;
-}
-
 // A string value, or NULL (as JSON null: left empty).
 static const char *text(const char *p, char *out, size_t size) {
     out[0] = 0;
@@ -144,35 +134,33 @@ static void clean_name(char *n) {
     for (; *n; n++) if ((unsigned char)*n < 0x20 || *n == 0x7F) *n = ' ';
 }
 
-// [{"kind","name",<flags>...}, ...] into ports (at most max; the rest are read past).
+// {"kind","name"} into port (other keys read past).
+static const char *port(const char *p, svs_port_t *port) {
+    memset(port, 0, sizeof(*port));
+    if (*p != '{') return NULL;
+    p++;
+    char key[8];
+    while (member(&p, key, sizeof(key))) {
+        if (!strcmp(key, "kind")) p = text(p, port->kind, sizeof(port->kind));
+        else if (!strcmp(key, "name")) p = text(p, port->name, sizeof(port->name));
+        else p = skip(p, 2);
+        if (!p) return NULL;
+    }
+    if (!p) return NULL;
+    clean_kind(port->kind);
+    clean_name(port->name);
+    return p;
+}
+
+// [{"kind","name"}, ...] into ports (at most max; the rest are read past).
 static const char *ports(const char *p, svs_port_t *ports, int max, int *count) {
     *count = 0;
     if (*p != '[') return NULL;
     p++;
     while (element(&p)) {
-        if (*p != '{') return NULL;
-        svs_port_t port;
-        memset(&port, 0, sizeof(port));
-        p++;
-        char key[16];
-        while (member(&p, key, sizeof(key))) {
-            int flag = -1;
-            for (int f = 0; f < SVS_F_COUNT; f++) if (!strcmp(key, svs_flag_names[f])) flag = f;
-            bool on;
-            if (!strcmp(key, "kind")) p = text(p, port.kind, sizeof(port.kind));
-            else if (!strcmp(key, "name")) p = text(p, port.name, sizeof(port.name));
-            else if (flag >= 0 && (p[0] == 't' || p[0] == 'f')) {
-                if ((p = boolean(p, &on))) {
-                    port.known |= (uint8_t)(1u << flag);
-                    if (on) port.flags |= (uint8_t)(1u << flag);
-                }
-            } else p = skip(p, 2);
-            if (!p) return NULL;
-        }
-        if (!p) return NULL;
-        clean_kind(port.kind);
-        clean_name(port.name);
-        if (*count < max) ports[(*count)++] = port;
+        svs_port_t one;
+        if (!(p = port(p, &one))) return NULL;
+        if (*count < max) ports[(*count)++] = one;
     }
     return p;
 }
@@ -198,14 +186,12 @@ bool svs_parse(const char *json, svs_msg_t *out, const char **error) {
             p = text(p, name2, sizeof(name2));
         } else if (!strcmp(key, "id")) {
             p = text(p, out->id, sizeof(out->id));
-        } else if (!strcmp(key, "firmware")) {
-            p = text(p, out->sw.firmware, sizeof(out->sw.firmware));
-            out->has_switch = true;
         } else if (!strcmp(key, "inputs")) {
             p = ports(p, out->sw.inputs, SVS_INPUTS_MAX, &out->sw.inputs_n);
             out->has_switch = true;
-        } else if (!strcmp(key, "outputs")) {
-            p = ports(p, out->sw.outputs, SVS_OUTPUTS_MAX, &out->sw.outputs_n);
+        } else if (!strcmp(key, "output")) {
+            if (!strncmp(p, "null", 4)) p += 4;
+            else if ((p = port(p, &out->sw.output))) out->sw.has_output = true;
             out->has_switch = true;
         } else {
             p = skip(p, 1);
@@ -214,7 +200,6 @@ bool svs_parse(const char *json, svs_msg_t *out, const char **error) {
     }
     if (!p) { *error = "not valid JSON"; return false; }
     if (out->input < 0) { *error = "need \"current_input\": <port number>"; return false; }
-    clean_name(out->sw.firmware);
     clean_name(out->id);
     // The active port's name: as said, else as the layout has it.
     if (!out->name[0]) snprintf(out->name, sizeof(out->name), "%s", name2);
@@ -240,31 +225,25 @@ void svs_json_escape(char *out, size_t size, const char *in) {
 
 #define ADD(...) do { o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__); } while (0)
 
-static size_t port_list(const svs_port_t *ports, int count, char *out, size_t size) {
+static size_t port_json(const svs_port_t *port, char *out, size_t size) {
     size_t o = 0;
-    ADD("[");
-    for (int i = 0; i < count; i++) {
-        char kind[2 * SVS_KIND_MAX + 8], name[6 * SVS_NAME_MAX + 8];
-        svs_json_escape(kind, sizeof(kind), ports[i].kind);
-        svs_json_escape(name, sizeof(name), ports[i].name);
-        ADD("%s{\"kind\":\"%s\",\"name\":\"%s\"", i ? "," : "", kind, name);
-        for (int f = 0; f < SVS_F_COUNT; f++) {
-            if (ports[i].known & (1u << f)) ADD(",\"%s\":%s", svs_flag_names[f], ports[i].flags & (1u << f) ? "true" : "false");
-        }
-        ADD("}");
-    }
-    ADD("]");
+    char kind[2 * SVS_KIND_MAX + 8], name[2 * SVS_NAME_MAX + 8];
+    svs_json_escape(kind, sizeof(kind), port->kind);
+    svs_json_escape(name, sizeof(name), port->name);
+    ADD("{\"kind\":\"%s\",\"name\":\"%s\"}", kind, name);
     return o;
 }
 
 size_t svs_switch_json(const svs_switch_t *sw, char *out, size_t size) {
     size_t o = 0;
-    char fw[2 * SVS_FW_MAX + 8];
-    svs_json_escape(fw, sizeof(fw), sw->firmware);
-    ADD("{\"firmware\":\"%s\",\"inputs\":", fw);
-    if (o < size) o += port_list(sw->inputs, sw->inputs_n, out + o, size - o);
-    ADD(",\"outputs\":");
-    if (o < size) o += port_list(sw->outputs, sw->outputs_n, out + o, size - o);
+    ADD("{\"inputs\":[");
+    for (int i = 0; i < sw->inputs_n; i++) {
+        if (i) ADD(",");
+        if (o < size) o += port_json(&sw->inputs[i], out + o, size - o);
+    }
+    ADD("],\"output\":");
+    if (!sw->has_output) ADD("null");
+    else if (o < size) o += port_json(&sw->output, out + o, size - o);
     ADD("}");
     return o < size ? o : 0;
 }

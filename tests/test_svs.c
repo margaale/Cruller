@@ -52,29 +52,27 @@ static void test_skips_unknown(void) {
 
 static const char *full =
     "{\"id\":\"svs-bridge-aabbccddeeff\",\"current_input\":2,\"total_inputs\":4,\"live\":true,"
-    "\"firmware\":\"SVS_FW_1.21\","
-    "\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\",\"auto_profile\":true,\"rgsb\":false,"
-    "\"sync_bypass\":true,\"rgb_to_ypbpr\":false,\"ypbpr_to_rgb\":false,\"v3\":true},"
-    "{\"kind\":\"component\",\"name\":\"PS2\",\"auto_profile\":false},"
+    "\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\",\"extra\":[1,{\"a\":true}]},"
+    "{\"kind\":\"component\",\"name\":\"PS2\"},"
     "{\"kind\":\"VGA\",\"name\":\"Dreamcast\"},"
     "{\"kind\":\"svideo\",\"name\":\"\"}],"
-    "\"outputs\":[{\"kind\":\"component\",\"name\":\"RetroTINK 4K\"},{\"kind\":\"bnc\",\"name\":\"PVM\"}]}";
+    "\"output\":{\"kind\":\"component\",\"name\":\"RetroTINK 4K\"}}";
 
 static void test_switch(void) {
     CHECK(parse(full));
     CHECK(m.has_switch);
-    CHECK(!strcmp(m.sw.firmware, "SVS_FW_1.21"));
-    CHECK(m.sw.inputs_n == 4 && m.sw.outputs_n == 2);
-    const svs_port_t *snes = &m.sw.inputs[0];
-    CHECK(!strcmp(snes->kind, "scart") && !strcmp(snes->name, "Super Nintendo"));
-    CHECK(snes->known == 0x3F);
-    CHECK(snes->flags == (SVS_F_AUTO_PROFILE | SVS_F_SYNC_BYPASS | SVS_F_V3));
-    CHECK(m.sw.inputs[1].known == SVS_F_AUTO_PROFILE && m.sw.inputs[1].flags == 0);
+    CHECK(m.sw.inputs_n == 4);
+    CHECK(!strcmp(m.sw.inputs[0].kind, "scart") && !strcmp(m.sw.inputs[0].name, "Super Nintendo"));
     CHECK(!strcmp(m.sw.inputs[2].kind, "vga"));   // lowercased
-    CHECK(m.sw.inputs[2].known == 0);             // settings not read: none known
-    CHECK(!strcmp(m.sw.outputs[0].name, "RetroTINK 4K") && !strcmp(m.sw.outputs[1].kind, "bnc"));
+    CHECK(!strcmp(m.sw.inputs[3].name, ""));
+    CHECK(m.sw.has_output && !strcmp(m.sw.output.kind, "component") && !strcmp(m.sw.output.name, "RetroTINK 4K"));
     // The active port's name comes from the layout when the report doesn't say it.
     CHECK(!strcmp(m.name, "PS2"));
+    // Inputs without the output (a bridge that doesn't know which one goes to the RetroTINK).
+    CHECK(parse("{\"current_input\":1,\"inputs\":[{\"kind\":\"scart\",\"name\":\"SNES\"}]}"));
+    CHECK(m.has_switch && m.sw.inputs_n == 1 && !m.sw.has_output);
+    CHECK(parse("{\"current_input\":1,\"output\":null}") && m.has_switch && !m.sw.has_output);
+    CHECK(!parse("{\"current_input\":1,\"output\":[1]}"));
 }
 
 static void test_name_sources(void) {
@@ -87,20 +85,18 @@ static void test_name_sources(void) {
 }
 
 static void test_empty_layout(void) {
-    // A bridge with no layout set up says so: empty lists replace what Cruller had.
-    CHECK(parse("{\"current_input\":1,\"firmware\":\"\",\"inputs\":[],\"outputs\":[]}"));
-    CHECK(m.has_switch && m.sw.inputs_n == 0 && m.sw.outputs_n == 0);
+    // A bridge with no layout set up says so: an empty list replaces what Cruller had.
+    CHECK(parse("{\"current_input\":1,\"inputs\":[]}"));
+    CHECK(m.has_switch && m.sw.inputs_n == 0 && !m.sw.has_output);
 }
 
 static void test_limits(void) {
     char json[4096];
     size_t o = (size_t)snprintf(json, sizeof(json), "{\"current_input\":1,\"inputs\":[");
     for (int i = 0; i < 40; i++) o += (size_t)snprintf(json + o, sizeof(json) - o, "%s{\"kind\":\"scart\"}", i ? "," : "");
-    o += (size_t)snprintf(json + o, sizeof(json) - o, "],\"outputs\":[");
-    for (int i = 0; i < 9; i++) o += (size_t)snprintf(json + o, sizeof(json) - o, "%s{\"kind\":\"bnc\"}", i ? "," : "");
     snprintf(json + o, sizeof(json) - o, "],\"total_inputs\":32}");
     CHECK(parse(json));
-    CHECK(m.sw.inputs_n == SVS_INPUTS_MAX && m.sw.outputs_n == SVS_OUTPUTS_MAX && m.total == 32);
+    CHECK(m.sw.inputs_n == SVS_INPUTS_MAX && m.total == 32);
 
     // Names are cut to fit, never in the middle of a character.
     CHECK(parse("{\"current_input\":1,\"name\":\"0123456789012345678901234567890\xc3\xa9zz\"}"));
@@ -127,11 +123,9 @@ static void test_json_out(void) {
     char out[2048];
     const size_t n = svs_switch_json(&m.sw, out, sizeof(out));
     CHECK(n == strlen(out));
-    const char *head = "{\"firmware\":\"SVS_FW_1.21\",\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\","
-        "\"auto_profile\":true,\"rgsb\":false,\"sync_bypass\":true,\"rgb_to_ypbpr\":false,\"ypbpr_to_rgb\":false,\"v3\":true},"
-        "{\"kind\":\"component\",\"name\":\"PS2\",\"auto_profile\":false},{\"kind\":\"vga\",\"name\":\"Dreamcast\"}";
-    CHECK(!strncmp(out, head, strlen(head)));
-    CHECK(strstr(out, "\"outputs\":[{\"kind\":\"component\",\"name\":\"RetroTINK 4K\"},{\"kind\":\"bnc\",\"name\":\"PVM\"}]}"));
+    CHECK(!strcmp(out, "{\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\"},{\"kind\":\"component\",\"name\":\"PS2\"},"
+        "{\"kind\":\"vga\",\"name\":\"Dreamcast\"},{\"kind\":\"svideo\",\"name\":\"\"}],"
+        "\"output\":{\"kind\":\"component\",\"name\":\"RetroTINK 4K\"}}"));
 
     // What Cruller writes, it reads back the same.
     svs_switch_t before = m.sw;
@@ -145,7 +139,7 @@ static void test_json_out(void) {
 
     svs_switch_t none;
     memset(&none, 0, sizeof(none));
-    CHECK(svs_switch_json(&none, out, sizeof(out)) && !strcmp(out, "{\"firmware\":\"\",\"inputs\":[],\"outputs\":[]}"));
+    CHECK(svs_switch_json(&none, out, sizeof(out)) && !strcmp(out, "{\"inputs\":[],\"output\":null}"));
 
     snprintf(none.inputs[0].name, sizeof(none.inputs[0].name), "a\"b\\c");
     none.inputs_n = 1;

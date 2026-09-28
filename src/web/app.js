@@ -124,11 +124,6 @@ const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
 const svsSw = { seq: 0, loading: 0, data: null, last: null };
 const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
 const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
-// An input's settings, as the bridge read them from the SVS (only those it knows).
-const FLAGS = [['auto_profile', 'Auto profile', 'The SVS sends its profile (and IR codes) when this input is picked'],
-  ['v3', 'V3', 'A V3 module, which identifies itself'], ['rgsb', 'RGsB', 'RGBS converted to RGsB'],
-  ['sync_bypass', 'Sync bypass', 'Sync bypass (V3 SCART)'], ['rgb_to_ypbpr', 'RGB→YPbPr', 'Through the RGB to YPbPr transcoder'],
-  ['ypbpr_to_rgb', 'YPbPr→RGB', 'Through the YPbPr to RGB transcoder']];
 
 async function svsLoad(seq) {
   if (svsSw.loading === seq) return;
@@ -147,7 +142,7 @@ function showSvs(v) {
   const paired = v && v.paired, known = v && v.known, live = known && v.heard_s < 150;
   if (known && v.switch_seq && v.switch_seq !== svsSw.seq) svsLoad(v.switch_seq);
   const sw = known && v.switch_seq ? svsSw.data : null;
-  const ins = sw ? sw.inputs : [], outs = sw ? sw.outputs : [];
+  const ins = sw ? sw.inputs : [], out = sw ? sw.output : null;
   const port = (n) => ins[n - 1] || {};
   const label = (n) => port(n).name || 'Input ' + n;
   // Until a bridge has reported or is paired there's nothing to show but that it's awaited.
@@ -167,17 +162,13 @@ function showSvs(v) {
   $('v-nogrid').hidden = !!total;
   $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
     const n = i + 1, p = port(n), on = v.input === n;
-    const flags = FLAGS.filter(([k]) => p[k] === true).map(([, l, t]) => '<i title="' + t + '">' + l + '</i>').join('');
     return '<div class="' + (on ? 'on' : '') + (p.name ? ' named' : '') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') + '">' +
       '<b>' + n + '</b>' + (p.name ? '<span>' + esc(p.name) + '</span>' : '') +
-      '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small>' + (flags ? '<em>' + flags + '</em>' : '') + '</div>';
+      '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small></div>';
   }).join('');
   $('v-noname').hidden = !total || ins.some((p) => p.name);
-  // What the switch feeds: its outputs, as the bridge describes them.
-  $('v-outs').hidden = !outs.length;
-  rows('v-out-rows', outs.map((o, i) => '<tr><td>' + esc(o.name || 'Output ' + (i + 1)) + '</td><td class="r">' + esc(kindName(o.kind) || '–') +
-    '</td></tr>').join(''));
-  text('v-fw', sw && sw.firmware ? sw.firmware.replace(/^SVS_FW_/, '') : '–');
+  // The output that goes to the RetroTINK.
+  text('v-out', out ? kindName(out.kind) || '–' : '–');
   text('v-paired', paired || '–');
   text('v-heard', known ? ago(v.heard_s) : '–');
   $('v-hint').hidden = !!paired;

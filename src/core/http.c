@@ -813,16 +813,15 @@ static void handle_api_command(request_t *r) {
 
 // --- /api/svs: the Scalable Video Switch's active input, and the switch (docs/SVS.md) --------------
 //
-// POST {"id": "svs-bridge-…", "current_input": 3, "total_inputs": 8, "firmware": "SVS_FW_1.21",
-// "inputs": [{"kind", "name", "auto_profile", ...}], "outputs": [{"kind", "name"}]} from the SVS Bridge
-// on every change, when it finds Cruller, and every 60 s (svs_proto.h reads it); GET answers what
-// Cruller last heard, the switch included.
+// POST {"id": "svs-bridge-…", "current_input": 3, "total_inputs": 8, "inputs": [{"kind", "name"}, ...],
+// "output": {"kind", "name"}} from the SVS Bridge on every change, when it finds Cruller, and every
+// 60 s (svs_proto.h reads it); GET answers what Cruller last heard, the switch included.
 
-#define SVS_BODY_MAX 8192 // 32 inputs with long names and every setting fit in about 6 KB
+#define SVS_BODY_MAX 4096 // 32 inputs with long names fit in about 2.5 KB
 
 // The POST body, or the GET answer (one request at a time): room for the longest switch Cruller keeps,
 // every name full of quotes to escape.
-static char svs_buf[10240];
+static char svs_buf[6144];
 
 // The "svs" object. full: with the switch's description ("switch":{...}, for GET /api/svs); else just
 // its "switch_seq" (the status, which the page gets every few seconds: it fetches the rest on a change).
@@ -894,7 +893,7 @@ static void handle_svs(request_t *r, bool post) {
     svs_body_t body = {0};
     if (r->content_length <= 0 || r->content_length > SVS_BODY_MAX || !read_body(r, svs_sink, &body)) {
         respond(r->fd, r->content_length > SVS_BODY_MAX ? 413 : 400, r->content_length > SVS_BODY_MAX ? "Payload Too Large" : "Bad Request",
-            "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body (8 KB at most)\"}");
+            "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body (4 KB at most)\"}");
         return;
     }
     svs_buf[body.len] = 0;
