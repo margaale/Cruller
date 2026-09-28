@@ -120,6 +120,9 @@ const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
 
 function showSvs(v) {
   const paired = v && v.paired, known = v && v.known, live = known && v.heard_s < 150;
+  // Until a bridge has reported or is paired there's nothing to show but that it's awaited.
+  document.querySelectorAll('.svs-more').forEach((e) => { e.hidden = !paired && !known; });
+  document.querySelectorAll('.svs-wait').forEach((e) => { e.hidden = !!(paired || known); });
   $('v-dot').className = 'dot ' + (!paired && !known ? '' : live ? 'ok' : 'warn');
   text('v-state', !paired && !known ? 'no bridge yet' : live ? 'live' : 'not heard lately');
   text('v-input', known ? v.input : '–');

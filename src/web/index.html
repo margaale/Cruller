@@ -251,16 +251,17 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="row"><h2 class="grow">Active input</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
 <div class="svs-now"><span id="v-input">–</span><span id="v-name" class="small"></span></div>
 <div class="small" id="v-since"></div>
+<div class="small svs-wait">The SVS Bridge finds this Cruller on the network by itself and starts reporting the switch's input. Nothing to set up here.</div>
 </div>
 
-<div class="panel span2">
+<div class="panel span2 svs-more">
 <div class="row"><h2 class="grow">Inputs</h2><span class="small" id="v-total"></span></div>
 <div class="svs-grid" id="v-grid" hidden></div>
 <div class="small" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
 <div class="small">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
 </div>
 
-<div class="panel">
+<div class="panel svs-more">
 <h2>SVS Bridge</h2>
 <div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span></div>
 <div class="small" id="v-hint">The SVS Bridge finds this Cruller on the network and pairs with it by itself.</div>
@@ -268,7 +269,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <button onclick="unpair()" id="v-unpair" hidden>Unpair</button>
 </div>
 
-<div class="panel span2">
+<div class="panel span2 svs-more">
 <h2>Recent switches</h2>
 <table class="tbl"><thead><tr><th>Input</th><th class="r">When</th></tr></thead><tbody id="v-hist"><tr><td colspan="2" class="small">None yet</td></tr></tbody></table>
 </div>
