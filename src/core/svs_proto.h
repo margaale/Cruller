@@ -9,11 +9,13 @@
 
 #define SVS_NAME_MAX   32
 #define SVS_KIND_MAX   11
+#define SVS_DEVICE_MAX 15
 #define SVS_INPUTS_MAX 32 // the SVS takes up to 32 inputs
 
 typedef struct {
     char kind[SVS_KIND_MAX + 1]; // the module: "scart", "component", "vga", "svideo", "dterm", "bnc"; "" if not said
-    char name[SVS_NAME_MAX + 1]; // what is connected to it, as the user named it ("Super Nintendo"; "" if not)
+    char name[SVS_NAME_MAX + 1]; // what is connected to it, by name ("Super Nintendo / Super Famicom"; "" if not said)
+    char device[SVS_DEVICE_MAX + 1]; // ... and its id in the bridge's list ("snes", "rt4k"; "" if none picked)
 } svs_port_t;
 
 // The switch as its bridge describes it (what the SVS can't report itself): each input's module and
@@ -35,11 +37,11 @@ typedef struct {
 } svs_msg_t;
 
 // Parses a report: {"id", "current_input" (or "input"), "total_inputs", "name",
-// "inputs": [{"kind", "name"}, ...], "output": {"kind", "name"}}. Unknown keys are skipped. False,
+// "inputs": [{"kind", "name", "device"}, ...], "output": {"kind", "name", "device"}}. Unknown keys are skipped. False,
 // with *error, on anything that isn't a JSON object with a port number.
 bool svs_parse(const char *json, svs_msg_t *out, const char **error);
 
-// Writes sw as {"inputs":[{"kind","name"}...],"output":{"kind","name"}|null}. Returns the length, or
+// Writes sw as {"inputs":[{"kind","name","device"}...],"output":{"kind","name","device"}|null}. Returns the length, or
 // 0 if it doesn't fit.
 size_t svs_switch_json(const svs_switch_t *sw, char *out, size_t size);
 

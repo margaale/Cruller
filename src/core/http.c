@@ -817,11 +817,11 @@ static void handle_api_command(request_t *r) {
 // "output": {"kind", "name"}} from the SVS Bridge on every change, when it finds Cruller, and every
 // 60 s (svs_proto.h reads it); GET answers what Cruller last heard, the switch included.
 
-#define SVS_BODY_MAX 4096 // 32 inputs with long names fit in about 2.5 KB
+#define SVS_BODY_MAX 6144 // 32 inputs with long names fit in about 4.5 KB
 
 // The POST body, or the GET answer (one request at a time): room for the longest switch Cruller keeps,
 // every name full of quotes to escape.
-static char svs_buf[6144];
+static char svs_buf[8192];
 
 // The "svs" object. full: with the switch's description ("switch":{...}, for GET /api/svs); else just
 // its "switch_seq" (the status, which the page gets every few seconds: it fetches the rest on a change).
@@ -893,7 +893,7 @@ static void handle_svs(request_t *r, bool post) {
     svs_body_t body = {0};
     if (r->content_length <= 0 || r->content_length > SVS_BODY_MAX || !read_body(r, svs_sink, &body)) {
         respond(r->fd, r->content_length > SVS_BODY_MAX ? 413 : 400, r->content_length > SVS_BODY_MAX ? "Payload Too Large" : "Bad Request",
-            "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body (4 KB at most)\"}");
+            "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body (6 KB at most)\"}");
         return;
     }
     svs_buf[body.len] = 0;

@@ -54,11 +54,11 @@ static void test_skips_unknown(void) {
 
 static const char *full =
     "{\"id\":\"svs-bridge-aabbccddeeff\",\"current_input\":2,\"total_inputs\":4,\"live\":true,"
-    "\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\",\"extra\":[1,{\"a\":true}]},"
-    "{\"kind\":\"component\",\"name\":\"PS2\"},"
+    "\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\",\"device\":\"snes\",\"extra\":[1,{\"a\":true}]},"
+    "{\"kind\":\"component\",\"name\":\"PS2\",\"device\":\"PS2\"},"
     "{\"kind\":\"VGA\",\"name\":\"Dreamcast\"},"
     "{\"kind\":\"svideo\",\"name\":\"\"}],"
-    "\"output\":{\"kind\":\"component\",\"name\":\"RetroTINK 4K\"}}";
+    "\"output\":{\"kind\":\"component\",\"name\":\"RetroTINK 4K\",\"device\":\"rt4k\"}}";
 
 static void test_switch(void) {
     CHECK(parse(full));
@@ -67,6 +67,9 @@ static void test_switch(void) {
     CHECK(!strcmp(m.sw.inputs[0].kind, "scart") && !strcmp(m.sw.inputs[0].name, "Super Nintendo"));
     CHECK(!strcmp(m.sw.inputs[2].kind, "vga"));   // lowercased
     CHECK(!strcmp(m.sw.inputs[3].name, ""));
+    CHECK(!strcmp(m.sw.inputs[0].device, "snes") && !strcmp(m.sw.inputs[1].device, "ps2")); // lowercased
+    CHECK(!strcmp(m.sw.inputs[2].device, ""));
+    CHECK(!strcmp(m.sw.output.device, "rt4k"));
     CHECK(m.sw.has_output && !strcmp(m.sw.output.kind, "component") && !strcmp(m.sw.output.name, "RetroTINK 4K"));
     // The active port's name comes from the layout when the report doesn't say it.
     CHECK(!strcmp(m.name, "PS2"));
@@ -75,6 +78,9 @@ static void test_switch(void) {
     CHECK(m.has_switch && m.sw.inputs_n == 1 && !m.sw.has_output);
     CHECK(parse("{\"current_input\":1,\"output\":null}") && m.has_switch && !m.sw.has_output);
     CHECK(!parse("{\"current_input\":1,\"output\":[1]}"));
+    // Device ids are words (anything else is dropped), cut to fit.
+    CHECK(parse("{\"current_input\":1,\"inputs\":[{\"device\":\"a b\"},{\"device\":\"0123456789ABCDEFXYZ\"}]}"));
+    CHECK(!strcmp(m.sw.inputs[0].device, "") && !strcmp(m.sw.inputs[1].device, "0123456789abcde"));
 }
 
 static void test_name_sources(void) {
@@ -125,9 +131,10 @@ static void test_json_out(void) {
     char out[2048];
     const size_t n = svs_switch_json(&m.sw, out, sizeof(out));
     CHECK(n == strlen(out));
-    CHECK(!strcmp(out, "{\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\"},{\"kind\":\"component\",\"name\":\"PS2\"},"
-        "{\"kind\":\"vga\",\"name\":\"Dreamcast\"},{\"kind\":\"svideo\",\"name\":\"\"}],"
-        "\"output\":{\"kind\":\"component\",\"name\":\"RetroTINK 4K\"}}"));
+    CHECK(!strcmp(out, "{\"inputs\":[{\"kind\":\"scart\",\"name\":\"Super Nintendo\",\"device\":\"snes\"},"
+        "{\"kind\":\"component\",\"name\":\"PS2\",\"device\":\"ps2\"},"
+        "{\"kind\":\"vga\",\"name\":\"Dreamcast\",\"device\":\"\"},{\"kind\":\"svideo\",\"name\":\"\",\"device\":\"\"}],"
+        "\"output\":{\"kind\":\"component\",\"name\":\"RetroTINK 4K\",\"device\":\"rt4k\"}}"));
 
     // What Cruller writes, it reads back the same.
     svs_switch_t before = m.sw;
