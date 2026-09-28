@@ -125,11 +125,14 @@ function showSvs(v) {
   text('v-input', known ? v.input : '–');
   text('v-name', known ? v.name || 'input ' + v.input : 'waiting for the SVS Bridge');
   text('v-since', known ? (v.since_s < 5 ? 'switched just now' : 'on screen for ' + duration(v.since_s)) : '');
-  // One tile per input (8 until the bridge says how many), the active one lit.
-  const total = known && v.total ? v.total : 8;
-  text('v-total', known && v.total ? total + ' inputs' : '');
+  // One tile per input, the active one lit: only once the bridge has said how many the switch has
+  // (SVS models differ in inputs and outputs).
+  const total = known && v.total ? v.total : 0;
+  text('v-total', total ? total + ' inputs' : '');
+  $('v-grid').hidden = !total;
+  $('v-nogrid').hidden = !!total;
   $('v-grid').innerHTML = Array.from({ length: total }, (_, i) =>
-    '<div class="' + (known && v.input === i + 1 ? 'on' : '') + '">' + (i + 1) + '<small>' + (known && v.input === i + 1 ? 'ON SCREEN' : 'S' + (i + 1)) + '</small></div>').join('');
+    '<div class="' + (v.input === i + 1 ? 'on' : '') + '">' + (i + 1) + '<small>' + (v.input === i + 1 ? 'ON SCREEN' : 'S' + (i + 1)) + '</small></div>').join('');
   text('v-paired', paired || '–');
   text('v-heard', known ? ago(v.heard_s) : '–');
   $('v-hint').hidden = !!paired;
