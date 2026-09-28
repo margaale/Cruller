@@ -17,8 +17,8 @@ jobs:
   tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: bash tests/run.sh
@@ -36,7 +36,7 @@ jobs:
     env:
       TOOLS: ${{ github.workspace }}/.tools
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: picotool (cached)
         id: picotool-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .tools/picotool-install
           key: picotool-${{ env.PICOTOOL_VERSION }}-${{ runner.os }}
@@ -87,7 +87,7 @@ jobs:
           bash scripts/build.sh Release
           ninja -C build cruller_bench
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cruller-${{ matrix.board }}-${{ github.sha }}
           path: |
