@@ -1,5 +1,6 @@
 # Builds Cruller for every board and runs the host tests. One job per platform (its toolchain), with
-# a matrix of that platform's boards; the images are kept as artifacts.
+# a matrix of that platform's boards; the images are kept as artifacts. GitVersion (GitVersion.yml)
+# gives the version, and every push to main is a release: tag vX.Y.Z and the images for every board.
 name: build
 
 on:
@@ -15,8 +16,24 @@ env:
   FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
   ARM_GCC_RELEASE: "14.2.Rel1"
   ESP_IDF_VERSION: "v6.1"
+  GITVERSION_VERSION: "6.x"
 
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.gitversion.outputs.majorMinorPatch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # GitVersion reads the tags and the history
+      - uses: gittools/actions/gitversion/setup@v4
+        with:
+          versionSpec: ${{ env.GITVERSION_VERSION }}
+      - id: gitversion
+        uses: gittools/actions/gitversion/execute@v4
+      - run: echo "Cruller ${{ steps.gitversion.outputs.majorMinorPatch }}"
+
   # src/core's pure modules and the page's JavaScript, on the host: the same for every board.
   tests:
     runs-on: ubuntu-24.04
@@ -30,6 +47,7 @@ jobs:
   # Raspberry Pi RP2 boards: Pico SDK, target src/platform/rp2.
   rp2:
     name: rp2 (${{ matrix.board }})
+    needs: version
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -78,6 +96,7 @@ jobs:
 
       - name: Build
         env:
+          CRULLER_VERSION: ${{ needs.version.outputs.version }}
           PICO_BOARD: ${{ matrix.board }}
           PICO_SDK_PATH: ${{ env.TOOLS }}/pico-sdk
           FREERTOS_KERNEL_PATH: ${{ env.TOOLS }}/FreeRTOS-Kernel
@@ -91,7 +110,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: cruller-${{ matrix.board }}-${{ github.sha }}
+          name: cruller-${{ matrix.board }}
           path: |
             build/rp2/cruller.uf2
             build/rp2/cruller_bench.uf2
@@ -101,6 +120,7 @@ jobs:
   # Espressif ESP32 boards: ESP-IDF in Espressif's container, target src/platform/esp32.
   esp32:
     name: esp32 (${{ matrix.board }})
+    needs: version
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -125,15 +145,49 @@ jobs:
         with:
           esp_idf_version: ${{ env.ESP_IDF_VERSION }}
           target: ${{ matrix.chip }}
-          extra_docker_args: -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=1
+          extra_docker_args: >-
+            -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=1
+            -e CRULLER_VERSION=${{ needs.version.outputs.version }}
           command: bash scripts/build.sh esp32 && ccache -s
 
       - uses: actions/upload-artifact@v7
         with:
-          name: cruller-${{ matrix.board }}-${{ github.sha }}
+          name: cruller-${{ matrix.board }}
           path: |
             build/esp32/cruller.bin
             build/esp32/bootloader/bootloader.bin
             build/esp32/partition_table/partition-table.bin
             build/esp32/ota_data_initial.bin
           if-no-files-found: error
+
+  # Every push to main: tag vX.Y.Z and a GitHub release with every board's images, named
+  # cruller-<version>-<board>-<file>.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [version, tests, rp2, esp32]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Name the images
+        run: |
+          mkdir release
+          for dir in artifacts/cruller-*; do
+            board=${dir#artifacts/cruller-}
+            find "$dir" -type f | while read -r f; do
+              cp "$f" "release/cruller-${VERSION}-${board}-$(basename "$f")"
+            done
+          done
+          ls -l release
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Cruller ${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: release/*

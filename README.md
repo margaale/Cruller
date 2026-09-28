@@ -19,6 +19,10 @@ See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RT
 
 `scripts/build.sh [rp2] [Debug|Release]` or `scripts/build.sh esp32` (in an ESP-IDF 6.1 shell) builds a target (`src/platform/<target>`) into `build/<target>`; paths default to the author's machine, override them through the environment. Host tests: `tests/run.sh`.
 
+## Releases
+
+Every push to `main` is a release: CI takes the version from GitVersion (`GitVersion.yml`; the patch grows with each release, `+semver: minor` in a commit message bumps the minor), builds every board with it, tags `vX.Y.Z` and publishes the images on the GitHub release.
+
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE).

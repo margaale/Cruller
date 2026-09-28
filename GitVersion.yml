@@ -1,0 +1,6 @@
+# Cruller's version (.github/workflows/build.yml): every push to main is a release, tagged vX.Y.Z, and
+# the patch grows with each one. "+semver: minor" or "+semver: major" in a commit message bumps more.
+# The version must only grow: the Pico 2 W's boot ROM picks its A/B slot by it.
+workflow: GitHubFlow/v1
+next-version: 0.3.0
+tag-prefix: '[vV]?'
