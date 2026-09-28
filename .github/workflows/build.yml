@@ -3,6 +3,7 @@ name: build
 
 on:
   push:
+    branches: [main] # pull requests build through pull_request (one run per push, not two)
   pull_request:
   workflow_dispatch:
 
@@ -105,13 +106,24 @@ jobs:
           bash scripts/build.sh rp2 Release
           ninja -C build/rp2 cruller_bench
 
+      # ESP-IDF compiles through ccache: keep its directory between runs (inside the workspace, which
+      # the container mounts), so only what changed is compiled again.
+      - name: ccache (esp32)
+        if: matrix.platform == 'esp32'
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-esp32-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
+          restore-keys: ccache-esp32-${{ env.ESP_IDF_VERSION }}-
+
       - name: Build (esp32)
         if: matrix.platform == 'esp32'
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: ${{ env.ESP_IDF_VERSION }}
           target: ${{ matrix.board }}
-          command: bash scripts/build.sh esp32
+          extra_docker_args: -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=1
+          command: bash scripts/build.sh esp32 && ccache -s
 
       - uses: actions/upload-artifact@v7
         with:
