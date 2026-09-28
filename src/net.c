@@ -67,6 +67,7 @@ typedef struct {
     char ssid[33];
     int16_t rssi;
     bool secure;
+    uint8_t channel; // of its strongest access point
 } scan_entry_t;
 static scan_entry_t scan_list[SCAN_MAX];
 static int scan_count;
@@ -80,7 +81,10 @@ static int scan_cb(void *env, const cyw43_ev_scan_result_t *r) {
     ssid[r->ssid_len] = 0;
     for (int i = 0; i < scan_count; i++) {
         if (strcmp(scan_list[i].ssid, ssid)) continue;
-        if (r->rssi > scan_list[i].rssi) scan_list[i].rssi = r->rssi; // the strongest access point
+        if (r->rssi > scan_list[i].rssi) { // the strongest access point
+            scan_list[i].rssi = r->rssi;
+            scan_list[i].channel = (uint8_t)r->channel;
+        }
         return 0;
     }
     if (scan_count < SCAN_MAX) {
@@ -88,6 +92,7 @@ static int scan_cb(void *env, const cyw43_ev_scan_result_t *r) {
         memcpy(e->ssid, ssid, sizeof(e->ssid));
         e->rssi = r->rssi;
         e->secure = r->auth_mode != 0;
+        e->channel = (uint8_t)r->channel;
     }
     return 0;
 }
@@ -372,6 +377,16 @@ static void portal_forever(void) {
     printf("net: starting setup portal \"%s\"\n", PORTAL_SSID);
     scan_now(); // the station interface is still on: networks to offer in the portal
     cyw43_arch_disable_sta_mode();
+    // The access point on the strongest network's channel: most likely the one the wizard joins, so
+    // the radio needn't hop channels then (which drops the phone off the setup network for a moment).
+    int best = -1;
+    for (int i = 0; i < scan_count; i++) {
+        if (scan_list[i].channel >= 1 && scan_list[i].channel <= 13 && (best < 0 || scan_list[i].rssi > scan_list[best].rssi)) best = i;
+    }
+    if (best >= 0) {
+        cyw43_wifi_ap_set_channel(&cyw43_state, scan_list[best].channel);
+        printf("net: portal on channel %u, as \"%s\"\n", scan_list[best].channel, scan_list[best].ssid);
+    }
     portal_open();
     ip4_addr_t gw;
     IP4_ADDR(&gw, 192, 168, 4, 1);

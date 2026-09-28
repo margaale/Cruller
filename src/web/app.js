@@ -48,7 +48,7 @@ function route() {
   const [t, sub] = (location.hash.slice(1) || (IN_PORTAL ? 'setup' : 'rt4k')).split('/');
   tab = ['rt4k', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
   document.body.classList.toggle('setup', tab === 'setup');
-  if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); }
+  if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
   document.querySelectorAll('nav.tabs a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.tab === tab));
   const view = sub === 'firmware' ? 'firmware' : 'live';
@@ -144,12 +144,25 @@ async function rename() {
   const name = $('f-name').value.trim();
   if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name) || !/[A-Za-z0-9]/.test(name)) { text('um', 'The name takes letters, numbers and spaces (up to 32).'); return false; }
   if (!(await askUser('Rename to ' + name + '?', 'Cruller restarts as ' + hostFor(name) + '.local. Bookmarks to the old address stop working.', 'Rename and restart'))) return false;
+  const host = hostFor(name) + '.local';
+  busy({ mode: 'spin', title: 'Renaming…', text: 'Saving "' + name + '".' });
   try {
     const r = await fetch('/settings', { method: 'POST', body: new URLSearchParams({ name }) });
-    text('um', (await r.text()).trim());
-    if (r.ok) setTimeout(() => { location.href = 'http://' + hostFor(name) + '.local/#cruller'; }, 8000);
+    if (!r.ok) throw new Error((await r.text()).trim());
   } catch (e) {
-    text('um', 'Could not reach Cruller: ' + e.message);
+    busy({ mode: 'bad', title: 'It didn\'t work', text: e.message, actions: [{ label: 'Close', onclick: busyHide }] });
+    return false;
+  }
+  busy({ mode: 'spin', title: 'Restarting as ' + host, text: 'This page moves there as soon as it answers.' });
+  await sleep(3000);
+  // The new address answers (an opaque no-cors reply is enough to know it's up).
+  const up = await waitFor(async () => { await fetch('http://' + host + '/status', { mode: 'no-cors', cache: 'no-store' }); return true; }, 60000);
+  if (up) {
+    busy({ mode: 'ok', title: 'Cruller ' + name + ' is back', text: 'Moving to ' + host + '…' });
+    await sleep(1200);
+    location.href = 'http://' + host + '/#cruller';
+  } else {
+    busy({ mode: 'bad', title: host + ' isn\'t answering yet', text: 'Some computers take a while to find new .local names. Try it again in a moment, or use the IP.', actions: [{ label: 'Open ' + host, primary: true, href: 'http://' + host + '/#cruller' }, { label: 'Close', onclick: busyHide }] });
   }
   return false;
 }
@@ -227,11 +240,62 @@ async function wzConnect() {
   wzProgress({ state: 'joining', ssid: wz.ssid });
   try {
     const r = await fetch('/setup', { method: 'POST', body: new URLSearchParams({ ssid: wz.ssid, pass: wz.secure ? $('wz-pass').value : '', name }) });
-    if (!r.ok) wzProgress({ state: 'failed', ssid: wz.ssid, error: (await r.json()).error });
+    if (!r.ok) { wzProgress({ state: 'failed', ssid: wz.ssid, error: (await r.json()).error }); return; }
   } catch (e) {
-    // The radio may hop to the network's channel while joining and drop the phone for a moment: the
-    // status push after it reconnects tells how it went.
+    // The radio may hop to the network's channel while joining and drop the phone for a moment.
   }
+  wzWatch(name);
+}
+
+// While joining: ask /setup every second too. The status push over the WebSocket may not arrive (a
+// phone's captive-portal window may not keep one, or the phone drops off while the radio changes
+// channel). Only in the portal, only until it's decided.
+// The ring counts down the join's time (Cruller gives up after 20 s): the page never just spins.
+const WZ_JOIN_S = 22; // Cruller's 20 s, and a little for the answer to come back
+
+function wzRing(left, state) {
+  const ring = $('wz-ring'), arc = $('wz-arc');
+  ring.className = 'ring wz-ring' + (state === 'ok' ? ' ok' : state === 'bad' ? ' bad' : '');
+  text('wz-num', state === 'ok' ? '✓' : state === 'bad' ? '!' : state === 'lost' ? '?' : left);
+  arc.style.strokeDashoffset = state ? 0 : ARC * (1 - left / WZ_JOIN_S);
+}
+
+async function wzWatch(name) {
+  const t0 = Date.now();
+  $('wz-lost').hidden = true;
+  while (wz.step === 3) {
+    const left = Math.max(0, WZ_JOIN_S - Math.round((Date.now() - t0) / 1000));
+    wzRing(left, '');
+    await sleep(1000);
+    try {
+      const p = await (await fetch('/setup', { cache: 'no-store' })).json();
+      if (p.state !== 'idle') wzProgress(p);
+      if (p.state !== 'joining') { wzRing(0, p.state === 'ok' ? 'ok' : 'bad'); return; }
+    } catch (e) { /* the phone is off the setup network for a moment */ }
+    if (!left) {
+      // Time's up with no answer: most likely it joined and the phone lost the setup network.
+      const host = hostFor(name) + '.local';
+      wzRing(0, 'lost');
+      text('wz-joining', 'No answer from Cruller');
+      $('wz-lost').hidden = false;
+      text('wz-lost', 'It has probably joined ' + wz.ssid + ' already, and your phone dropped off the setup network. Switch back to your Wi-Fi and open ' + host + '. If Cruller_Setup is still around, try again.');
+      $('wz-retry').hidden = false;
+      return;
+    }
+  }
+}
+
+// The page reloaded (the phone reconnected to the setup network): pick up where the setup is.
+async function wzResume() {
+  try {
+    const p = await (await fetch('/setup', { cache: 'no-store' })).json();
+    if (p.state === 'idle') return;
+    wz.ssid = p.ssid;
+    wzGo(3);
+    wzProgress(p);
+    if (p.state === 'joining') wzWatch('');
+    else wzRing(0, p.state === 'ok' ? 'ok' : 'bad');
+  } catch (e) { /* stays on step 1 */ }
 }
 
 // Steps 3 and 4 from the setup's progress (pushed in the status while the portal is up).
@@ -547,17 +611,92 @@ document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
 
 // --- restart and factory reset -------------------------------------------------------------------------
 
+// A full-page overlay while Cruller restarts: a ring that spins (waiting), counts down (seconds), or
+// shows how it ended (ok / bad), with a title, a line of text and optional buttons.
+const ARC = 276.5; // the ring's circumference (r = 44)
+
+function busy(o) {
+  const ring = $('busy-ring'), arc = $('busy-arc');
+  $('busy').hidden = false;
+  text('busy-title', o.title || '');
+  text('busy-text', o.text || '');
+  ring.className = 'ring' + (o.mode === 'spin' ? ' spin' : o.mode === 'ok' ? ' ok' : o.mode === 'bad' ? ' bad' : '');
+  text('busy-num', '');
+  text('busy-icon', o.mode === 'ok' ? '✓' : o.mode === 'bad' ? '!' : o.icon || '');
+  clearInterval(busy.t);
+  arc.style.transition = 'none';
+  arc.style.strokeDashoffset = o.mode === 'count' ? 0 : '';
+  const acts = $('busy-actions');
+  acts.textContent = '';
+  for (const a of o.actions || []) {
+    const b = a.href ? document.createElement('a') : document.createElement('button');
+    b.textContent = a.label;
+    b.className = (a.href ? 'btn ' : '') + (a.primary ? 'primary' : '');
+    if (a.href) b.href = a.href;
+    if (a.onclick) b.onclick = a.onclick;
+    acts.appendChild(b);
+  }
+  if (o.mode !== 'count') return Promise.resolve();
+  // Countdown: the number goes down each second while the arc empties.
+  return new Promise((resolve) => {
+    let left = o.seconds;
+    text('busy-num', left);
+    requestAnimationFrame(() => { arc.style.transition = ''; arc.style.strokeDashoffset = ARC / o.seconds; });
+    busy.t = setInterval(() => {
+      left--;
+      text('busy-num', Math.max(0, left));
+      arc.style.strokeDashoffset = ARC * Math.min(1, (o.seconds - left + 1) / o.seconds);
+      if (left <= 0) { clearInterval(busy.t); resolve(); }
+    }, 1000);
+  });
+}
+
+function busyHide() { clearInterval(busy.t); $('busy').hidden = true; }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Waits until check() says yes (tried every 1.5 s), up to timeout_ms. Only while Cruller restarts.
+async function waitFor(check, timeoutMs) {
+  for (const t0 = Date.now(); Date.now() - t0 < timeoutMs;) {
+    try { if (await check()) return true; } catch (e) { /* not back yet */ }
+    await sleep(1500);
+  }
+  return false;
+}
+
+// Cruller answers again, freshly started (not the old one still shutting down).
+const backUp = async () => {
+  const r = await fetch('/status', { cache: 'no-store' });
+  return r.ok && (await r.json()).uptime_s < 120;
+};
+
 async function restart(forget) {
   const ok = forget
-    ? await askUser('Factory reset?', 'Cruller forgets its Wi-Fi network and restarts into the setup portal: join the "Cruller_Setup" network to set it up again.', 'Erase and restart', true)
+    ? await askUser('Factory reset?', 'Cruller forgets its Wi-Fi network, its name and its SVS Bridge, and restarts into the setup portal: join the "Cruller_Setup" network to set it up again.', 'Erase and restart', true)
     : await askUser('Restart Cruller?', 'The page reconnects by itself in a few seconds.', 'Restart');
   if (!ok) return;
-  text('um', forget ? 'Erasing the settings…' : 'Restarting…');
+  busy({ mode: 'spin', title: forget ? 'Erasing settings…' : 'Restarting Cruller…', text: forget ? 'Wi-Fi, name and SVS Bridge.' : 'Asking it to restart.' });
   try {
     const r = await fetch(forget ? '/factory-reset' : '/restart', { method: 'POST' });
-    text('um', (await r.text()).trim());
+    if (!r.ok) throw new Error((await r.text()).trim());
   } catch (e) {
-    text('um', 'Could not reach Cruller: ' + e.message);
+    busy({ mode: 'bad', title: 'It didn\'t work', text: e.message, actions: [{ label: 'Close', onclick: busyHide }] });
+    return;
+  }
+  if (forget) {
+    // Cruller leaves this network: nothing to wait for here, just what to do next.
+    await busy({ mode: 'count', seconds: 12, title: 'Restarting into setup…', text: 'Cruller forgot this network. Its setup network appears in a few seconds.' });
+    busy({ mode: 'ok', title: 'Cruller is ready to set up', text: 'On your phone or computer, join the Wi-Fi network\n"Cruller_Setup".\n\nThe setup opens by itself (or browse to 192.168.4.1).' });
+    return;
+  }
+  busy({ mode: 'spin', title: 'Restarting Cruller…', text: 'Back in about 10 seconds.' });
+  await sleep(3000);
+  if (await waitFor(backUp, 60000)) {
+    busy({ mode: 'ok', title: 'Cruller is back', text: '' });
+    await sleep(1500);
+    busyHide();
+  } else {
+    busy({ mode: 'bad', title: 'Taking longer than expected', text: 'Cruller hasn\'t answered for a minute. Check that it has power, then reload.', actions: [{ label: 'Reload', primary: true, onclick: () => location.reload() }] });
   }
 }
 

@@ -51,6 +51,16 @@ button.danger{color:#F07A74;border-color:#5A2A28}
 button.primary.danger{background:#D9443E;color:#fff}
 dialog#ask{max-width:420px;width:calc(100% - 32px);padding:22px 22px 18px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px #000a}
 dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
+.busy{position:fixed;inset:0;z-index:50;background:#0c0d0fe6;backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px}
+.busy-box{max-width:380px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px}
+.busy h3{margin:6px 0 0;font:700 22px var(--head)}.busy p{margin:0;font-size:15px;line-height:1.5;color:var(--soft);white-space:pre-line}
+.ring{position:relative;width:120px;height:120px}.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:6}.ring .track{stroke:#2B2F35}.ring .arc{stroke:var(--accent);stroke-linecap:round;stroke-dasharray:276.5;stroke-dashoffset:0;transition:stroke-dashoffset 1s linear,stroke .3s}
+.ring.spin svg{animation:spin 1.1s linear infinite}.ring.spin .arc{stroke-dashoffset:200;transition:none}
+.ring.ok .arc{stroke:var(--ok)}.ring.bad .arc{stroke:#E0453F}
+.ring>span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 30px var(--mono)}
+.ring>#busy-icon{font:600 44px var(--sans)}.ring.ok>#busy-icon{color:var(--ok)}
+.wz-ring{width:88px;height:88px;align-self:center}.wz-ring>span{font-size:22px}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
 button:disabled{opacity:.5;cursor:default}
@@ -269,8 +279,10 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 
 <div data-wz="3" class="wiz-page" hidden>
 <div><h1 id="wz-joining">Joining…</h1><p>Stay on this page. Cruller keeps the setup network up until it knows the password works.</p></div>
+<div class="ring wz-ring" id="wz-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44" class="track"/><circle cx="50" cy="50" r="44" class="arc" id="wz-arc"/></svg><span id="wz-num"></span></div>
 <ol class="steps" id="wz-steps"></ol>
 <div class="wiz-err" id="wz-fail" hidden><b id="wz-failt"></b><span id="wz-faild"></span></div>
+<div class="small" id="wz-lost" hidden></div>
 <div class="grow"></div>
 <button class="primary big" id="wz-retry" onclick="wzGo(1)" hidden>Back to step 1</button>
 </div>
@@ -359,6 +371,14 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <table class="tbl"><thead><tr><th>Task</th><th>State</th><th class="r">Priority</th><th class="r">Stack never used</th></tr></thead><tbody id="t-rows"><tr><td colspan="4" class="small">Not read yet</td></tr></tbody></table></div>
 </section>
 </main>
+<div id="busy" class="busy" hidden role="status" aria-live="polite">
+<div class="busy-box">
+<div class="ring" id="busy-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44" class="track"/><circle cx="50" cy="50" r="44" class="arc" id="busy-arc"/></svg><span id="busy-num"></span><span id="busy-icon"></span></div>
+<h3 id="busy-title"></h3>
+<p id="busy-text"></p>
+<div id="busy-actions" class="row" style="justify-content:center"></div>
+</div>
+</div>
 <dialog id="ask" aria-labelledby="ask-title">
 <form method="dialog">
 <h3 id="ask-title"></h3>
