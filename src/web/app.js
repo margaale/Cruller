@@ -201,17 +201,16 @@ function showSvs(v) {
   text('v-state', !paired && !known ? 'no bridge yet' : live ? 'live' : 'not heard lately');
   // Input 0: the switch has no input active.
   const on = known && v.input > 0;
-  text('v-input', on ? v.input : '–');
-  $('v-icon').innerHTML = on ? consoleIcon(port(v.input).device) : '';
-  text('v-name', on ? [v.name || port(v.input).name || 'input ' + v.input, kindName(port(v.input).kind)].filter(Boolean).join(' · ')
-    : known ? 'no input active' : 'waiting for the SVS Bridge');
-  text('v-since', !known ? '' : v.since_s < 5 ? 'switched just now' : (on ? 'on screen for ' : 'for ') + duration(v.since_s));
   // One tile per input, the active one lit: once the bridge has said how many the switch has, or
   // described them (SVS models differ in inputs and outputs).
   const total = known ? Math.max(v.total || 0, ins.length) : 0;
-  text('v-total', total ? total + ' inputs' : '');
+  // What is on screen, and since when (the tile is lit in the grid).
+  const what = on ? short(port(v.input)) || 'Input ' + v.input : '';
+  $('v-since').hidden = !known;
+  text('v-since', !known ? '' : (on ? what + (v.since_s < 5 ? ' just switched in' : ' on screen for ' + duration(v.since_s))
+    : 'No input active' + (v.since_s < 5 ? '' : ' for ' + duration(v.since_s))) + (total ? ' · ' + total + ' inputs' : ''));
   $('v-grid').hidden = !total;
-  $('v-nogrid').hidden = !!total;
+  $('v-nogrid').hidden = !!total || (!paired && !known);
   $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
     // The console's icon and short name when the bridge says which it is, else the name given.
     // Nothing picked on it: the same tile, with an empty slot for the icon.

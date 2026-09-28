@@ -65,8 +65,6 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .upd{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px}
 @media (max-width:1000px){.upd{grid-template-columns:minmax(0,1fr)}}
 /* SVS tab */
-.svs-now{display:flex;flex-direction:column;align-items:center;padding:12px 0}
-.svs-now>span:first-child{font:700 72px/1 var(--head)}
 .svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
 .svs-grid div{min-height:64px;padding:6px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--faint);min-width:0}
 .svs-grid div b{font:700 15px/1 var(--head);color:var(--muted)}
@@ -78,7 +76,6 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .svs-grid div.on .con{color:var(--text)}
 .svs-grid div.empty .con,.svs-grid div.empty>span{color:var(--faint)}
 .svs-grid div.empty>span{font-weight:500}
-.svs-now #v-icon .con{width:96px;height:64px;color:var(--text);margin-top:6px}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
 button:disabled{opacity:.5;cursor:default}
@@ -272,19 +269,14 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 
 <!-- SVS: the Scalable Video Switch, through its bridge (docs/SVS.md) -->
 <section data-view="svs" class="grid3">
-<div class="panel">
-<div class="row"><h2 class="grow">Active input</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
-<div class="svs-now"><span id="v-input">–</span><span id="v-icon"></span><span id="v-name" class="small"></span></div>
+<div class="panel span2">
+<div class="row"><h2 class="grow">Inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
 <div class="small" id="v-since"></div>
 <div class="small svs-wait">The SVS Bridge finds this Cruller on the network by itself and starts reporting the switch's input. Nothing to set up here.</div>
-</div>
-
-<div class="panel span2 svs-more">
-<div class="row"><h2 class="grow">Inputs</h2><span class="small" id="v-total"></span></div>
-<div class="svs-grid" id="v-grid" hidden></div>
-<div class="small" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
+<div class="svs-grid svs-more" id="v-grid" hidden></div>
+<div class="small svs-more" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
 <div class="small" id="v-noname" hidden>Pick each input's module and the console on it in the SVS Bridge's SVS tab: they show up here.</div>
-<div class="small">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
+<div class="small svs-more">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
 </div>
 
 <div class="panel svs-more">
