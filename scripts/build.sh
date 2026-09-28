@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local build. Paths default to this machine's setup; override them through the environment.
-#   [CRULLER_VERSION=x.y.z] scripts/build.sh [Debug|Release]
+#   [CRULLER_VERSION=x.y.z] [PICO_BOARD=pico2_w] scripts/build.sh [Debug|Release]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,6 +30,7 @@ PIOASM_DIR="${PIOASM_DIR:-$TOOLS_ROOT/tools/sdk-tools/pioasm}"
 cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE="${1:-Release}" \
     ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} \
+    ${PICO_BOARD:+-DPICO_BOARD="$PICO_BOARD"} \
     -Dpicotool_DIR="$PICOTOOL_DIR" \
     -Dpioasm_DIR="$PIOASM_DIR"
 ninja -C build

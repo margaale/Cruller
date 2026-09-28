@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CC="${CC:-gcc}"
-CFLAGS=(-std=c11 -Wall -Wextra -Werror -O1 -g -I src -I tests)
+CFLAGS=(-std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -O1 -g -I src -I tests)
 mkdir -p build-tests
 
 "$CC" "${CFLAGS[@]}" src/rtl1_core.c tests/sha256_ref.c tests/test_rtl1.c -o build-tests/test_rtl1
