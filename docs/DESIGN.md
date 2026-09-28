@@ -130,7 +130,7 @@ Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (millis
 - **Write:** straight into the inactive slot, a sector at a time, with the RT4K's USB host quiet meanwhile (`flash_quiet_begin`).
 - **Switch:** the boot ROM's "try before you buy" flow. After a reboot into the new slot, the image is confirmed once healthy; otherwise the boot ROM's watchdog returns to the previous slot. Cruller's own watchdog stays off during the trial and takes over after the confirmation.
 - **Reboots:** power the CYW43 down (`WL_REG_ON` low) and stop feeding the watchdog before every software reboot (feeding it postpones a scheduled reboot).
-- **Versions** (`CRULLER_VERSION`) must grow with every image: the boot ROM chooses between A and B by version. Its version is two numbers: MAJOR = X*100+Y, MINOR = Z*1000+N for a pre-release X.Y.Z-label.N (develop and pull request builds) and Z*1000+999 for the release X.Y.Z, so a release sorts after all its alphas.
+- **Versions** (`CRULLER_VERSION`) must grow with every image: the boot ROM chooses between A and B by version. Its version is two numbers: MAJOR = X*100+Y and MINOR = 10000 + the build number (CI's run number), so the newest build of an X.Y runs after a reset, whatever its branch (pull requests are squash-merged: there is no commit count to compare).
 
 ## Networking
 

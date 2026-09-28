@@ -15,27 +15,25 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 include(${CRULLER_ROOT}/src/version.cmake)
-set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z or X.Y.Z-label.N); must grow with every image, the boot ROM picks A/B by it")
+set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z or X.Y.Z-label.N)")
+set(CRULLER_BUILD 0 CACHE STRING "Build number: CI's run number (github.run_number), 0 for a local build")
 
 pico_sdk_init()
 
-# The boot ROM picks between partitions A and B by image version (two 16-bit numbers), so it must
-# grow with every image: MAJOR = X*100+Y, MINOR = Z*1000 + N for a pre-release X.Y.Z-alpha.N, or
-# Z*1000+999 for the release X.Y.Z, which so sorts after all its alphas. Z up to 64, N up to 998.
-string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z]+\\.([0-9]+))?$" _v "${CRULLER_VERSION}")
+# The boot ROM picks between partitions A and B by image version (two 16-bit numbers): the higher
+# one runs after a reset, so the newest build must be the higher. MAJOR = X*100+Y, MINOR = 10000 +
+# the build number: every CI build (release, develop, pull request; squash merges or not) gets a
+# higher one than the builds before it. The 10000 puts them above every image of the earlier
+# schemes (MINOR = Z, then Z*1000+N). A local build (0) sorts below any CI build of its X.Y.
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z]+\\.[0-9]+)?$" _v "${CRULLER_VERSION}")
 if (NOT _v)
     message(FATAL_ERROR "CRULLER_VERSION must be X.Y.Z or X.Y.Z-label.N, got '${CRULLER_VERSION}'")
 endif()
 math(EXPR CRULLER_BIN_MAJOR "${CMAKE_MATCH_1} * 100 + ${CMAKE_MATCH_2}")
-if (CMAKE_MATCH_4)
-    set(_pre ${CMAKE_MATCH_5})
-else()
-    set(_pre 999)
+if (NOT CRULLER_BUILD MATCHES "^[0-9]+$" OR CRULLER_BUILD GREATER 55535)
+    message(FATAL_ERROR "CRULLER_BUILD must be 0..55535, got '${CRULLER_BUILD}'")
 endif()
-if (CMAKE_MATCH_3 GREATER 64 OR _pre GREATER 999 OR (CMAKE_MATCH_4 AND _pre GREATER 998))
-    message(FATAL_ERROR "CRULLER_VERSION '${CRULLER_VERSION}' doesn't fit the boot ROM's version (Z <= 64, N <= 998)")
-endif()
-math(EXPR CRULLER_BIN_MINOR "${CMAKE_MATCH_3} * 1000 + ${_pre}")
+math(EXPR CRULLER_BIN_MINOR "10000 + ${CRULLER_BUILD}")
 
 # --- third-party ------------------------------------------------------------------------------
 

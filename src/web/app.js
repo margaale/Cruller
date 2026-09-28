@@ -639,7 +639,8 @@ const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases?per_
 const FW_ASSET = { rp2: '-pico2_w-cruller.uf2', esp32: '-esp32s3_devkitc1_n16r8-cruller.bin' }; // each platform's image among a release's assets
 const upd = { loaded: false, list: [], onProgress: null };
 
-// "0.3.10" vs "0.3.9": -1, 0, 1. An alpha comes before its release: 0.3.3-alpha.5 < 0.3.3-alpha.12 < 0.3.3.
+// "0.3.10" vs "0.3.9": -1, 0, 1. A pre-release comes before its release, and pre-releases compare by N,
+// CI's run number, whatever their label: 0.3.3-pr.40 < 0.3.3-alpha.41 < 0.3.3.
 function cmpVersion(a, b) {
   const [ca, pa] = a.split('-'), [cb, pb] = b.split('-');
   const x = ca.split('.').map(Number), y = cb.split('.').map(Number);
@@ -651,6 +652,9 @@ function cmpVersion(a, b) {
 
 async function updLoad() {
   upd.loaded = true;
+  $('u-refresh').classList.add('spin');
+  $('u-refresh').disabled = true;
+  text('u-state', 'Checking GitHub…');
   try {
     const rels = await (await fetch(FW_RELEASES, { cache: 'no-store' })).json();
     const suffix = FW_ASSET[S.platform];
@@ -662,6 +666,9 @@ async function updLoad() {
   } catch (e) {
     text('u-state', 'Could not read the releases from GitHub');
     return;
+  } finally {
+    $('u-refresh').classList.remove('spin');
+    $('u-refresh').disabled = false;
   }
   const sel = $('u-ver');
   sel.innerHTML = '';

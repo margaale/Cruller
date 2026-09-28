@@ -24,7 +24,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RT
 Work goes to `develop` (the default branch) through pull requests; `master` takes what is released. Versions come from GitVersion (`GitVersion.yml`), and CI builds every board with them:
 
 - **`master`:** every push is a release, tagged `vX.Y.Z`, with every board's images. The patch grows with each one; a line `+semver: minor` in a commit message bumps the minor.
-- **`develop`:** every push is a pre-release, `vX.Y.Z-alpha.N` (the next release, the commits since the last one), to try on a board. Each alpha sorts after the one before and before its release. The Cruller tab lists alphas but suggests them only to a board already running one.
+- **`develop`:** every push is a pre-release, `vX.Y.Z-alpha.N`, to try on a board. N is CI's run number, which grows with every build on every branch: a newer build is always a newer version, and a release sorts after its pre-releases. The Cruller tab lists alphas but suggests them only to a board already running one.
 - **Pull requests** (into `develop`): built as `X.Y.Z-pr.N`, not published; the images are on the run, one file each.
 
 The ESP32-S3 images include `cruller-factory.bin`, to flash a new board over USB at 0x0.
