@@ -125,6 +125,51 @@ const svsSw = { seq: 0, loading: 0, data: null, last: null };
 const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
 const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
 
+// The consoles, by their id in the SVS Bridge's list: a short name, and an icon (line drawings of
+// their controllers or the machines themselves, 48x32, in the text colour). An id not here shows
+// its name instead.
+const I = {
+  dpad: (x, y) => `<path d="M${x - 1.5} ${y - 4.5}h3v3h3v3h-3v3h-3v-3h-3v-3h3z" fill="currentColor" stroke="none"/>`,
+  dot: (x, y, r = 1.8) => `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor" stroke="none"/>`,
+  ring: (x, y, r = 2.5) => `<circle cx="${x}" cy="${y}" r="${r}"/>`,
+};
+const dogbone = `<path d="M14 7h20a9 9 0 0 1 0 18H14a9 9 0 0 1 0-18z"/>`;
+const crescent = `<path d="M5 14c0-5 7-7 19-7s19 2 19 7-4 11-9 11c-3 0-6-3-10-3s-7 3-10 3c-5 0-9-6-9-11z"/>`;
+const dualshock = `<path d="M13 7h22c5 0 8 4 9 10s0 11-4 11-5-5-8-6H16c-3 1-4 6-8 6s-5-5-4-11 4-10 9-10z"/>`;
+const psButtons = I.dot(36, 11.5, 1.5) + I.dot(40, 15, 1.5) + I.dot(36, 18.5, 1.5) + I.dot(32, 15, 1.5);
+const keyboard = `<rect x="3" y="11" width="42" height="15" rx="2"/><path d="M8 16h32M8 20h32M16 23.5h16" stroke-dasharray="2 2"/>`;
+const CONSOLES = {
+  nes: ['NES', `<rect x="4" y="9" width="40" height="14" rx="1.5"/>${I.dpad(12, 16)}<path d="M19 17h3M25 17h3"/>${I.dot(33, 17, 2.3)}${I.dot(39, 17, 2.3)}`],
+  snes: ['SNES', `${dogbone}${I.dpad(14, 16)}${I.dot(34, 12.5, 1.7)}${I.dot(38, 16, 1.7)}${I.dot(34, 19.5, 1.7)}${I.dot(30, 16, 1.7)}<path d="M21 17l2-1M25 17l2-1"/>`],
+  n64: ['N64', `<path d="M5 12c0-4 4-6 8-6h22c4 0 8 2 8 6l-2 13c-.5 2-3 2-3.5 0L34 17H14l-3.5 8c-.5 2-3 2-3.5 0z"/><path d="M20 17l2 10c.3 1.5 3.7 1.5 4 0l2-10"/>${I.dpad(14, 12.5)}${I.ring(24, 14, 1.8)}${I.dot(36, 10, 1.4)}${I.dot(39, 12, 1.4)}${I.dot(35, 14, 1.4)}`],
+  gamecube: ['GameCube', `<path d="M10 8h28c4 0 7 4 7 9s-2 10-6 10-5-4-8-5H17c-3 1-4 5-8 5s-6-5-6-10 3-9 7-9z"/>${I.ring(13, 14, 3)}${I.dot(35, 14, 3)}${I.dot(40, 10.5, 1.4)}${I.dot(30.5, 16.5, 1.4)}${I.ring(26, 19, 1.6)}`],
+  wii: ['Wii', `<rect x="3" y="11" width="42" height="10" rx="5"/>${I.dpad(11, 16)}${I.ring(19, 16, 2)}${I.dot(31, 16, 1)}${I.dot(35, 16, 1)}${I.dot(39, 16, 1)}`],
+  sms: ['Master System', `<rect x="5" y="9" width="38" height="14" rx="1"/><path d="M5 16H2"/>${I.dpad(14, 16)}<rect x="28" y="14" width="4" height="4" fill="currentColor" stroke="none"/><rect x="35" y="14" width="4" height="4" fill="currentColor" stroke="none"/>`],
+  megadrive: ['Mega Drive', `${crescent}${I.ring(14, 14, 4)}${I.dot(29, 17, 1.8)}${I.dot(33.5, 15, 1.8)}${I.dot(38, 13, 1.8)}<path d="M22 12h4"/>`],
+  saturn: ['Saturn', `${crescent}${I.dpad(14, 14)}${I.dot(29, 18, 1.5)}${I.dot(33, 17, 1.5)}${I.dot(37, 16, 1.5)}${I.dot(29, 13.5, 1.2)}${I.dot(33, 12.5, 1.2)}${I.dot(37, 11.5, 1.2)}`],
+  dreamcast: ['Dreamcast', `<path d="M9 6h30c4 0 6 3 6 7l-2 11c-1 3-5 3-7 0l-3-4H15l-3 4c-2 3-6 3-7 0L3 13c0-4 2-7 6-7z"/><rect x="19" y="6" width="10" height="8" rx="1"/>${I.ring(12, 13, 2.8)}${I.dot(36, 11, 1.4)}${I.dot(39, 14, 1.4)}${I.dot(36, 17, 1.4)}${I.dot(33, 14, 1.4)}`],
+  ps1: ['PS1', `${dualshock}${I.dpad(12, 15)}${psButtons}`],
+  ps2: ['PS2', `${dualshock}${I.dpad(12, 15)}${psButtons}${I.ring(19, 21, 2.5)}${I.ring(29, 21, 2.5)}`],
+  ps3: ['PS3', `${dualshock}${I.dpad(12, 15)}${psButtons}${I.ring(19, 21, 2.5)}${I.ring(29, 21, 2.5)}${I.dot(24, 15, 1.2)}`],
+  xbox: ['Xbox', `<path d="M11 7h26c5 0 8 5 8 11 0 5-2 9-5 9s-5-4-8-5H16c-3 1-5 5-8 5s-5-4-5-9c0-6 3-11 8-11z"/>${I.ring(12, 13, 2.8)}${I.dpad(19, 17)}${I.ring(29, 18, 2.5)}${I.dot(36, 10.5, 1.4)}${I.dot(39.5, 13.5, 1.4)}${I.dot(36, 16.5, 1.4)}${I.dot(32.5, 13.5, 1.4)}`],
+  xbox360: ['Xbox 360', `<path d="M11 7h26c5 0 8 5 8 11 0 5-2 9-5 9s-5-4-8-5H16c-3 1-5 5-8 5s-5-4-5-9c0-6 3-11 8-11z"/>${I.ring(12, 13, 2.8)}${I.dpad(19, 17)}${I.ring(29, 18, 2.5)}${I.dot(36, 10.5, 1.4)}${I.dot(39.5, 13.5, 1.4)}${I.dot(36, 16.5, 1.4)}${I.dot(32.5, 13.5, 1.4)}${I.ring(24, 11, 2)}`],
+  pce: ['PC Engine', `<rect x="5" y="9" width="38" height="15" rx="3"/>${I.dpad(13, 17)}<path d="M29 12h3M35 12h3"/>${I.dot(31, 19, 2.3)}${I.dot(37, 19, 2.3)}<path d="M20 20h3M25 20h3"/>`],
+  neogeo: ['Neo Geo', `<rect x="3" y="15" width="42" height="12" rx="2"/><path d="M12 15V8"/>${I.dot(12, 6.5, 3)}${I.dot(23, 22, 2)}${I.dot(29, 21, 2)}${I.dot(35, 20, 2)}${I.dot(41, 19, 2)}`],
+  atari2600: ['Atari 2600', `<rect x="12" y="19" width="24" height="9" rx="1.5"/><path d="M26 19V8"/>${I.ring(26, 6.5, 2.2)}${I.dot(17, 22, 2.2)}`],
+  jaguar: ['Jaguar', `<path d="M13 5h22c6 0 10 5 10 11s-4 11-9 11c-3 0-4-2-6-2H18c-2 0-3 2-6 2-5 0-9-5-9-11S7 5 13 5z"/>${I.dpad(11, 14)}${I.dot(37, 11, 1.5)}${I.dot(40, 14, 1.5)}${I.dot(37, 17, 1.5)}` +
+    [0, 1, 2].map((c) => [0, 1, 2, 3].map((r) => I.dot(20 + c * 4, 11 + r * 3.6, 1)).join('')).join('')],
+  '3do': ['3DO', `<path d="M10 9h28c4 0 6 3 6 7s-2 8-6 8H10c-4 0-6-4-6-8s2-7 6-7z"/>${I.dpad(13, 16)}${I.dot(30, 18, 1.8)}${I.dot(34.5, 16, 1.8)}${I.dot(39, 14, 1.8)}<path d="M22 13h4"/>`],
+  cdi: ['CD-i', `<rect x="6" y="8" width="36" height="16" rx="5"/>${I.ring(15, 16, 4.5)}${I.dot(15, 16, 1.2)}${I.dot(31, 16, 2)}${I.dot(37, 16, 2)}`],
+  amiga: ['Amiga', keyboard + `<path d="M36 7l3 4"/>`],
+  c64: ['C64', `<path d="M3 26l3-14h36l3 14z"/><path d="M9 16h30M8 20h32M14 23.5h20" stroke-dasharray="2 2"/>`],
+  msx: ['MSX', keyboard + `<path d="M8 11V8h32v3"/>`],
+  supergun: ['Arcade', `<path d="M15 3h18l2 7-2 3v16H15V13l-2-3z"/><rect x="18" y="6" width="12" height="7" rx="1"/><path d="M13 16h22"/>${I.dot(19, 19, 1.3)}${I.dot(24, 19, 1.3)}${I.dot(29, 19, 1.3)}`],
+  pc: ['PC', `<rect x="9" y="4" width="30" height="19" rx="2"/><path d="M24 23v4M17 28h14"/>`],
+};
+const consoleIcon = (id) => CONSOLES[id]
+  ? `<svg class="con" viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CONSOLES[id][1]}</svg>`
+  : '';
+
 async function svsLoad(seq) {
   if (svsSw.loading === seq) return;
   svsSw.loading = seq;
@@ -145,6 +190,7 @@ function showSvs(v) {
   const ins = sw ? sw.inputs : [], out = sw ? sw.output : null;
   const port = (n) => ins[n - 1] || {};
   const label = (n) => port(n).name || 'Input ' + n;
+  const short = (p) => (CONSOLES[p.device] || [])[0] || p.name || '';
   // Until a bridge has reported or is paired there's nothing to show but that it's awaited.
   document.querySelectorAll('.svs-more').forEach((e) => { e.hidden = !paired && !known; });
   document.querySelectorAll('.svs-wait').forEach((e) => { e.hidden = !!(paired || known); });
@@ -153,6 +199,7 @@ function showSvs(v) {
   // Input 0: the switch has no input active.
   const on = known && v.input > 0;
   text('v-input', on ? v.input : '–');
+  $('v-icon').innerHTML = on ? consoleIcon(port(v.input).device) : '';
   text('v-name', on ? [v.name || port(v.input).name || 'input ' + v.input, kindName(port(v.input).kind)].filter(Boolean).join(' · ')
     : known ? 'no input active' : 'waiting for the SVS Bridge');
   text('v-since', !known ? '' : v.since_s < 5 ? 'switched just now' : (on ? 'on screen for ' : 'for ') + duration(v.since_s));
@@ -163,20 +210,22 @@ function showSvs(v) {
   $('v-grid').hidden = !total;
   $('v-nogrid').hidden = !!total;
   $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
-    const n = i + 1, p = port(n), on = v.input === n;
-    return '<div class="' + (on ? 'on' : '') + (p.name ? ' named' : '') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') + '">' +
-      '<b>' + n + '</b>' + (p.name ? '<span>' + esc(p.name) + '</span>' : '') +
+    // The console's icon and short name when the bridge says which it is, else the name given.
+    const n = i + 1, p = port(n), on = v.input === n, icon = consoleIcon(p.device), what = short(p);
+    return '<div class="' + (on ? 'on' : '') + (what ? ' named' : '') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
+      (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + (what ? '<span>' + esc(what) + '</span>' : '') +
       '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small></div>';
   }).join('');
-  $('v-noname').hidden = !total || ins.some((p) => p.name);
+  $('v-noname').hidden = !total || ins.some((p) => p.name || p.device);
   // The output that goes to the RetroTINK.
-  text('v-out', out ? kindName(out.kind) || '–' : '–');
+  text('v-out', out ? [out.name, kindName(out.kind)].filter(Boolean).join(' · ') || '–' : '–');
   text('v-paired', paired || '–');
   text('v-heard', known ? ago(v.heard_s) : '–');
   $('v-hint').hidden = !!paired;
   $('v-unpair').hidden = !paired;
   const hist = known && v.history ? v.history : [];
-  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>' + (input ? esc(label(input)) + (port(input).name ? ' <span class="small">S' + input + '</span>' : '') : 'None active') +
+  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>' + (input ? esc(short(port(input)) || label(input)) +
+    (short(port(input)) ? ' <span class="small">S' + input + '</span>' : '') : 'None active') +
     (i === 0 ? ' <span class="small">(now)</span>' : '') + '</td><td class="r">' + ago(s) + '</td></tr>').join('') ||
     '<tr><td colspan="2" class="small">None yet</td></tr>';
 }

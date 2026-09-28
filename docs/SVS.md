@@ -29,8 +29,8 @@ POST http://<host>:<port>/api/svs
 Content-Type: application/json
 
 {"id": "svs-bridge-aabbccddeeff", "current_input": 3, "total_inputs": 8, "live": true,
- "inputs": [{"kind": "scart", "name": "Super Nintendo"}, {"kind": "component", "name": "PS2"}, ...],
- "output": {"kind": "component", "name": "RetroTINK 4K"}}
+ "inputs": [{"kind": "scart", "name": "Super Nintendo / Super Famicom", "device": "snes"}, ...],
+ "output": {"kind": "component", "name": "RetroTINK 4K", "device": "rt4k"}}
 ```
 
 - **When:** on every input change, whenever the switch's description changes (its layout is edited),
@@ -43,12 +43,13 @@ Content-Type: application/json
 - **The switch** (what the SVS can't report itself, as the bridge's SVS tab sets it up; the rest of
   what the bridge knows about the SVS stays on the bridge):
   - `inputs`, one per input in order (index 0 is input 1): `kind` is the module (`scart`, `component`,
-    `vga`, `svideo`, `dterm`), `name` what is connected to it (up to 32 bytes, `""` if not named). An
-    empty list when no layout is set up.
-  - `output`: the one output that goes to the RetroTINK, `kind` (`scart`, `component`, `vga`, `svideo`,
-    `bnc`) and `name`; absent or `null` while the bridge doesn't know which one it is.
+    `vga`, `svideo`, `dterm`; `""` until it is picked), `device` the console on it, as its id in the
+    bridge's list (`snes`, `ps2`, `megadrive`…; `""` if none is picked), and `name` its name (up to 32
+    bytes). An empty list when no layout is set up.
+  - `output`: the output that goes to the RetroTINK (the one whose device is `rt4k` or `rt4kce`), with
+    the same keys (`kind`: `scart`, `component`, `vga`, `svideo`, `bnc`); absent or `null` if none is.
   - A report with either key replaces what Cruller had; one with neither (an older bridge) leaves it.
-  - A body is 4 KB at most (32 inputs with long names take about 2.5 KB).
+  - A body is 6 KB at most (32 inputs with long names take about 4.5 KB).
 - **Answer:** `{"ok": true, "changed": true|false}` (`changed`: the input). A repeat changes nothing on
   Cruller. A body it can't read gets `400 {"ok": false, "error": "…"}`.
 - **No token:** Cruller has no authentication anywhere (it's a LAN device, like its page and its
@@ -82,7 +83,8 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
   report has come in, without `switch`: `switch_seq` changes with each new description, and the page
   fetches `GET /api/svs` then. Cruller keeps it in RAM: after a restart, the bridge's next report
   (it reports as soon as Cruller announces itself) brings it back.
-- The SVS tab shows each input's module and what is connected to it, and the output to the RetroTINK.
+- The SVS tab shows each input's console as an icon (by its `device`; its name when Cruller has no
+  icon for it) and its module, and the output to the RetroTINK.
 - gameID (coming): each console is assigned a switch input. Only the console on the active input
   changes the RT4K's profile, and switching inputs re-applies that console's game profile if it has
   one. Game profiles use their own SVS numbers (S100 and up) so they never overwrite the switch's

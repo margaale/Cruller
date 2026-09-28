@@ -121,7 +121,7 @@ static const char *text(const char *p, char *out, size_t size) {
     return str(p, out, size);
 }
 
-// Keeps a kind to lowercase letters and digits ("SCART" -> "scart"); anything else makes it "".
+// Keeps a kind or device id to lowercase letters and digits ("SCART" -> "scart"); anything else makes it "".
 static void clean_kind(char *k) {
     for (char *c = k; *c; c++) {
         if (*c >= 'A' && *c <= 'Z') *c = (char)(*c - 'A' + 'a');
@@ -134,7 +134,7 @@ static void clean_name(char *n) {
     for (; *n; n++) if ((unsigned char)*n < 0x20 || *n == 0x7F) *n = ' ';
 }
 
-// {"kind","name"} into port (other keys read past).
+// {"kind","name","device"} into port (other keys read past).
 static const char *port(const char *p, svs_port_t *port) {
     memset(port, 0, sizeof(*port));
     if (*p != '{') return NULL;
@@ -143,16 +143,18 @@ static const char *port(const char *p, svs_port_t *port) {
     while (member(&p, key, sizeof(key))) {
         if (!strcmp(key, "kind")) p = text(p, port->kind, sizeof(port->kind));
         else if (!strcmp(key, "name")) p = text(p, port->name, sizeof(port->name));
+        else if (!strcmp(key, "device")) p = text(p, port->device, sizeof(port->device));
         else p = skip(p, 2);
         if (!p) return NULL;
     }
     if (!p) return NULL;
     clean_kind(port->kind);
+    clean_kind(port->device);
     clean_name(port->name);
     return p;
 }
 
-// [{"kind","name"}, ...] into ports (at most max; the rest are read past).
+// [{"kind","name","device"}, ...] into ports (at most max; the rest are read past).
 static const char *ports(const char *p, svs_port_t *ports, int max, int *count) {
     *count = 0;
     if (*p != '[') return NULL;
@@ -227,10 +229,10 @@ void svs_json_escape(char *out, size_t size, const char *in) {
 
 static size_t port_json(const svs_port_t *port, char *out, size_t size) {
     size_t o = 0;
-    char kind[2 * SVS_KIND_MAX + 8], name[2 * SVS_NAME_MAX + 8];
-    svs_json_escape(kind, sizeof(kind), port->kind);
+    char name[2 * SVS_NAME_MAX + 8];
     svs_json_escape(name, sizeof(name), port->name);
-    ADD("{\"kind\":\"%s\",\"name\":\"%s\"}", kind, name);
+    // (kind and device are letters and digits: nothing to escape)
+    ADD("{\"kind\":\"%s\",\"name\":\"%s\",\"device\":\"%s\"}", port->kind, name, port->device);
     return o;
 }
 
