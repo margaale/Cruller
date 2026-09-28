@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "task.h"
 #include "pico/time.h"
 #include "pico/unique_id.h"
 
@@ -17,6 +18,9 @@ uint32_t plat_us(void) { return time_us_32(); }
 void plat_lock_init(plat_lock_t *lock) { critical_section_init(lock); }
 void plat_lock_enter(plat_lock_t *lock) { critical_section_enter_blocking(lock); }
 void plat_lock_exit(plat_lock_t *lock) { critical_section_exit(lock); }
+
+void plat_critical_enter(void) { taskENTER_CRITICAL(); }
+void plat_critical_exit(void) { taskEXIT_CRITICAL(); }
 
 bool plat_sha256_start(plat_sha256_t *s) { return pico_sha256_start_blocking(s, SHA256_BIG_ENDIAN, false) == PICO_OK; }
 void plat_sha256_update(plat_sha256_t *s, const void *data, size_t len) { pico_sha256_update_blocking(s, data, len); }

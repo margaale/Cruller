@@ -22,7 +22,6 @@
 #include "rt4k.h"
 #include "rtl1.h"
 #include "status_led.h"
-#include "svs.h"
 #include "ws.h"
 
 void app_main(void) {
@@ -35,7 +34,6 @@ void app_main(void) {
     }
     if (err != ESP_OK) printf("nvs: init failed (%s)\n", esp_err_to_name(err));
     rtl1_init();
-    svs_init();
     printf("\nCruller %s, boot partition %d (%s boot)\n", CRULLER_VERSION, ota_boot_partition(), ota_last_boot_type());
 
     health_start(ota_is_trial_boot());

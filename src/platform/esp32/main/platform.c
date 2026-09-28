@@ -16,6 +16,10 @@ void plat_lock_init(plat_lock_t *lock) { portMUX_INITIALIZE(lock); }
 void plat_lock_enter(plat_lock_t *lock) { portENTER_CRITICAL(lock); }
 void plat_lock_exit(plat_lock_t *lock) { portEXIT_CRITICAL(lock); }
 
+static portMUX_TYPE critical = portMUX_INITIALIZER_UNLOCKED;
+void plat_critical_enter(void) { portENTER_CRITICAL(&critical); }
+void plat_critical_exit(void) { portEXIT_CRITICAL(&critical); }
+
 // PSA Crypto (mbedTLS), on the SHA accelerator.
 bool plat_sha256_start(plat_sha256_t *s) {
     if (psa_crypto_init() != PSA_SUCCESS) return false;

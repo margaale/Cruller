@@ -23,7 +23,6 @@
 #include "rt4k.h"
 #include "rtl1.h"
 #include "status_led.h"
-#include "svs.h"
 #include "ws.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
@@ -86,7 +85,6 @@ int main(void) {
     freeze_report(); // where the cores were, if the last run ended in a watchdog reset
     flash_ops_init();
     rtl1_init();
-    svs_init();
     xTaskCreate(main_task, "main", MAIN_TASK_STACK, NULL, MAIN_TASK_PRIORITY, NULL);
     vTaskStartScheduler();
     return 0; // not reached

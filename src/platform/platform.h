@@ -29,6 +29,10 @@ void plat_lock_init(plat_lock_t *lock);
 void plat_lock_enter(plat_lock_t *lock);
 void plat_lock_exit(plat_lock_t *lock);
 
+// One board-wide critical section of the same kind, for modules with nothing to set a lock up.
+void plat_critical_enter(void);
+void plat_critical_exit(void);
+
 // --- SHA-256 (hardware where there is some) -------------------------------------------------------
 
 bool plat_sha256_start(plat_sha256_t *s); // false if the hardware is busy
