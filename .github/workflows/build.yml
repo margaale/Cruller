@@ -84,14 +84,14 @@ jobs:
           PICOTOOL_DIR: ${{ env.TOOLS }}/picotool-install/lib/cmake/picotool
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
         run: |
-          bash scripts/build.sh Release
-          ninja -C build cruller_bench
+          bash scripts/build.sh ${{ matrix.platform }} Release
+          ninja -C build/${{ matrix.platform }} cruller_bench
 
       - uses: actions/upload-artifact@v7
         with:
           name: cruller-${{ matrix.board }}-${{ github.sha }}
           path: |
-            build/cruller.uf2
-            build/cruller_bench.uf2
-            build/cruller_migration.bin
+            build/${{ matrix.platform }}/cruller.uf2
+            build/${{ matrix.platform }}/cruller_bench.uf2
+            build/${{ matrix.platform }}/cruller_migration.bin
           if-no-files-found: error

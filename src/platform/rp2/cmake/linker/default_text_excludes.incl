@@ -6,6 +6,6 @@
    FT232R holds only ~1.3 ms of data at 2 Mbaud, so it overflowed and RTL1 frames lost bytes. */
 *(EXCLUDE_FILE(*libgcc.a: *libm.a:
     *usbh.c.o* *cdc_host.c.o* *tusb_fifo.c.o* *tusb.c.o* *hcd_rp2040.c.o* *rp2040_usb.c.o*
-    *src/platform/rp2/rt4k.c.o* *src/core/rtl1.c.o* *src/core/rtl1_core.c.o*
+    *.dir/rt4k.c.o* */core/rtl1.c.o* */core/rtl1_core.c.o*
     *FreeRTOS-Kernel/tasks.c.o* *FreeRTOS-Kernel/queue.c.o* *FreeRTOS-Kernel/list.c.o*
     *FreeRTOS-Kernel/stream_buffer.c.o* *RP2350_ARM_NTZ*port.c.o*) .text*)

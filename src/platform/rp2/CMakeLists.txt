@@ -1,4 +1,9 @@
+# Cruller for the Raspberry Pi Pico 2 W (Pico SDK): the common code in src/core plus this target.
+#   cmake -S src/platform/rp2 -B build/rp2 -G Ninja   (scripts/build.sh does it)
 cmake_minimum_required(VERSION 3.13)
+
+get_filename_component(CRULLER_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
+set(CRULLER_WEB ${CRULLER_ROOT}/src/web)
 
 set(PICO_BOARD pico2_w CACHE STRING "Board type")
 
@@ -24,8 +29,8 @@ set(CRULLER_BIN_MINOR ${CMAKE_MATCH_3})
 
 # --- third-party ------------------------------------------------------------------------------
 
-add_library(littlefs STATIC third_party/littlefs/lfs.c third_party/littlefs/lfs_util.c)
-target_include_directories(littlefs PUBLIC third_party/littlefs)
+add_library(littlefs STATIC ${CRULLER_ROOT}/third_party/littlefs/lfs.c ${CRULLER_ROOT}/third_party/littlefs/lfs_util.c)
+target_include_directories(littlefs PUBLIC ${CRULLER_ROOT}/third_party/littlefs)
 target_compile_definitions(littlefs PUBLIC LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
 
 # --- application ------------------------------------------------------------------------------
@@ -33,58 +38,60 @@ target_compile_definitions(littlefs PUBLIC LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WAR
 # Common code (src/core) and the Pico 2 W target (src/platform/rp2, see src/platform/platform.h).
 add_library(cruller_app INTERFACE)
 target_sources(cruller_app INTERFACE
-    src/core/clients.c
-    src/core/console.c
-    src/core/console_core.c
-    src/core/creds.c
-    src/core/http.c
-    src/core/power.c
-    src/core/power_core.c
-    src/core/rfc2217.c
-    src/core/rfc2217_proto.c
-    src/core/rtl1.c
-    src/core/rtl1_core.c
-    src/core/settings.c
-    src/core/svs.c
-    src/core/ws.c
-    src/core/ws_proto.c
+    ${CRULLER_ROOT}/src/core/clients.c
+    ${CRULLER_ROOT}/src/core/console.c
+    ${CRULLER_ROOT}/src/core/console_core.c
+    ${CRULLER_ROOT}/src/core/creds.c
+    ${CRULLER_ROOT}/src/core/http.c
+    ${CRULLER_ROOT}/src/core/power.c
+    ${CRULLER_ROOT}/src/core/power_core.c
+    ${CRULLER_ROOT}/src/core/rfc2217.c
+    ${CRULLER_ROOT}/src/core/rfc2217_proto.c
+    ${CRULLER_ROOT}/src/core/rtl1.c
+    ${CRULLER_ROOT}/src/core/rtl1_core.c
+    ${CRULLER_ROOT}/src/core/settings.c
+    ${CRULLER_ROOT}/src/core/svs.c
+    ${CRULLER_ROOT}/src/core/ws.c
+    ${CRULLER_ROOT}/src/core/ws_proto.c
 
-    src/platform/rp2/main.c
-    src/platform/rp2/platform.c
-    src/platform/rp2/platform_reboot.c
-    src/platform/rp2/freertos_hooks.c
-    src/platform/rp2/flash_ops.c
-    src/platform/rp2/store_flash.c
-    src/platform/rp2/donutshop.c
-    src/platform/rp2/ota.c
-    src/platform/rp2/net.c
-    src/platform/rp2/health.c
-    src/platform/rp2/freeze.c
-    src/platform/rp2/log.c
-    src/platform/rp2/status_led.c
+    main.c
+    platform.c
+    platform_reboot.c
+    freertos_hooks.c
+    flash_ops.c
+    store_flash.c
+    donutshop.c
+    ota.c
+    net.c
+    health.c
+    freeze.c
+    log.c
+    status_led.c
     third_party/picow_ap/dhcpserver.c
     third_party/picow_ap/dnsserver.c
 )
-target_include_directories(cruller_app INTERFACE src/core src/platform src/platform/rp2 third_party/picow_ap)
+target_include_directories(cruller_app INTERFACE
+    ${CRULLER_ROOT}/src/core ${CRULLER_ROOT}/src/platform ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/picow_ap)
 
-# Web assets kept as real files (src/web), embedded as C arrays (see cmake/embed.cmake).
+# Web assets kept as real files (src/web), embedded as C arrays (see src/web/embed.cmake).
 set(WEB_FW_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_fw_js.c)
 add_custom_command(OUTPUT ${WEB_FW_JS_C}
-    COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/src/web/fw.js -DOUT=${WEB_FW_JS_C} -DNAME=web_fw_js
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/web/fw.js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/fw.js -DOUT=${WEB_FW_JS_C} -DNAME=web_fw_js
+        -P ${CRULLER_WEB}/embed.cmake
+    DEPENDS ${CRULLER_WEB}/fw.js ${CRULLER_WEB}/embed.cmake
     VERBATIM)
 set(WEB_APP_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_app_js.c)
 add_custom_command(OUTPUT ${WEB_APP_JS_C}
-    COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/src/web/app.js -DOUT=${WEB_APP_JS_C} -DNAME=web_app_js
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/web/app.js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/app.js -DOUT=${WEB_APP_JS_C} -DNAME=web_app_js
+        -P ${CRULLER_WEB}/embed.cmake
+    DEPENDS ${CRULLER_WEB}/app.js ${CRULLER_WEB}/embed.cmake
     VERBATIM)
 set(WEB_INDEX_C ${CMAKE_CURRENT_BINARY_DIR}/web_index_html.c)
 add_custom_command(OUTPUT ${WEB_INDEX_C}
-    COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/src/web/index.html -DOUT=${WEB_INDEX_C} -DNAME=web_index_html
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/web/index.html ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/index.html -DOUT=${WEB_INDEX_C} -DNAME=web_index_html
+        -P ${CRULLER_WEB}/embed.cmake
+    DEPENDS ${CRULLER_WEB}/index.html ${CRULLER_WEB}/embed.cmake
     VERBATIM)
 target_sources(cruller_app INTERFACE ${WEB_FW_JS_C} ${WEB_APP_JS_C} ${WEB_INDEX_C})
 target_compile_definitions(cruller_app INTERFACE
@@ -111,13 +118,13 @@ function(cruller_image TARGET)
     pico_set_binary_version(${TARGET} MAJOR ${CRULLER_BIN_MAJOR} MINOR ${CRULLER_BIN_MINOR})
     if ("${TARGET}" MATCHES "_bench$")
         # Bench board on a PC: USB is a serial console (the log, live) and there is no RT4K link.
-        target_sources(${TARGET} PRIVATE src/platform/rp2/rt4k_stub.c)
+        target_sources(${TARGET} PRIVATE rt4k_stub.c)
         target_compile_definitions(${TARGET} PRIVATE CRULLER_BENCH=1)
         pico_enable_stdio_usb(${TARGET} 1)
     else()
         # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
-        target_sources(${TARGET} PRIVATE src/platform/rp2/rt4k.c)
-        target_include_directories(${TARGET} PRIVATE src/platform/rp2/usb_host)
+        target_sources(${TARGET} PRIVATE rt4k.c)
+        target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/usb_host)
         target_link_libraries(${TARGET} PRIVATE tinyusb_host)
         # The RT4K receive path runs from RAM (see cmake/linker/default_text_excludes.incl).
         pico_add_linker_script_override_path(${TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker

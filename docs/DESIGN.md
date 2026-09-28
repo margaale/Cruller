@@ -32,8 +32,9 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 Cruller is being split so it can run on other boards (next: the ESP32-S3 on ESP-IDF).
 
 - `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
-- `src/platform/<target>`: a board's side. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
-- `src/web`: the page, embedded at build time.
+- `src/platform/<target>`: a board's side, with its own build (`src/platform/rp2/CMakeLists.txt`; `scripts/build.sh rp2` into `build/rp2`). `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
+- `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time.
+- `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2).
 
 ## Software stack
 
@@ -41,7 +42,7 @@ Cruller is being split so it can run on other boards (next: the ESP32-S3 on ESP-
 - FreeRTOS-Kernel SMP (the SDK's RP2350 port).
 - lwIP with `pico_cyw43_arch_lwip_sys_freertos`: lwIP runs in its own tcpip thread, and application code takes the lwIP core lock. That lock is the only way into lwIP.
 - The CYW43 driver through `pico_cyw43_arch`, initialized from core 0 so its async context and IRQ stay there.
-- TinyUSB 0.21 in host mode on the native port (not the SDK's 0.18: its host runs bulk transfers once per frame, too slow for 2 Mbaud). Two patches in `patches/tinyusb`: FTDI status bytes stripped per packet (so transfers can span several packets) and a callback with each packet's status bytes.
+- TinyUSB 0.21 in host mode on the native port (not the SDK's 0.18: its host runs bulk transfers once per frame, too slow for 2 Mbaud). Two patches in `src/platform/rp2/patches/tinyusb`: FTDI status bytes stripped per packet (so transfers can span several packets) and a callback with each packet's status bytes.
 - littlefs for configuration and lwIP's mDNS responder.
 
 ## Tasks
@@ -62,7 +63,7 @@ Cruller is being split so it can run on other boards (next: the ESP32-S3 on ESP-
 | led | 1 | any | status LED |
 | tcpip_thread | 1 | any | lwIP (SDK) |
 
-The RT4K receive path (TinyUSB, CDC, the RTL1 engine, the FreeRTOS kernel) runs from RAM: from flash it went cold in the XIP cache while Wi-Fi code ran on core 0, and the FT232R overflowed (`cmake/linker/default_text_excludes.incl`).
+The RT4K receive path (TinyUSB, CDC, the RTL1 engine, the FreeRTOS kernel) runs from RAM: from flash it went cold in the XIP cache while Wi-Fi code ran on core 0, and the FT232R overflowed (`src/platform/rp2/cmake/linker/default_text_excludes.incl`).
 
 ## RT4K link
 
@@ -83,7 +84,7 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 
 ## Interfaces
 
-- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, Cruller OTA upload. Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`cmake/embed.cmake`).
+- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, Cruller OTA upload. Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
 - **`POST /api/command`**: console commands in (`{"command"}`, `{"commands": []}`, `{"button"}` with hass-RT4K's names, or plain text lines), their own replies out once each window closes.
 - **RFC 2217** on TCP port 2217 (pyserial's `rfc2217://`, e.g. Home Assistant's hass-RT4K): each client sees only its own replies; TCP keepalive drops clients that vanished.
 - **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/core/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
@@ -103,7 +104,7 @@ DonutShop Pico layout (arduino-pico, `flash=4194304_2097152`):
 | `0x1FF000`–`0x3FF000` | LittleFS: `wifi.json`, `consoles.json`, `gameDB.json`, `settings.json` |
 | `0x3FF000`–`0x400000` | EEPROM emulation |
 
-Cruller layout (`pt.json`). The RP2350 boot ROM reads the partition table and does A/B selection:
+Cruller layout (`src/platform/rp2/pt.json`). The RP2350 boot ROM reads the partition table and does A/B selection:
 
 | Flash offset | Size | Content |
 | --- | --- | --- |
@@ -124,7 +125,7 @@ Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (millis
 
 ## OTA (Cruller to Cruller)
 
-- **Upload** from the web page or `curl --data-binary @build/cruller.uf2 http://<board>/update`; images over 1 MiB make curl send `Expect: 100-continue`, which Cruller answers.
+- **Upload** from the web page or `curl --data-binary @build/rp2/cruller.uf2 http://<board>/update`; images over 1 MiB make curl send `Expect: 100-continue`, which Cruller answers.
 - **Write:** straight into the inactive slot, a sector at a time, with the RT4K's USB host quiet meanwhile (`flash_quiet_begin`).
 - **Switch:** the boot ROM's "try before you buy" flow. After a reboot into the new slot, the image is confirmed once healthy; otherwise the boot ROM's watchdog returns to the previous slot. Cruller's own watchdog stays off during the trial and takes over after the confirmation.
 - **Reboots:** power the CYW43 down (`WL_REG_ON` low) and stop feeding the watchdog before every software reboot (feeding it postpones a scheduled reboot).

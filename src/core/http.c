@@ -83,7 +83,7 @@ static void respond_bytes(int fd, const char *extra_headers, const uint8_t *body
     if (len) send_all(fd, body, len);
 }
 
-// Web assets embedded from src/web at build time (cmake/embed.cmake).
+// Web assets embedded from src/web at build time (src/web/embed.cmake).
 extern const unsigned char web_fw_js[];
 extern const size_t web_fw_js_len;
 extern const unsigned char web_app_js[];

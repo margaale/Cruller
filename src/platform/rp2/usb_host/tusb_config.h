@@ -34,7 +34,7 @@
 #define CFG_TUH_CDC_TX_BUFSIZE        CFG_TUH_CDC_RX_BUFSIZE
 // Several packets per RX transfer: the host driver chains them in its IRQ instead of waiting for the
 // rt4k task to re-arm after each 64-byte packet. Needs TinyUSB to strip the FTDI's 2 status bytes
-// per packet (patches/tinyusb/0001-cdc-host-ftdi-strip-status-per-packet.patch).
+// per packet (src/platform/rp2/patches/tinyusb/0001-cdc-host-ftdi-strip-status-per-packet.patch).
 #define CFG_TUH_CDC_RX_EPSIZE         512
 // Same for TX (default: one 64-byte packet per transfer, a task round trip each). Fewer round trips;
 // uploads still top out at ~109 KB/s on the line because the RT4K holds CTS while it writes its card.

@@ -17,7 +17,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RT
 
 ## Building
 
-`scripts/build.sh` (paths default to the author's machine; override them through the environment). Host tests: `tests/run.sh`.
+`scripts/build.sh [rp2] [Debug|Release]` builds a target (`src/platform/<target>`) into `build/<target>`; paths default to the author's machine, override them through the environment. Host tests: `tests/run.sh`.
 
 ## License
 

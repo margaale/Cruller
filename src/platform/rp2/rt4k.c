@@ -205,7 +205,7 @@ static void __not_in_flash_func(usb_irq_probe)(void) {
     trace_add(TR_IRQ, (uint16_t)((uint8_t)c0[0] << 8 | (uint8_t)c1[0]));
 }
 
-// Status bytes of every FTDI packet (patches/tinyusb/0002). An overrun means the FT232R's receive
+// Status bytes of every FTDI packet (src/platform/rp2/patches/tinyusb/0002). An overrun means the FT232R's receive
 // buffer filled up: the host didn't collect packets fast enough and serial bytes were lost.
 void tuh_cdc_ftdi_status_cb(uint8_t idx, uint8_t modem_status, uint8_t line_status) {
     (void)idx;

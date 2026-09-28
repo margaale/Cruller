@@ -1,4 +1,4 @@
-// Flash layout constants. Offsets are physical flash offsets; they must match pt.json.
+// Flash layout constants. Offsets are physical flash offsets; they must match src/platform/rp2/pt.json.
 
 #pragma once
 
