@@ -30,40 +30,42 @@ target_compile_definitions(littlefs PUBLIC LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WAR
 
 # --- application ------------------------------------------------------------------------------
 
+# Common code (src/core) and the Pico 2 W target (src/platform/rp2, see src/platform/platform.h).
 add_library(cruller_app INTERFACE)
 target_sources(cruller_app INTERFACE
-    src/main.c
-    src/freertos_hooks.c
-    src/flash_ops.c
-    src/creds.c
-    src/donutshop.c
-    src/store_flash.c
-    src/ota.c
-    src/platform_reboot.c
+    src/core/clients.c
+    src/core/console.c
+    src/core/console_core.c
+    src/core/creds.c
+    src/core/http.c
+    src/core/power.c
+    src/core/power_core.c
+    src/core/rfc2217.c
+    src/core/rfc2217_proto.c
+    src/core/rtl1.c
+    src/core/rtl1_core.c
+    src/core/settings.c
+    src/core/svs.c
+    src/core/ws.c
+    src/core/ws_proto.c
+
+    src/platform/rp2/main.c
     src/platform/rp2/platform.c
-    src/net.c
-    src/http.c
-    src/status_led.c
-    src/log.c
-    src/freeze.c
-    src/health.c
-    src/clients.c
-    src/console.c
-    src/console_core.c
-    src/power.c
-    src/power_core.c
-    src/rfc2217.c
-    src/rfc2217_proto.c
-    src/rtl1.c
-    src/rtl1_core.c
-    src/settings.c
-    src/svs.c
-    src/ws.c
-    src/ws_proto.c
+    src/platform/rp2/platform_reboot.c
+    src/platform/rp2/freertos_hooks.c
+    src/platform/rp2/flash_ops.c
+    src/platform/rp2/store_flash.c
+    src/platform/rp2/donutshop.c
+    src/platform/rp2/ota.c
+    src/platform/rp2/net.c
+    src/platform/rp2/health.c
+    src/platform/rp2/freeze.c
+    src/platform/rp2/log.c
+    src/platform/rp2/status_led.c
     third_party/picow_ap/dhcpserver.c
     third_party/picow_ap/dnsserver.c
 )
-target_include_directories(cruller_app INTERFACE src src/platform src/platform/rp2 third_party/picow_ap)
+target_include_directories(cruller_app INTERFACE src/core src/platform src/platform/rp2 third_party/picow_ap)
 
 # Web assets kept as real files (src/web), embedded as C arrays (see cmake/embed.cmake).
 set(WEB_FW_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_fw_js.c)
@@ -109,13 +111,13 @@ function(cruller_image TARGET)
     pico_set_binary_version(${TARGET} MAJOR ${CRULLER_BIN_MAJOR} MINOR ${CRULLER_BIN_MINOR})
     if ("${TARGET}" MATCHES "_bench$")
         # Bench board on a PC: USB is a serial console (the log, live) and there is no RT4K link.
-        target_sources(${TARGET} PRIVATE src/rt4k_stub.c)
+        target_sources(${TARGET} PRIVATE src/platform/rp2/rt4k_stub.c)
         target_compile_definitions(${TARGET} PRIVATE CRULLER_BENCH=1)
         pico_enable_stdio_usb(${TARGET} 1)
     else()
         # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
-        target_sources(${TARGET} PRIVATE src/rt4k.c)
-        target_include_directories(${TARGET} PRIVATE src/usb_host)
+        target_sources(${TARGET} PRIVATE src/platform/rp2/rt4k.c)
+        target_include_directories(${TARGET} PRIVATE src/platform/rp2/usb_host)
         target_link_libraries(${TARGET} PRIVATE tinyusb_host)
         # The RT4K receive path runs from RAM (see cmake/linker/default_text_excludes.incl).
         pico_add_linker_script_override_path(${TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker

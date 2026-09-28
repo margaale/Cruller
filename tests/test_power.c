@@ -1,4 +1,4 @@
-// Host unit tests for the RT4K power state (src/power_core.c). Run with tests/run.sh.
+// Host unit tests for the RT4K power state (src/core/power_core.c). Run with tests/run.sh.
 
 #include <stdio.h>
 #include <string.h>

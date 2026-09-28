@@ -11,7 +11,7 @@ Status: M1 (RT4K link) done, parts of M3 and M4 done; M2 (gameID) not started. D
 - **Robust networking.** Use the Pico SDK's own FreeRTOS + lwIP + CYW43 integration, with lwIP core locking. The arduino-pico FreeRTOS layers showed races, a skipped CYW43 mutex and 8–15 s CYW43 bring-ups (see "Lessons from the DonutShop port").
 - **A two-way RT4K link over USB** (the RT4K is an FTDI FT232R, 0403:6001, at 2 Mbaud) and over the HD-15 serial port.
 
-Non-goals for now: other scalers, other boards, and reusing the DonutShop v0.7 web UI (its source isn't published).
+Non-goals for now: other scalers, and reusing the DonutShop v0.7 web UI (its source isn't published).
 
 ## Hardware
 
@@ -26,6 +26,14 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 | IR receiver / emitter | GP2 / GP3 | optional, not used yet |
 | RGB status LED | GP16 / GP17 / GP18 | optional, active low |
 | Status LED | CYW43 GPIO 0 | on-board |
+
+## Source layout
+
+Cruller is being split so it can run on other boards (next: the ESP32-S3 on ESP-IDF).
+
+- `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
+- `src/platform/<target>`: a board's side. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
+- `src/web`: the page, embedded at build time.
 
 ## Software stack
 
@@ -59,26 +67,26 @@ The RT4K receive path (TinyUSB, CDC, the RTL1 engine, the FreeRTOS kernel) runs 
 ## RT4K link
 
 - **USB:** the RT4K enumerates as an FTDI FT232R. 2 Mbaud is the most it takes (`baud` accepts 115200, 500000, 1000000 and 2000000). Hot-plug works: the link is up when the device mounts.
-- **RTL1:** the binary transfer protocol of firmware 1.75+ (OSD planes, font, files, uploads), in `src/rtl1_core.c` (pure, host-tested) and `src/rtl1.c`. See [RTL1.md](RTL1.md), which also covers the file and firmware commands.
+- **RTL1:** the binary transfer protocol of firmware 1.75+ (OSD planes, font, files, uploads), in `src/core/rtl1_core.c` (pure, host-tested) and `src/core/rtl1.c`. See [RTL1.md](RTL1.md), which also covers the file and firmware commands.
 - **Flow control:** the RT4K wires CTS to the FT232R. Cruller keeps RTS/CTS on at the chip all the time (asked again at every mount), so uploads stream (~94 KB/s, the RT4K's own pace while it writes its card) and commands wait instead of being lost while the RT4K is busy. The RT4K keeps CTS asserted in standby too: "pwr on" gets through with flow control on (measured).
 - **HD-15:** not used yet.
 
 ### RT4K console
 
-The RT4K's text console is shared by the web page, Cruller's own checks, `/api/command` and RFC 2217 clients. Its replies carry no sender, so `src/console.c` sends one command at a time and opens a reply window: lines that come back meanwhile belong to that command's sender. The window closes on the reply's known last line (`Serial Remote:` for a key, `Build tag:` for `ver`, `ls end`...; a `Bad Command` always ends it), otherwise after 50 ms of quiet, or 1 s after a command nothing answered. Lines outside any window go to everyone. Windows last the RT4K's own reply time, 4–23 ms.
+The RT4K's text console is shared by the web page, Cruller's own checks, `/api/command` and RFC 2217 clients. Its replies carry no sender, so `src/core/console.c` sends one command at a time and opens a reply window: lines that come back meanwhile belong to that command's sender. The window closes on the reply's known last line (`Serial Remote:` for a key, `Build tag:` for `ver`, `ls end`...; a `Bad Command` always ends it), otherwise after 50 ms of quiet, or 1 s after a command nothing answered. Lines outside any window go to everyone. Windows last the RT4K's own reply time, 4–23 ms.
 
 An OSD transfer waits until the RT4K has answered the last command (it ignores transfer requests sent right behind one), at most 100 ms. Key to screen on the page: ~91 ms.
 
 ### Power state
 
-`src/power_core.c` (pure, host-tested) follows what the RT4K shows: any `[COM]` reply means on, `Power On Requested` means starting, `Serial Remote: pwr` or unanswered polls and probes mean standby. It probes with `ver`, which a sleeping RT4K ignores without waking: every 5 s in standby, every second while starting, and after 10 s without a sign of life when on. The mirror stops polling while the RT4K sleeps. (The line break an RT4K is said to produce when it powers down never showed up over USB.)
+`src/core/power_core.c` (pure, host-tested) follows what the RT4K shows: any `[COM]` reply means on, `Power On Requested` means starting, `Serial Remote: pwr` or unanswered polls and probes mean standby. It probes with `ver`, which a sleeping RT4K ignores without waking: every 5 s in standby, every second while starting, and after 10 s without a sign of life when on. The mirror stops polling while the RT4K sleeps. (The line break an RT4K is said to produce when it powers down never showed up over USB.)
 
 ## Interfaces
 
 - **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, Cruller OTA upload. Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`cmake/embed.cmake`).
 - **`POST /api/command`**: console commands in (`{"command"}`, `{"commands": []}`, `{"button"}` with hass-RT4K's names, or plain text lines), their own replies out once each window closes.
 - **RFC 2217** on TCP port 2217 (pyserial's `rfc2217://`, e.g. Home Assistant's hass-RT4K): each client sees only its own replies; TCP keepalive drops clients that vanished.
-- **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
+- **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/core/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
 - **`POST /rt4k/put`, `POST /rt4k/ask`**: file uploads to the RT4K's SD card and single queries, used by the firmware updater.
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
 - **Status**: `GET /status` (JSON, also pushed over the WebSocket).

@@ -114,7 +114,7 @@ other models' `.rbf`, `rt4kup.bin` last, then runs `fwup` (tried: 1.87.0 to 1.87
 
 ## Cruller
 
-`src/rtl1.c` sees every byte from the RT4K. Text goes to the terminal; between a ready line and the
+`src/core/rtl1.c` sees every byte from the RT4K. Text goes to the terminal; between a ready line and the
 end of the transfer, bytes go to the frame decoder instead, so the terminal never shows binary.
 Frames are checked for CRC, nonce and sequence, and the payload against the SHA-256 (the RP2350's
 hardware engine). One transfer runs at a time, and terminal commands wait for it.

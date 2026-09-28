@@ -1,4 +1,4 @@
-// Host unit tests for the console reply windows (src/console_core.c). Run with tests/run.sh.
+// Host unit tests for the console reply windows (src/core/console_core.c). Run with tests/run.sh.
 
 #include <stdio.h>
 #include <string.h>
