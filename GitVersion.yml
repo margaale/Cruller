@@ -1,5 +1,5 @@
 # Cruller's version (.github/workflows/build.yml):
-#   main:          every push is a release, vX.Y.Z; the patch grows with each one.
+#   master:        every push is a release, vX.Y.Z; the patch grows with each one.
 #   develop:       every push is a pre-release, vX.Y.Z-alpha.N (the next release, the commits since
 #                  the last one), to try on a board.
 #   pull requests: X.Y.Z-pr.N, built but not published (the images are on the run).

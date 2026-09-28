@@ -23,7 +23,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for how it works and [docs/RTL1.md](docs/RT
 
 Versions come from GitVersion (`GitVersion.yml`), and CI builds every board with them:
 
-- **`main`:** every push is a release, tagged `vX.Y.Z`, with every board's images. The patch grows with each one; a line `+semver: minor` in a commit message bumps the minor.
+- **`master`:** every push is a release, tagged `vX.Y.Z`, with every board's images. The patch grows with each one; a line `+semver: minor` in a commit message bumps the minor.
 - **`develop`:** every push is a pre-release, `vX.Y.Z-alpha.N` (the next release, the commits since the last one), to try on a board. Each alpha sorts after the one before and before its release. The Cruller tab lists alphas but suggests them only to a board already running one.
 - **Pull requests** (into `develop`): built as `X.Y.Z-pr.N`, not published; the images are on the run, one file each.
 
