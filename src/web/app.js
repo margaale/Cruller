@@ -166,6 +166,9 @@ const CONSOLES = {
   supergun: ['Arcade', `<path d="M15 3h18l2 7-2 3v16H15V13l-2-3z"/><rect x="18" y="6" width="12" height="7" rx="1"/><path d="M13 16h22"/>${I.dot(19, 19, 1.3)}${I.dot(24, 19, 1.3)}${I.dot(29, 19, 1.3)}`],
   pc: ['PC', `<rect x="9" y="4" width="30" height="19" rx="2"/><path d="M24 23v4M17 28h14"/>`],
 };
+// An input with nothing on it: the icon's place, outlined.
+const EMPTY_ICON = '<svg class="con" viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" ' +
+  'aria-hidden="true"><rect x="6" y="6" width="36" height="20" rx="8"/></svg>';
 const consoleIcon = (id) => CONSOLES[id]
   ? `<svg class="con" viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CONSOLES[id][1]}</svg>`
   : '';
@@ -211,9 +214,11 @@ function showSvs(v) {
   $('v-nogrid').hidden = !!total;
   $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
     // The console's icon and short name when the bridge says which it is, else the name given.
-    const n = i + 1, p = port(n), on = v.input === n, icon = consoleIcon(p.device), what = short(p);
-    return '<div class="' + (on ? 'on' : '') + (what ? ' named' : '') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
-      (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + (what ? '<span>' + esc(what) + '</span>' : '') +
+    // Nothing picked on it: the same tile, with an empty slot for the icon.
+    const n = i + 1, p = port(n), on = v.input === n, what = short(p);
+    const icon = consoleIcon(p.device) || (what ? '' : EMPTY_ICON);
+    return '<div class="' + (on ? 'on' : '') + (what ? '' : ' empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
+      (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + '<span>' + (what ? esc(what) : 'Empty') + '</span>' +
       '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small></div>';
   }).join('');
   $('v-noname').hidden = !total || ins.some((p) => p.name || p.device);
