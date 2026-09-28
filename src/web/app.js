@@ -46,7 +46,7 @@ const IN_PORTAL = location.hostname === '192.168.4.1';
 
 function route() {
   const [t, sub] = (location.hash.slice(1) || (IN_PORTAL ? 'setup' : 'rt4k')).split('/');
-  tab = ['rt4k', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
+  tab = ['rt4k', 'svs', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
   document.body.classList.toggle('setup', tab === 'setup');
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
@@ -116,15 +116,27 @@ function st(s) {
 
 // --- SVS Bridge card ------------------------------------------------------------------------------------
 
+const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
+
 function showSvs(v) {
-  const paired = v && v.paired;
-  $('v-dot').className = 'dot ' + (!paired ? '' : v.known && v.heard_s < 150 ? 'ok' : 'warn');
-  text('v-state', !paired ? 'not paired' : v.known && v.heard_s < 150 ? 'reporting' : 'not heard lately');
-  text('v-input', v && v.known ? 'Input ' + v.input + (v.name ? ' · ' + v.name : '') : 'No input yet');
+  const paired = v && v.paired, known = v && v.known, live = known && v.heard_s < 150;
+  $('v-dot').className = 'dot ' + (!paired && !known ? '' : live ? 'ok' : 'warn');
+  text('v-state', !paired && !known ? 'no bridge yet' : live ? 'live' : 'not heard lately');
+  text('v-input', known ? v.input : '–');
+  text('v-name', known ? v.name || 'input ' + v.input : 'waiting for the SVS Bridge');
+  text('v-since', known ? (v.since_s < 5 ? 'switched just now' : 'on screen for ' + duration(v.since_s)) : '');
+  // One tile per input (8 until the bridge says how many), the active one lit.
+  const total = known && v.total ? v.total : 8;
+  text('v-total', known && v.total ? total + ' inputs' : '');
+  $('v-grid').innerHTML = Array.from({ length: total }, (_, i) =>
+    '<div class="' + (known && v.input === i + 1 ? 'on' : '') + '">' + (i + 1) + '<small>' + (known && v.input === i + 1 ? 'ON SCREEN' : 'S' + (i + 1)) + '</small></div>').join('');
   text('v-paired', paired || '–');
-  text('v-heard', v && v.known ? duration(v.heard_s) + ' ago' : '–');
+  text('v-heard', known ? ago(v.heard_s) : '–');
   $('v-hint').hidden = !!paired;
   $('v-unpair').hidden = !paired;
+  const hist = known && v.history ? v.history : [];
+  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>Input ' + input + (i === 0 ? ' <span class="small">(now)</span>' : '') +
+    '</td><td class="r">' + ago(s) + '</td></tr>').join('') || '<tr><td colspan="2" class="small">None yet</td></tr>';
 }
 
 async function unpair() {

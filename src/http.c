@@ -387,7 +387,7 @@ void http_status_json(char *body, size_t size) {
     settings_get(&set);
     n = strlen(body);
     if (n && n < size && (svs_get(&s) || set.svs_bridge[0])) {
-        char svs[256];
+        char svs[640];
         svs_json(svs, sizeof(svs));
         snprintf(body + n - 1, size - (n - 1), ",\"svs\":%s}", svs);
     }
@@ -791,8 +791,14 @@ static void svs_json(char *out, size_t size) {
     json_escape(name, sizeof(name), s.name);
     json_escape(id, sizeof(id), s.id);
     const uint32_t now = to_ms_since_boot(get_absolute_time());
-    snprintf(out, size, "{\"known\":true,\"input\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu}",
-        s.input, name, id, paired, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000));
+    int n = snprintf(out, size, "{\"known\":true,\"input\":%d,\"total\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu,\"history\":[",
+        s.input, s.total, name, id, paired, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000));
+    // The last input changes, newest first: [[input, seconds ago], ...].
+    for (int i = 0; i < s.history_n && n > 0 && (size_t)n < size; i++) {
+        n += snprintf(out + n, size - (size_t)n, "%s[%d,%lu]", i ? "," : "", s.history[i].input,
+            (unsigned long)((now - s.history[i].at_ms) / 1000));
+    }
+    if (n > 0 && (size_t)n < size) snprintf(out + n, size - (size_t)n, "]}");
 }
 
 // POST /api/svs/unpair: forget the paired bridge; the next one to report is kept.
@@ -808,7 +814,7 @@ static void handle_svs_unpair(request_t *r) {
 }
 
 static void handle_svs(request_t *r, bool post) {
-    char out[256];
+    char out[640];
     if (post) {
         static raw_t body;
         body.len = 0;
@@ -846,7 +852,13 @@ static void handle_svs(request_t *r, bool post) {
             snprintf(s.svs_bridge, sizeof(s.svs_bridge), "%s", id);
             printf("http: paired with SVS Bridge %s: %s\n", id, settings_save(&s) ? "saved" : "NOT saved");
         }
-        const bool changed = svs_report((int)input, name, id);
+        long total = 0;
+        if ((p = json_key(text, "total_inputs"))) {
+            while (*p == ' ' || *p == ':' || *p == '\t') p++;
+            total = strtol(p, NULL, 10);
+            if (total < 0 || total > 64) total = 0;
+        }
+        const bool changed = svs_report((int)input, (int)total, name, id);
         snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
     } else {
         svs_json(out, sizeof(out));
