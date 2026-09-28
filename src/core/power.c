@@ -66,5 +66,5 @@ static void power_task(void *param) {
 void power_start(void) {
     plat_lock_init(&lock);
     power_core_init(now_ms());
-    xTaskCreate(power_task, "power", 512, NULL, POWER_TASK_PRIORITY, NULL);
+    xTaskCreate(power_task, "power", PLAT_STACK(512), NULL, POWER_TASK_PRIORITY, NULL);
 }

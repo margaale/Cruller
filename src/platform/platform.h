@@ -13,7 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "platform_target.h" // per target: plat_lock_t, plat_sha256_t
+#include "platform_target.h" // per target: plat_lock_t, plat_sha256_t, PLAT_STACK()
+
+// Task stacks are sized in 32-bit words, as in the FreeRTOS kernel; PLAT_STACK(words) is what this
+// target's xTaskCreate() takes (ESP-IDF counts bytes).
 
 // --- time --------------------------------------------------------------------------------------------
 

@@ -14,7 +14,8 @@ project(cruller C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-set(CRULLER_VERSION "0.0.4" CACHE STRING "Firmware version (X.Y.Z); must grow with every image, the boot ROM picks A/B by it")
+include(${CRULLER_ROOT}/src/version.cmake)
+set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z); must grow with every image, the boot ROM picks A/B by it")
 
 pico_sdk_init()
 
@@ -67,12 +68,12 @@ target_sources(cruller_app INTERFACE
     freeze.c
     log.c
     status_led.c
-    third_party/picow_ap/dhcpserver.c
-    third_party/picow_ap/dnsserver.c
+    ${CRULLER_ROOT}/third_party/picow_ap/dhcpserver.c
+    ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
 )
 target_include_directories(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core ${CRULLER_ROOT}/src/platform ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/picow_ap)
+    ${CRULLER_ROOT}/third_party/picow_ap)
 
 # Web assets kept as real files (src/web), embedded as C arrays (see src/web/embed.cmake).
 set(WEB_FW_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_fw_js.c)
@@ -118,7 +119,7 @@ function(cruller_image TARGET)
     pico_set_binary_version(${TARGET} MAJOR ${CRULLER_BIN_MAJOR} MINOR ${CRULLER_BIN_MINOR})
     if ("${TARGET}" MATCHES "_bench$")
         # Bench board on a PC: USB is a serial console (the log, live) and there is no RT4K link.
-        target_sources(${TARGET} PRIVATE rt4k_stub.c)
+        target_sources(${TARGET} PRIVATE ${CRULLER_ROOT}/src/core/rt4k_stub.c)
         target_compile_definitions(${TARGET} PRIVATE CRULLER_BENCH=1)
         pico_enable_stdio_usb(${TARGET} 1)
     else()

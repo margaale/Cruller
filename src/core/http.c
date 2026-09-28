@@ -1121,5 +1121,5 @@ static void http_task(void *param) {
 }
 
 void http_start(void) {
-    xTaskCreate(http_task, "http", HTTP_TASK_STACK, NULL, HTTP_TASK_PRIORITY, NULL);
+    xTaskCreate(http_task, "http", PLAT_STACK(HTTP_TASK_STACK), NULL, HTTP_TASK_PRIORITY, NULL);
 }

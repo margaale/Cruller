@@ -230,5 +230,5 @@ void rfc2217_clients(char *out, size_t size) {
 }
 
 void rfc2217_start(void) {
-    xTaskCreate(rfc2217_task, "rfc2217", RFC2217_TASK_STACK, NULL, RFC2217_TASK_PRIORITY, NULL);
+    xTaskCreate(rfc2217_task, "rfc2217", PLAT_STACK(RFC2217_TASK_STACK), NULL, RFC2217_TASK_PRIORITY, NULL);
 }

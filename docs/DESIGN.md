@@ -29,12 +29,13 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 
 ## Source layout
 
-Cruller is being split so it can run on other boards (next: the ESP32-S3 on ESP-IDF).
+Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and the ESP32-S3-DevKitC-1 N16R8 (`esp32`, ESP-IDF 6.1; in progress: no RT4K link yet, nothing tried on a board).
 
 - `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
-- `src/platform/<target>`: a board's side, with its own build (`src/platform/rp2/CMakeLists.txt`; `scripts/build.sh rp2` into `build/rp2`). `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
+- `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
 - `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time.
-- `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2).
+- `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
+- `src/version.cmake`: the version, for every target.
 
 ## Software stack
 

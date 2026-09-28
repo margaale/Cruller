@@ -285,5 +285,5 @@ void console_start(void) {
     plat_lock_init(&lock);
     queue = xQueueCreate(QUEUE_DEPTH, sizeof(request_t));
     query_lock = xSemaphoreCreateMutex();
-    xTaskCreate(console_task, "console", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIORITY, &console_task_h);
+    xTaskCreate(console_task, "console", PLAT_STACK(CONSOLE_TASK_STACK), NULL, CONSOLE_TASK_PRIORITY, &console_task_h);
 }

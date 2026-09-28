@@ -560,6 +560,6 @@ bool ws_adopt(int fd) {
 void ws_start(void) {
     adopt_q = xQueueCreate(MAX_CLIENTS, sizeof(int));
     snap_lock = xSemaphoreCreateMutex();
-    xTaskCreate(ws_task, "ws", WS_TASK_STACK, NULL, WS_TASK_PRIORITY, NULL);
-    xTaskCreate(mirror_task, "mirror", MIRROR_TASK_STACK, NULL, MIRROR_PRIORITY, &mirror_task_h);
+    xTaskCreate(ws_task, "ws", PLAT_STACK(WS_TASK_STACK), NULL, WS_TASK_PRIORITY, NULL);
+    xTaskCreate(mirror_task, "mirror", PLAT_STACK(MIRROR_TASK_STACK), NULL, MIRROR_PRIORITY, &mirror_task_h);
 }

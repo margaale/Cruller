@@ -7,3 +7,5 @@
 
 typedef critical_section_t plat_lock_t;
 typedef pico_sha256_state_t plat_sha256_t;
+
+#define PLAT_STACK(words) (words)

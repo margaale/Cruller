@@ -2,14 +2,22 @@
 # Local build of a target (src/platform/<target>) into build/<target>. Paths default to this
 # machine's setup; override them through the environment.
 #   [CRULLER_VERSION=x.y.z] [PICO_BOARD=pico2_w] scripts/build.sh [rp2] [Debug|Release]
+#   [CRULLER_VERSION=x.y.z] scripts/build.sh esp32       (in an ESP-IDF 6.1 shell: idf.py on the PATH)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 target=rp2
-case "${1:-}" in rp2) target=$1; shift ;; esac
+case "${1:-}" in rp2|esp32) target=$1; shift ;; esac
 build_type="${1:-Release}"
 src="src/platform/$target"
 out="build/$target"
+
+if [ "$target" = esp32 ]; then
+    # Optimization comes from sdkconfig.defaults, not a build type.
+    idf.py -C "$src" -B "$out" ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} build
+    ls -l "$out/cruller.bin"
+    exit 0
+fi
 
 TOOLS_ROOT="${TOOLS_ROOT:-/c/Users/mArgAAle/pico}"
 export PICO_SDK_PATH="${PICO_SDK_PATH:-$TOOLS_ROOT/pico-sdk}"

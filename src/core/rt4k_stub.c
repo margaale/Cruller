@@ -1,5 +1,5 @@
-// Bench builds: the USB port is the serial console, so there is no RT4K link. Everything in rt4k.h,
-// doing nothing: commands aren't sent, queries fail, the terminal stays empty.
+// No RT4K link: rp2 bench builds (the USB port is the serial console) and targets without one yet.
+// Everything in rt4k.h, doing nothing: commands aren't sent, queries fail, the terminal stays empty.
 
 #include "rt4k.h"
 
