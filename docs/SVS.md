@@ -12,7 +12,7 @@ type in.
 
 | Board | Service | Port | TXT |
 |---|---|---|---|
-| Cruller | `_rt4k._tcp` | 80 | `id=<Pico id>`, `ver=<Cruller version>`, `api=/api` |
+| Cruller | `_rt4k._tcp` | 80 | `id=<Pico id>`, `ver=<Cruller version>`, `api=/api`, `name=<name>` (once named) |
 | Cruller | `_rfc2217._tcp` | 2217 | `id=<Pico id>` |
 | Cruller | `_http._tcp` | 80 | (the web page) |
 | SVS Bridge | `_svsbridge._tcp` | 443 | `id=svs-bridge-<mac>`, `version=1` (API version) |
@@ -43,6 +43,18 @@ Why the bridge pushes instead of Cruller polling it: the bridge's API is HTTPS w
 Cruller would need a TLS client and the token for a single number. The bridge already has an HTTP
 client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
 
+## Names and pairing (several SVS and RT4Ks)
+
+- **Each Cruller has a name**, set in its setup wizard or the Cruller tab ("Living", "Game room"). It
+  announces itself as "Cruller Living" on `cruller-living.local`, with `name=Living` in the `_rt4k`
+  TXT. An unnamed Cruller is plain `cruller.local`.
+- **The bridge picks its Cruller**: its web UI lists the `_rt4k._tcp` it finds (name, id) and the user
+  chooses one; the bridge stores that Cruller's `id` (not its address) and reports only to it.
+- **Cruller keeps the first bridge that reports** (with an `id`) in its settings. Reports from another
+  bridge get `409 {"ok": false, "error": "paired with another SVS Bridge", "paired": "<id>"}`, so a
+  bridge set up for another RT4K can't change this one's profiles. `POST /api/svs/unpair` (the Unpair
+  button in the Cruller tab) frees it; a factory reset does too.
+
 ## What Cruller does with it
 
 - `GET /api/svs`: what Cruller last heard:
@@ -59,5 +71,7 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
 
 1. Browse `_rt4k._tcp` (ESP-IDF `mdns_query_ptr("_rt4k", "_tcp", …)`, repeated now and then, or on
    the mDNS announcements it sees).
-2. For each result, `POST /api/svs` with the body above: on start, on each input change, every 60 s.
-3. Optionally show the Crullers it found, and whether the last report went through, in its web UI.
+2. In its web UI, list the Crullers found (TXT `name`, `id`) and let the user pick one; store its `id`.
+3. `POST /api/svs` to the picked one (found by `id` each time) with the body above: on start, on each
+   input change, every 60 s. Show whether the last report went through, and a `409` as "this Cruller
+   is paired with another bridge".

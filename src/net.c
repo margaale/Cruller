@@ -16,6 +16,8 @@
 #include "creds.h"
 #include "dhcpserver.h"
 #include "dnsserver.h"
+#include "platform_reboot.h"
+#include "settings.h"
 #include "status_led.h"
 
 #define NET_TASK_STACK      2048
@@ -25,15 +27,33 @@
 #define LINK_CHECK_MS       2000
 #define RECONNECT_AFTER_MS  20000   // link down this long -> rejoin
 #define PORTAL_SSID         "Cruller_Setup"
-#define MDNS_HOSTNAME       "cruller"
+#define SETUP_JOIN_MS       20000   // the setup wizard's join attempt
+#define SETUP_CLOSE_MS      20000   // after it worked: the portal stays up this long, then Cruller restarts
 
 static volatile net_state_t state = NET_STARTING;
 static char ip_str[16];
 static wifi_creds_t creds;
+// Names from the settings (settings.c): "cruller-living" (mDNS, DHCP) and "Cruller Living" (DNS-SD).
+static char host_name[48], instance_name[48];
 
 net_state_t net_state(void) { return state; }
 const char *net_ip(void) { return ip_str; }
 const char *net_ssid(void) { return state == NET_PORTAL ? PORTAL_SSID : creds.ssid; }
+const char *net_hostname(void) { return host_name; }
+
+static void names_init(void) {
+    settings_t s;
+    settings_get(&s);
+    settings_hostname(s.name, host_name, sizeof(host_name));
+    snprintf(instance_name, sizeof(instance_name), "Cruller%s%s", s.name[0] ? " " : "", s.name);
+}
+
+// The station's DHCP host name (the router's client list) follows the mDNS one.
+static void sta_hostname(void) {
+    cyw43_arch_lwip_begin();
+    netif_set_hostname(&cyw43_state.netif[CYW43_ITF_STA], host_name);
+    cyw43_arch_lwip_end();
+}
 
 static void set_ip(const ip4_addr_t *addr) {
     if (addr) ip4addr_ntoa_r(addr, ip_str, sizeof(ip_str));
@@ -142,6 +162,13 @@ static void rt4k_txt(struct mdns_service *service, void *userdata) {
     txt_id(service);
     txt_add(service, "ver=" CRULLER_VERSION);
     txt_add(service, "api=/api");
+    settings_t s;
+    settings_get(&s);
+    if (s.name[0]) {
+        char item[8 + SETTINGS_NAME_MAX];
+        snprintf(item, sizeof(item), "name=%s", s.name);
+        txt_add(service, item);
+    }
 }
 
 static void rfc2217_txt(struct mdns_service *service, void *userdata) {
@@ -156,10 +183,10 @@ static void mdns_start(struct netif *nif) {
         mdns_resp_init();
         started = true;
     }
-    mdns_resp_add_netif(nif, MDNS_HOSTNAME);
-    mdns_resp_add_service(nif, "Cruller", "_http", DNSSD_PROTO_TCP, 80, NULL, NULL);
-    mdns_resp_add_service(nif, "Cruller", "_rt4k", DNSSD_PROTO_TCP, 80, rt4k_txt, NULL);
-    mdns_resp_add_service(nif, "Cruller", "_rfc2217", DNSSD_PROTO_TCP, 2217, rfc2217_txt, NULL);
+    mdns_resp_add_netif(nif, host_name);
+    mdns_resp_add_service(nif, instance_name, "_http", DNSSD_PROTO_TCP, 80, NULL, NULL);
+    mdns_resp_add_service(nif, instance_name, "_rt4k", DNSSD_PROTO_TCP, 80, rt4k_txt, NULL);
+    mdns_resp_add_service(nif, instance_name, "_rfc2217", DNSSD_PROTO_TCP, 2217, rfc2217_txt, NULL);
     UNLOCK_TCPIP_CORE();
 }
 
@@ -257,6 +284,90 @@ static void portal_close(void) {
     printf("net: setup portal closed\n");
 }
 
+// --- the setup wizard's join (from the portal, which stays up meanwhile) ------------------------------
+//
+// The wizard asks with net_setup_start(); the net task tries the network with the access point still
+// up, so the phone on it hears how it went (wrong password, not found) and can try again. On success
+// the credentials are saved and, SETUP_CLOSE_MS later, Cruller restarts on its new network.
+
+static struct {
+    volatile net_setup_state_t st;
+    volatile bool requested;
+    char ssid[CREDS_SSID_MAX + 1], pass[CREDS_PASS_MAX + 1];
+    char ip[16];
+    int rssi;                // the network's signal from the portal's scan (0: not in it)
+    uint32_t restart_at_ms;  // after a success
+    volatile uint32_t version;
+} setup;
+
+uint32_t net_setup_version(void) { return setup.version; }
+
+bool net_setup_start(const char *ssid, const char *pass) {
+    if (state != NET_PORTAL || setup.st == SETUP_JOINING || setup.st == SETUP_OK || !ssid[0]) return false;
+    snprintf(setup.ssid, sizeof(setup.ssid), "%s", ssid);
+    snprintf(setup.pass, sizeof(setup.pass), "%s", pass ? pass : "");
+    setup.ip[0] = 0;
+    setup.st = SETUP_JOINING;
+    setup.requested = true;
+    setup.version++;
+    return true;
+}
+
+size_t net_setup_json(char *out, size_t size) {
+    static const char *names[] = {"idle", "joining", "ok", "wrong_password", "not_found", "failed"};
+    const net_setup_state_t st = setup.st;
+    char ssid[2 * CREDS_SSID_MAX + 2];
+    size_t e = 0;
+    for (const char *p = setup.ssid; *p && e + 2 < sizeof(ssid); p++) { // JSON-escape the name
+        if (*p == '"' || *p == '\\') ssid[e++] = '\\';
+        ssid[e++] = (unsigned char)*p < 0x20 ? '?' : *p;
+    }
+    ssid[e] = 0;
+    const uint32_t now = now_ms();
+    const long left = st == SETUP_OK ? (long)(setup.restart_at_ms - now) / 1000 : 0;
+    const int n = snprintf(out, size, "{\"state\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"ip\":\"%s\",\"hostname\":\"%s\",\"restart_in_s\":%ld}",
+        names[st], ssid, setup.rssi, setup.ip, host_name, left > 0 ? left : 0);
+    return n > 0 && (size_t)n < size ? (size_t)n : 0;
+}
+
+static void setup_join(void) {
+    setup.rssi = 0;
+    for (int i = 0; i < scan_count; i++) {
+        if (!strcmp(scan_list[i].ssid, setup.ssid)) setup.rssi = scan_list[i].rssi;
+    }
+    printf("net: setup: joining \"%s\" with the portal up\n", setup.ssid);
+    cyw43_arch_enable_sta_mode();
+    sta_hostname();
+    const uint32_t auth = setup.pass[0] ? CYW43_AUTH_WPA2_MIXED_PSK : CYW43_AUTH_OPEN;
+    net_setup_state_t result = SETUP_FAILED;
+    if (cyw43_arch_wifi_connect_async(setup.ssid, setup.pass[0] ? setup.pass : NULL, auth) == 0) {
+        for (const uint32_t t0 = now_ms(); now_ms() - t0 < SETUP_JOIN_MS;) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            const int link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+            if (link == CYW43_LINK_UP) { result = SETUP_OK; break; }
+            if (link == CYW43_LINK_BADAUTH) { result = SETUP_WRONG_PASSWORD; break; }
+            if (link == CYW43_LINK_NONET) { result = SETUP_NOT_FOUND; break; }
+            if (link == CYW43_LINK_FAIL) break;
+        }
+    }
+    if (result == SETUP_OK) {
+        cyw43_arch_lwip_begin();
+        ip4addr_ntoa_r(netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]), setup.ip, sizeof(setup.ip));
+        cyw43_arch_lwip_end();
+        wifi_creds_t c = {0};
+        snprintf(c.ssid, sizeof(c.ssid), "%s", setup.ssid);
+        snprintf(c.pass, sizeof(c.pass), "%s", setup.pass);
+        if (!creds_save(&c)) result = SETUP_FAILED;
+        setup.restart_at_ms = now_ms() + SETUP_CLOSE_MS;
+    } else {
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    }
+    printf("net: setup: \"%s\" %s%s%s\n", setup.ssid, result == SETUP_OK ? "joined, IP " : "failed",
+        result == SETUP_OK ? setup.ip : "", result == SETUP_OK ? "; restarting in 20 s" : "");
+    setup.st = result;
+    setup.version++;
+}
+
 static void portal_forever(void) {
     printf("net: starting setup portal \"%s\"\n", PORTAL_SSID);
     scan_now(); // the station interface is still on: networks to offer in the portal
@@ -267,7 +378,17 @@ static void portal_forever(void) {
     set_ip(&gw);
     state = NET_PORTAL;
     status_led_set(LED_PORTAL);
-    for (;;) vTaskDelay(portMAX_DELAY); // HTTP task serves the portal
+    for (;;) { // the HTTP task serves the portal; the wizard's join runs here
+        vTaskDelay(pdMS_TO_TICKS(200));
+        if (setup.requested) {
+            setup.requested = false;
+            setup_join();
+        }
+        if (setup.st == SETUP_OK && (int32_t)(now_ms() - setup.restart_at_ms) >= 0) {
+            printf("net: setup done, restarting on \"%s\"\n", setup.ssid);
+            platform_reboot();
+        }
+    }
 }
 
 // A test portal next to the station link (net_portal_test), from the net task.
@@ -300,7 +421,9 @@ static void net_task(void *param) {
         }
     }
 
+    names_init();
     cyw43_arch_enable_sta_mode();
+    sta_hostname();
     if (!creds.ssid[0] || !join()) portal_forever();
     mdns_start(&cyw43_state.netif[CYW43_ITF_STA]);
 

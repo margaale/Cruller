@@ -42,9 +42,13 @@ window.askUser = askUser; // fw.js
 
 let tab = 'rt4k';
 
+const IN_PORTAL = location.hostname === '192.168.4.1';
+
 function route() {
-  const [t, sub] = (location.hash.slice(1) || (location.hostname === '192.168.4.1' ? 'cruller' : 'rt4k')).split('/');
-  tab = ['rt4k', 'cruller', 'debug'].includes(t) ? t : 'rt4k';
+  const [t, sub] = (location.hash.slice(1) || (IN_PORTAL ? 'setup' : 'rt4k')).split('/');
+  tab = ['rt4k', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
+  document.body.classList.toggle('setup', tab === 'setup');
+  if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
   document.querySelectorAll('nav.tabs a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.tab === tab));
   const view = sub === 'firmware' ? 'firmware' : 'live';
@@ -103,7 +107,171 @@ function st(s) {
   text('f-ver', s.version);
   text('f-part', 'partition ' + (s.boot_partition ? 'B' : 'A'));
   text('f-boot', s.boot_type);
+  if (document.activeElement !== $('f-name')) $('f-name').value = s.name || '';
+  text('f-host', 'Reached at ' + (s.hostname || 'cruller') + '.local' + (s.name ? '' : ' · give it a name to tell it apart'));
+  showSvs(s.svs);
+  if (s.setup) wzProgress(s.setup);
   showUptime();
+}
+
+// --- SVS Bridge card ------------------------------------------------------------------------------------
+
+function showSvs(v) {
+  const paired = v && v.paired;
+  $('v-dot').className = 'dot ' + (!paired ? '' : v.known && v.heard_s < 150 ? 'ok' : 'warn');
+  text('v-state', !paired ? 'not paired' : v.known && v.heard_s < 150 ? 'reporting' : 'not heard lately');
+  text('v-input', v && v.known ? 'Input ' + v.input + (v.name ? ' · ' + v.name : '') : 'No input yet');
+  text('v-paired', paired || '–');
+  text('v-heard', v && v.known ? duration(v.heard_s) + ' ago' : '–');
+  $('v-hint').hidden = !!paired;
+  $('v-unpair').hidden = !paired;
+}
+
+async function unpair() {
+  if (!(await askUser('Unpair the SVS Bridge?', 'Cruller forgets it; the next SVS Bridge that reports pairs instead.', 'Unpair', true))) return;
+  try { await fetch('/api/svs/unpair', { method: 'POST' }); } catch (e) { /* the next status shows it */ }
+}
+
+// --- name --------------------------------------------------------------------------------------------------
+
+// The host name Cruller derives from a name (settings.c settings_hostname): "Game room" -> cruller-game-room.
+function hostFor(name) {
+  const parts = (name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return ['cruller', ...parts].join('-');
+}
+
+async function rename() {
+  const name = $('f-name').value.trim();
+  if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name) || !/[A-Za-z0-9]/.test(name)) { text('um', 'The name takes letters, numbers and spaces (up to 32).'); return false; }
+  if (!(await askUser('Rename to ' + name + '?', 'Cruller restarts as ' + hostFor(name) + '.local. Bookmarks to the old address stop working.', 'Rename and restart'))) return false;
+  try {
+    const r = await fetch('/settings', { method: 'POST', body: new URLSearchParams({ name }) });
+    text('um', (await r.text()).trim());
+    if (r.ok) setTimeout(() => { location.href = 'http://' + hostFor(name) + '.local/#cruller'; }, 8000);
+  } catch (e) {
+    text('um', 'Could not reach Cruller: ' + e.message);
+  }
+  return false;
+}
+
+// --- setup wizard (the portal) -------------------------------------------------------------------------
+
+const wz = { started: false, ssid: '', secure: true, step: 1 };
+
+function wzGo(n) {
+  if (n === 2) {
+    const other = !$('wz-ssid').hidden;
+    if (other) { wz.ssid = $('wz-ssid').value.trim(); wz.secure = true; }
+    if (!wz.ssid) { text('wz-err1', 'Pick a network first.'); return; }
+    if (wz.secure && !$('wz-pass').value) { text('wz-err1', 'Enter the password for ' + wz.ssid + '.'); return; }
+    text('wz-err1', '');
+    wzName();
+  }
+  wz.step = n;
+  document.querySelectorAll('[data-wz]').forEach((e) => { e.hidden = +e.dataset.wz !== n; });
+  text('wz-step', n === 4 ? 'Done' : 'Step ' + Math.min(n, 3) + ' of 3');
+  [1, 2, 3].forEach((i) => $('wz-b' + i).classList.toggle('on', i <= Math.min(n, 3)));
+}
+
+async function wzScan() {
+  const list = $('wz-nets');
+  list.innerHTML = '<div class="small">Looking for networks…</div>';
+  try {
+    const nets = await (await fetch('/wifi/scan')).json();
+    list.textContent = nets.length ? '' : 'No networks found';
+    for (const n of nets) {
+      const b = document.createElement('button');
+      b.className = 'wiz-net';
+      b.innerHTML = '<span></span><span class="small"></span>';
+      b.firstChild.textContent = n.ssid;
+      b.lastChild.textContent = n.rssi + ' dBm' + (n.secure ? ' · 🔒' : ' · open');
+      b.onclick = () => {
+        list.querySelectorAll('.wiz-net').forEach((x) => x.setAttribute('aria-pressed', x === b));
+        $('wz-ssid').hidden = true;
+        wz.ssid = n.ssid;
+        wz.secure = n.secure;
+        text('wz-passlabel', n.secure ? 'Password for ' + n.ssid : n.ssid + ' is open: no password');
+        $('wz-pass').disabled = !n.secure;
+        if (n.secure) $('wz-pass').focus();
+      };
+      list.appendChild(b);
+    }
+  } catch (e) {
+    list.textContent = 'Could not look for networks';
+  }
+}
+
+function wzOther() {
+  $('wz-ssid').hidden = false;
+  $('wz-pass').disabled = false;
+  text('wz-passlabel', 'Password');
+  $('wz-nets').querySelectorAll('.wiz-net').forEach((x) => x.setAttribute('aria-pressed', false));
+  $('wz-ssid').focus();
+}
+
+function wzEye() { const p = $('wz-pass'); p.type = p.type === 'password' ? 'text' : 'password'; }
+
+function wzPick(b) { $('wz-name').value = b.textContent; wzName(); }
+
+function wzName() {
+  const name = $('wz-name').value.trim();
+  text('wz-host', hostFor(name) + '.local');
+  text('wz-inst', 'Cruller' + (name ? ' ' + name : '') + ' in Home Assistant');
+}
+
+async function wzConnect() {
+  const name = $('wz-name').value.trim();
+  if (name && (!/^[A-Za-z0-9 _-]{1,32}$/.test(name) || !/[A-Za-z0-9]/.test(name))) { text('wz-err2', 'Letters, numbers and spaces only (up to 32).'); return; }
+  text('wz-err2', '');
+  wzGo(3);
+  wzProgress({ state: 'joining', ssid: wz.ssid });
+  try {
+    const r = await fetch('/setup', { method: 'POST', body: new URLSearchParams({ ssid: wz.ssid, pass: wz.secure ? $('wz-pass').value : '', name }) });
+    if (!r.ok) wzProgress({ state: 'failed', ssid: wz.ssid, error: (await r.json()).error });
+  } catch (e) {
+    // The radio may hop to the network's channel while joining and drop the phone for a moment: the
+    // status push after it reconnects tells how it went.
+  }
+}
+
+// Steps 3 and 4 from the setup's progress (pushed in the status while the portal is up).
+function wzProgress(p) {
+  if (wz.step < 3) return;
+  const name = $('wz-name').value.trim();
+  const states = {
+    joining: ['done', p.rssi ? 'done' : 'run', 'run', 'wait'],
+    ok: ['done', 'done', 'done', 'done'],
+    wrong_password: ['done', 'done', 'fail', 'wait'],
+    not_found: ['done', 'fail', 'wait', 'wait'],
+    failed: ['done', 'done', 'fail', 'wait'],
+  }[p.state] || ['done', 'run', 'wait', 'wait'];
+  const labels = ['Settings saved', 'Network found', 'Checking the password', 'Getting an address'];
+  const details = ['', p.rssi ? p.rssi + ' dBm' : '', '', p.ip || ''];
+  $('wz-steps').innerHTML = labels.map((l, i) => '<li data-state="' + states[i] + '"><span class="si"></span><div class="sb"><div class="sr"><span>' + l +
+    '</span><span class="sd small">' + details[i] + '</span></div></div></li>').join('');
+  text('wz-joining', (p.state === 'joining' ? 'Joining ' : 'Trying ') + (p.ssid || wz.ssid) + '…');
+  const fail = { wrong_password: ['Wrong password', 'Check it and try again: nothing is lost.'], not_found: ['Network not found', 'Is it in range, and on 2.4 GHz? Cruller can\'t use 5 GHz networks.'],
+    failed: ['Could not join', p.error || 'Try again, or pick another network.'] }[p.state];
+  $('wz-fail').hidden = !fail;
+  $('wz-retry').hidden = !fail;
+  if (fail) { text('wz-failt', fail[0]); text('wz-faild', fail[1]); }
+  if (p.state === 'ok') {
+    wzGo(4);
+    const host = (p.hostname || hostFor(name)) + '.local';
+    text('wz-done', 'Cruller' + (name ? ' ' + name : '') + ' is on your network');
+    text('wz-addr', host);
+    text('wz-ip', p.ip);
+    text('wz-net', p.ssid);
+    $('wz-open').href = 'http://' + host + '/';
+    text('wz-open', 'Open ' + host);
+    const end = Date.now() + (p.restart_in_s || 20) * 1000;
+    clearInterval(wzProgress.t);
+    wzProgress.t = setInterval(() => {
+      const left = Math.max(0, Math.round((end - Date.now()) / 1000));
+      text('wz-left', left ? left + ' s' : 'a moment');
+      if (!left) clearInterval(wzProgress.t);
+    }, 1000);
+  }
 }
 
 function showUptime() {

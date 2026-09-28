@@ -16,6 +16,7 @@
 #include "rtl1.h"
 #include "clients.h"
 #include "console.h"
+#include "net.h"
 #include "power.h"
 #include "ws_proto.h"
 
@@ -59,6 +60,7 @@ typedef struct {
     uint32_t log_pos;
     uint32_t last_status_ms;      // 0 = send one right away
     int status_power;             // power state in the last status sent: a change is pushed at once
+    uint32_t status_setup;        // the setup wizard's progress in the last status sent (likewise)
     bool hidden;                  // the page says it's not on screen (background tab)
     bool debug;                   // the page shows its Debug tab: gets MSG_DEBUG
     uint32_t last_debug_ms;       // 0 = send right away
@@ -140,11 +142,13 @@ static bool push_log_status(client_t *c) {
     char p[4];
     uint32_t sent, size;
     const uint32_t every = rtl1_put_progress(p, sizeof(p), &sent, &size) ? PUT_STATUS_EVERY_MS : STATUS_EVERY_MS;
-    if (c->last_status_ms && t - c->last_status_ms < every && power == c->status_power) return true;
+    const uint32_t setup = net_setup_version();
+    if (c->last_status_ms && t - c->last_status_ms < every && power == c->status_power && setup == c->status_setup) return true;
     c->last_status_ms = t | 1;
     c->status_power = power;
+    c->status_setup = setup;
     tx[16] = MSG_STATUS;
-    http_status_json((char *)tx + 17, 1024);
+    http_status_json((char *)tx + 17, 1536);
     return send_tx(c, WS_OP_BINARY, 1 + strlen((char *)tx + 17));
 }
 

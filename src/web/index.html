@@ -46,7 +46,7 @@ h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:u
 .bar{height:6px;background:#2B2F35;border-radius:3px;overflow:hidden}.bar>div{height:100%;background:#C9CCD1;border-radius:3px;width:0}
 .stack{display:flex;gap:4px}.stack>div{height:10px;border-radius:5px;flex-basis:0}
 button,.btn{font:500 14px var(--sans);color:var(--text);background:transparent;border:1px solid var(--line);border-radius:10px;height:38px;padding:0 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
-button.primary{background:var(--accent);color:#1A0B11;border:0;font-weight:600}
+button.primary,.btn.primary{background:var(--accent);color:#1A0B11;border:0;font-weight:600}
 button.danger{color:#F07A74;border-color:#5A2A28}
 button.primary.danger{background:#D9443E;color:#fff}
 dialog#ask{max-width:420px;width:calc(100% - 32px);padding:22px 22px 18px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px #000a}
@@ -108,6 +108,25 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .steps li[data-state=done] .si{border-color:var(--ok);color:var(--ok)}.steps li[data-state=done] .si::before{content:'✓'}
 .steps li[data-state=fail] .si{border-color:#E0453F;color:#E0453F}.steps li[data-state=fail] .si::before{content:'✕'}.steps li[data-state=fail] .sd{color:#F07A74}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* setup wizard (portal) */
+body.setup header nav,body.setup header .chip{display:none}
+.wiz{max-width:430px;margin:auto;display:flex;flex-direction:column;gap:16px;min-height:calc(100vh - 110px)}
+.wiz-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.wiz-bar div{height:4px;border-radius:2px;background:#2B2F35}.wiz-bar div.on{background:var(--accent)}
+.wiz-page{display:flex;flex-direction:column;gap:14px;flex-grow:1}
+.wiz h1{margin:0 0 6px;font:700 26px/32px var(--head)}.wiz p{margin:0;font-size:15px;line-height:22px;color:var(--soft)}
+.wiz label{font-size:14px;font-weight:500;color:#C9CCD1}
+.wiz input{height:48px;font-size:16px;border-radius:10px}
+.wiz-list{display:flex;flex-direction:column;gap:6px}
+.wiz-net{height:52px;justify-content:space-between;background:var(--panel);font-size:15px;width:100%}
+.wiz-net[aria-pressed=true]{border:1.5px solid var(--accent);font-weight:600}
+.wiz-net.other{border-style:dashed;justify-content:flex-start;color:#C9CCD1;background:transparent}
+button.big,.btn.big{height:52px;font-size:16px;border-radius:12px;width:100%}
+button.link{border:0;color:var(--accent);height:32px;padding:0 6px;font-weight:600}
+button.eye{width:48px;height:48px;flex:none;padding:0}
+button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;background:var(--panel)}
+.wiz-err{background:#2A1618;border:1px solid #5A2A28;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;color:#D5B3B1;font-size:14px}.wiz-err b{color:#F07A74}
+.wiz-ok{display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 0 4px;text-align:center}
+.wiz-ok>div{width:72px;height:72px;border-radius:50%;background:#1F3A2C;color:var(--ok);font-size:36px;display:flex;align-items:center;justify-content:center}
 /* debug */
 .chart{width:100%;height:130px;display:block;background:var(--well);border-radius:8px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font:12px var(--mono)}.legend i{display:inline-block;width:8px;height:8px;margin-right:6px}
@@ -196,7 +215,9 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 </div>
 
 <div class="panel">
-<h2>Cruller firmware</h2>
+<h2>This Cruller</h2>
+<form class="row" onsubmit="return rename()"><input id="f-name" maxlength="32" placeholder="Name, e.g. Living" autocomplete="off"><button id="f-save">Rename</button></form>
+<div class="small" id="f-host"></div>
 <div class="row" style="align-items:baseline"><span class="big" id="f-ver">–</span><span class="small" id="f-part"></span></div>
 <div class="kv"><span>Up for</span><span id="f-up">–</span><span>Last start</span><span id="f-boot">–</span></div>
 <div class="grow"></div>
@@ -204,6 +225,63 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 <button onclick="restart(false)">Restart</button>
 <button class="danger" onclick="restart(true)">Factory reset</button>
 </div><div id="um" class="small"></div>
+</div>
+
+<div class="panel">
+<div class="row"><h2 class="grow">SVS Bridge</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
+<div class="row" style="align-items:baseline"><span style="font-size:20px;font-weight:600" id="v-input">No input yet</span></div>
+<div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span></div>
+<div class="small" id="v-hint">The SVS Bridge finds this Cruller on the network and pairs with it by itself.</div>
+<div class="grow"></div>
+<button onclick="unpair()" id="v-unpair" hidden>Unpair</button>
+</div>
+</section>
+
+<!-- Setup wizard: what the portal (192.168.4.1) shows -->
+<section data-view="setup" class="wiz">
+<div class="row"><span class="grow" style="font:700 18px var(--head)">Cruller setup</span><span class="small" id="wz-step">Step 1 of 3</span></div>
+<div class="wiz-bar"><div id="wz-b1"></div><div id="wz-b2"></div><div id="wz-b3"></div></div>
+
+<div data-wz="1" class="wiz-page">
+<div><h1>Connect Cruller to your Wi-Fi</h1><p>Pick your network and enter its password.</p></div>
+<div class="row"><h2 class="grow">Networks nearby</h2><button class="link" onclick="wzScan()">Look again</button></div>
+<div id="wz-nets" class="wiz-list"><div class="small">Looking for networks…</div></div>
+<button class="wiz-net other" onclick="wzOther()">+ Other network (hidden)…</button>
+<input id="wz-ssid" placeholder="Network name" autocomplete="off" autocapitalize="none" hidden>
+<label for="wz-pass" id="wz-passlabel">Password</label>
+<div class="row"><input id="wz-pass" type="password" autocomplete="off"><button class="eye" onclick="wzEye()" aria-label="Show password">&#128065;</button></div>
+<div class="grow"></div>
+<div class="small" id="wz-err1"></div>
+<button class="primary big" onclick="wzGo(2)">Next</button>
+</div>
+
+<div data-wz="2" class="wiz-page" hidden>
+<div><h1>Name this Cruller</h1><p>Tells it apart from other Crullers and RetroTINKs on your network, and in Home Assistant.</p></div>
+<label for="wz-name">Name</label>
+<input id="wz-name" maxlength="32" autocomplete="off" oninput="wzName()">
+<div class="row" style="flex-wrap:wrap;gap:6px"><button class="chipb" onclick="wzPick(this)">Living</button><button class="chipb" onclick="wzPick(this)">Game room</button><button class="chipb" onclick="wzPick(this)">Office</button><button class="chipb" onclick="wzPick(this)">Bedroom</button></div>
+<div class="panel"><h2>It will show up as</h2><div class="mono" id="wz-host">cruller.local</div><div id="wz-inst">Cruller</div></div>
+<div class="small">Letters, numbers and spaces. You can change it later in the Cruller tab.</div>
+<div class="grow"></div>
+<div class="small" id="wz-err2"></div>
+<div style="display:grid;grid-template-columns:1fr 2fr;gap:10px"><button class="big" onclick="wzGo(1)">Back</button><button class="primary big" onclick="wzConnect()">Connect</button></div>
+</div>
+
+<div data-wz="3" class="wiz-page" hidden>
+<div><h1 id="wz-joining">Joining…</h1><p>Stay on this page. Cruller keeps the setup network up until it knows the password works.</p></div>
+<ol class="steps" id="wz-steps"></ol>
+<div class="wiz-err" id="wz-fail" hidden><b id="wz-failt"></b><span id="wz-faild"></span></div>
+<div class="grow"></div>
+<button class="primary big" id="wz-retry" onclick="wzGo(1)" hidden>Back to step 1</button>
+</div>
+
+<div data-wz="4" class="wiz-page" hidden>
+<div class="wiz-ok"><div>&#10003;</div><h1 id="wz-done">Cruller is on your network</h1></div>
+<div class="panel"><div class="kv"><span>Address</span><span id="wz-addr"></span><span>IP</span><span id="wz-ip"></span><span>Network</span><span id="wz-net"></span></div></div>
+<p><b>Now:</b><br>1. Switch your phone back to your usual Wi-Fi. This setup network closes in <b id="wz-left">20 s</b>.<br>2. Open Cruller at its address. It asks for the rest there.</p>
+<div class="grow"></div>
+<a class="btn primary big" id="wz-open" href="#">Open</a>
+<div class="small" style="text-align:center">If the address doesn't open, use the IP: some phones don't resolve .local names.</div>
 </div>
 </section>
 

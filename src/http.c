@@ -23,6 +23,7 @@
 #include "rfc2217.h"
 #include "rt4k.h"
 #include "rtl1.h"
+#include "settings.h"
 #include "svs.h"
 #include "ws.h"
 #include "ws_proto.h"
@@ -343,7 +344,7 @@ static void handle_rt4k_xfer(int fd, const char *query) {
 }
 
 static void handle_status(int fd) {
-    char body[1024];
+    char body[1536];
     http_status_json(body, sizeof(body));
     respond(fd, 200, "OK", "application/json", body);
 }
@@ -379,13 +380,26 @@ void http_status_json(char *body, size_t size) {
         snprintf(body + n - 1, size - (n - 1), ",\"put\":{\"path\":\"%s\",\"sent\":%lu,\"size\":%lu}}", path_esc,
             (unsigned long)sent, (unsigned long)total);
     }
-    // The switch's active input, once its board has reported one: "svs":{"input","name",...}.
+    // The switch's active input once its bridge has reported one, or the paired bridge:
+    // "svs":{"input","name","paired",...}.
     svs_state_t s;
+    settings_t set;
+    settings_get(&set);
     n = strlen(body);
-    if (n && n < size && svs_get(&s)) {
+    if (n && n < size && (svs_get(&s) || set.svs_bridge[0])) {
         char svs[256];
         svs_json(svs, sizeof(svs));
         snprintf(body + n - 1, size - (n - 1), ",\"svs\":%s}", svs);
+    }
+    // Its name and host name, and the setup wizard's join while one runs or has run.
+    char name[2 * SETTINGS_NAME_MAX + 2];
+    json_escape(name, sizeof(name), set.name);
+    n = strlen(body);
+    if (n && n < size) snprintf(body + n - 1, size - (n - 1), ",\"name\":\"%s\",\"hostname\":\"%s\"}", name, net_hostname());
+    char setup[320];
+    n = strlen(body);
+    if (n && n < size && net_state() == NET_PORTAL && net_setup_json(setup, sizeof(setup)) && !strstr(setup, "\"idle\"")) {
+        snprintf(body + n - 1, size - (n - 1), ",\"setup\":%s}", setup);
     }
 }
 
@@ -764,17 +778,33 @@ static void handle_api_command(request_t *r) {
 // answers what Cruller last heard.
 
 static void svs_json(char *out, size_t size) {
+    settings_t set;
+    settings_get(&set);
+    char paired[2 * SETTINGS_NAME_MAX + 2];
+    json_escape(paired, sizeof(paired), set.svs_bridge);
     svs_state_t s;
     if (!svs_get(&s)) {
-        snprintf(out, size, "{\"known\":false}");
+        snprintf(out, size, "{\"known\":false,\"paired\":\"%s\"}", paired);
         return;
     }
     char name[2 * SVS_NAME_MAX + 2], id[2 * SVS_NAME_MAX + 2];
     json_escape(name, sizeof(name), s.name);
     json_escape(id, sizeof(id), s.id);
     const uint32_t now = to_ms_since_boot(get_absolute_time());
-    snprintf(out, size, "{\"known\":true,\"input\":%d,\"name\":\"%s\",\"id\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu}",
-        s.input, name, id, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000));
+    snprintf(out, size, "{\"known\":true,\"input\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu}",
+        s.input, name, id, paired, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000));
+}
+
+// POST /api/svs/unpair: forget the paired bridge; the next one to report is kept.
+static void handle_svs_unpair(request_t *r) {
+    settings_t s;
+    settings_get(&s);
+    s.svs_bridge[0] = 0;
+    if (!settings_save(&s)) {
+        respond(r->fd, 500, "Internal Server Error", "application/json", "{\"ok\":false,\"error\":\"could not save\"}");
+        return;
+    }
+    respond(r->fd, 200, "OK", "application/json", "{\"ok\":true}");
 }
 
 static void handle_svs(request_t *r, bool post) {
@@ -801,6 +831,21 @@ static void handle_svs(request_t *r, bool post) {
         char name[SVS_NAME_MAX + 1] = "", id[SVS_NAME_MAX + 1] = "";
         if ((p = json_key(text, "name"))) json_string(p, name, sizeof(name));
         if ((p = json_key(text, "id"))) json_string(p, id, sizeof(id));
+        // Pairing: the first bridge that reports (with an id) is kept; others are turned away, so a
+        // bridge set up for another RT4K can't change this one's profiles. POST /api/svs/unpair frees it.
+        settings_t s;
+        settings_get(&s);
+        if (s.svs_bridge[0] && strcmp(s.svs_bridge, id)) {
+            char paired[2 * SETTINGS_NAME_MAX + 2];
+            json_escape(paired, sizeof(paired), s.svs_bridge);
+            snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"paired with another SVS Bridge\",\"paired\":\"%s\"}", paired);
+            respond(r->fd, 409, "Conflict", "application/json", out);
+            return;
+        }
+        if (!s.svs_bridge[0] && id[0]) {
+            snprintf(s.svs_bridge, sizeof(s.svs_bridge), "%s", id);
+            printf("http: paired with SVS Bridge %s: %s\n", id, settings_save(&s) ? "saved" : "NOT saved");
+        }
         const bool changed = svs_report((int)input, name, id);
         snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
     } else {
@@ -831,10 +876,83 @@ static void handle_wifi(request_t *r) {
     platform_reboot();
 }
 
-// POST /restart: reboots into the current image. POST /factory-reset: forgets the Wi-Fi network (the
-// only setting Cruller keeps) and reboots into the setup portal.
+// --- the setup wizard (portal) and the name ------------------------------------------------------------
+
+// POST /setup (form: ssid, pass, name), from the portal's wizard: saves the name, then the net task
+// tries the network with the portal still up. GET /setup: how it's going (also pushed in the status).
+static void handle_setup(request_t *r, bool post) {
+    char out[320];
+    if (post) {
+        static raw_t body;
+        body.len = 0;
+        char ssid[CREDS_SSID_MAX + 1] = "", pass[CREDS_PASS_MAX + 1] = "", name[SETTINGS_NAME_MAX + 1] = "";
+        if (r->content_length <= 0 || r->content_length >= 1024 || !read_body(r, raw_sink, &body)) {
+            respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"send the form as the body\"}");
+            return;
+        }
+        body.buf[body.len] = 0;
+        const char *form = (const char *)body.buf;
+        if (!form_field(form, "ssid", ssid, sizeof(ssid)) || !ssid[0]) {
+            respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"pick a network\"}");
+            return;
+        }
+        form_field(form, "pass", pass, sizeof(pass));
+        if (form_field(form, "name", name, sizeof(name)) && name[0]) {
+            if (!settings_name_ok(name)) {
+                respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"letters, numbers and spaces only\"}");
+                return;
+            }
+            settings_t s;
+            settings_get(&s);
+            snprintf(s.name, sizeof(s.name), "%s", name);
+            if (!settings_save(&s)) {
+                respond(r->fd, 500, "Internal Server Error", "application/json", "{\"ok\":false,\"error\":\"could not save the name\"}");
+                return;
+            }
+        }
+        if (!net_setup_start(ssid, pass)) {
+            respond(r->fd, 409, "Conflict", "application/json", "{\"ok\":false,\"error\":\"not in setup, or already trying a network\"}");
+            return;
+        }
+        respond(r->fd, 202, "Accepted", "application/json", "{\"ok\":true}");
+        return;
+    }
+    net_setup_json(out, sizeof(out));
+    respond(r->fd, 200, "OK", "application/json", out);
+}
+
+// POST /settings (form: name): renames Cruller; the new name (cruller-<name>.local) takes effect as it
+// restarts, right after answering.
+static void handle_settings(request_t *r) {
+    char name[SETTINGS_NAME_MAX + 1] = "";
+    static form_t form;
+    form.len = 0;
+    form.buf[0] = 0;
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form.buf) || !read_body(r, form_sink, &form) ||
+        !form_field(form.buf, "name", name, sizeof(name)) || !settings_name_ok(name)) {
+        respond(r->fd, 400, "Bad Request", "text/plain", "The name takes letters, numbers and spaces (up to 32)\n");
+        return;
+    }
+    settings_t s;
+    settings_get(&s);
+    snprintf(s.name, sizeof(s.name), "%s", name);
+    if (!settings_save(&s)) {
+        respond(r->fd, 500, "Internal Server Error", "text/plain", "Could not save the name\n");
+        return;
+    }
+    char host[48], msg[160];
+    settings_hostname(name, host, sizeof(host));
+    snprintf(msg, sizeof(msg), "Renamed; restarting as %s.local\n", host);
+    respond(r->fd, 200, "OK", "text/plain", msg);
+    printf("http: renamed to \"%s\" (%s.local), restarting\n", name, host);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    platform_reboot();
+}
+
+// POST /restart: reboots into the current image. POST /factory-reset: forgets the Wi-Fi network, the
+// name and the paired SVS Bridge, and reboots into the setup portal.
 static void handle_restart(request_t *r, bool forget) {
-    if (forget && !creds_forget()) {
+    if (forget && (!creds_forget() || !settings_clear())) {
         respond(r->fd, 500, "Internal Server Error", "text/plain", "Could not erase the settings\n");
         return;
     }
@@ -941,6 +1059,9 @@ static void handle(request_t *r) {
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
     else if ((get || post) && !strcmp(r->path, "/api/svs")) handle_svs(r, post);
+    else if (post && !strcmp(r->path, "/api/svs/unpair")) handle_svs_unpair(r);
+    else if ((get || post) && !strcmp(r->path, "/setup")) handle_setup(r, post);
+    else if (post && !strcmp(r->path, "/settings")) handle_settings(r);
     else if (post && !strcmp(r->path, "/restart")) handle_restart(r, false);
     else if (post && !strcmp(r->path, "/factory-reset")) handle_restart(r, true);
     else if (get && !strcmp(r->path, "/wifi/scan")) {

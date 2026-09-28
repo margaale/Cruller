@@ -16,6 +16,10 @@
 #define CREDS_SECTOR0_OFFSET  (DATA_PART_OFFSET)
 #define CREDS_SECTOR1_OFFSET  (DATA_PART_OFFSET + FLASH_SECTOR_SIZE_B)
 
+// Cruller's settings (name, paired SVS Bridge): the next two alternating sectors (settings.c).
+#define SETTINGS_SECTOR0_OFFSET (DATA_PART_OFFSET + 2 * FLASH_SECTOR_SIZE_B)
+#define SETTINGS_SECTOR1_OFFSET (DATA_PART_OFFSET + 3 * FLASH_SECTOR_SIZE_B)
+
 // DonutShop (arduino-pico, flash=4194304_2097152) LittleFS, read once after migrating.
 // The first Cruller OTA overwrites it (partition B and the data partition overlap it).
 #define DS_FS_OFFSET          0x1FF000u

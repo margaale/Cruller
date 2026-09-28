@@ -19,6 +19,21 @@ net_state_t net_state(void);
 const char *net_ip(void);        // dotted address, or "" when not up
 const char *net_ssid(void);
 int net_rssi(void);              // the station link's signal in dBm (0 when not connected)
+const char *net_hostname(void);  // "cruller" or "cruller-<name>" (mDNS .local and DHCP)
+
+// The setup wizard (portal only): tries a network with the portal still up. False if not in the
+// portal or a try is already running. Progress in net_setup_json(); net_setup_version() changes with it.
+typedef enum {
+    SETUP_IDLE,
+    SETUP_JOINING,
+    SETUP_OK,             // joined and saved; Cruller restarts on it shortly
+    SETUP_WRONG_PASSWORD,
+    SETUP_NOT_FOUND,
+    SETUP_FAILED,
+} net_setup_state_t;
+bool net_setup_start(const char *ssid, const char *pass);
+size_t net_setup_json(char *out, size_t size); // {"state","ssid","rssi","ip","hostname","restart_in_s"}
+uint32_t net_setup_version(void);
 
 // The setup access point ("Cruller_Setup", 192.168.4.1, open) is up: the real portal (NET_PORTAL,
 // station off) or a test one next to the station link (net_portal_test).

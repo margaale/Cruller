@@ -53,6 +53,7 @@ target_sources(cruller_app INTERFACE
     src/rfc2217_proto.c
     src/rtl1.c
     src/rtl1_core.c
+    src/settings.c
     src/svs.c
     src/ws.c
     src/ws_proto.c
