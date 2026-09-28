@@ -36,6 +36,14 @@ typedef struct {
 static record_t __uninitialized_ram(rec);
 static int alarm_of[2] = {-1, -1};
 
+// The ISR touches nothing in flash (only registers and RAM), so it keeps sampling even if flash
+// access (XIP) stalls: then the record shows where each core is stuck. If the samples stop anyway,
+// interrupts are off on that core. The running task's name is read straight from its TCB: FreeRTOS
+// keeps the current TCB per core in pxCurrentTCBs, and the name's offset in a TCB is measured once.
+extern void *volatile pxCurrentTCBs[];
+static uint32_t name_offset; // 0: not measured yet
+static char no_task[] = "-"; // in RAM, like everything the ISR reads (a string literal is in flash)
+
 // Called by freeze_isr with the exception frame (r0-r3, r12, lr, pc, xpsr) of what was interrupted.
 void __attribute__((used)) __not_in_flash_func(freeze_sample)(const uint32_t *frame) {
     const uint core = get_core_num();
@@ -47,10 +55,10 @@ void __attribute__((used)) __not_in_flash_func(freeze_sample)(const uint32_t *fr
     s->us = timer_hw->timerawl;
     s->pc = frame[6];
     s->lr = frame[5];
-    s->wdt_left_ms = watchdog_get_time_remaining_ms();
-    s->fed_ago_ms = to_ms_since_boot(get_absolute_time()) - health_last_feed_ms();
-    const TaskHandle_t t = xTaskGetCurrentTaskHandleForCore(core);
-    const char *name = t ? pcTaskGetName(t) : "-";
+    s->wdt_left_ms = (watchdog_hw->ctrl & WATCHDOG_CTRL_TIME_BITS) / 1000; // the counter ticks in µs
+    s->fed_ago_ms = (s->us - health_feed_us) / 1000;
+    const char *tcb = (const char *)pxCurrentTCBs[core];
+    const char *name = tcb && name_offset ? tcb + name_offset : no_task;
     for (int i = 0; i < NAME_LEN; i++) {
         s->task[i] = name[i];
         if (!name[i]) break;
@@ -118,6 +126,8 @@ void freeze_report(void) {
 static void start_task(void *param) {
     const uint core = get_core_num();
     (void)param;
+    const TaskHandle_t self = xTaskGetCurrentTaskHandle(); // the name's offset in a TCB (see freeze_sample)
+    name_offset = (uint32_t)(pcTaskGetName(self) - (const char *)self);
     const int alarm = hardware_alarm_claim_unused(false);
     if (alarm >= 0) {
         alarm_of[core] = alarm;

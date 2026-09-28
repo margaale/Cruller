@@ -7,6 +7,7 @@
 #include "task.h"
 #include "semphr.h"
 #include "timers.h"
+#include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
 #include "lwip/icmp.h"
@@ -42,6 +43,7 @@ static uint32_t now_ms(void) {
 }
 
 static volatile uint32_t last_feed_ms;
+volatile uint32_t health_feed_us; // the same, in timer microseconds, for the freeze recorder's ISR
 static volatile bool rebooting; // stop feeding: a reboot is scheduled on the watchdog
 static volatile bool armed;     // our watchdog is in charge (not during a TBYB trial)
 
@@ -69,6 +71,7 @@ static void wdt_task(void *param) {
         // rom_reboot()/watchdog_reboot() scheduled on the same watchdog, forever.
         if (armed && !rebooting) watchdog_update();
         last_feed_ms = now_ms();
+        health_feed_us = timer_hw->timerawl;
         vTaskDelay(pdMS_TO_TICKS(WDT_FEED_MS));
     }
 }

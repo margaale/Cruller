@@ -20,6 +20,9 @@ void health_stop_feeding(void);
 
 // When the feeder task last ran (ms since boot), fed or not; for the freeze recorder.
 uint32_t health_last_feed_ms(void);
+// The same as the timer's raw microseconds (timer_hw->timerawl), read by the freeze recorder's ISR,
+// which touches nothing in flash.
+extern volatile uint32_t health_feed_us;
 
 // After cyw43_arch_init(): also reset when the network stops passing traffic (gateway pings).
 void health_start_net_probe(void);
