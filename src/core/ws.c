@@ -65,7 +65,7 @@ typedef struct {
     bool hidden;                  // the page says it's not on screen (background tab)
     bool debug;                   // the page shows its Debug tab: gets MSG_DEBUG
     uint32_t last_debug_ms;       // 0 = send right away
-    uint32_t con_seq;             // Debug's serial log: the next console line to send (console_read)
+    uint32_t con_seq;             // Debug's serial log: the next console line to send (console_read_line)
 } client_t;
 
 typedef struct {
@@ -165,7 +165,7 @@ static bool push_debug(client_t *c) {
         size_t o = 0;
         int owner;
         char line[160];
-        while (o < 1024 && console_read(&c->con_seq, &owner, line, sizeof(line))) {
+        while (o < 1024 && console_read_line(&c->con_seq, &owner, line, sizeof(line))) {
             o += (size_t)snprintf((char *)tx + 18 + o, sizeof(tx) - 18 - o, "%d\t%s\n", owner, line);
         }
         if (!o) break;

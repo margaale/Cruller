@@ -4,6 +4,7 @@
 
 #include "log.h"
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/errno.h>
@@ -26,7 +27,7 @@ typedef struct {
 static __NOINIT_ATTR log_state_t st;
 
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
-static int console_fd = -1; // where stdout went before (the USB/UART console)
+static int console_fd = -1; // the USB/UART console, where stdout went before
 
 static inline void put(const char *buf, uint32_t len) {
     for (uint32_t i = 0; i < len; i++) st.ring[(st.head + i) & (LOG_SIZE - 1)] = buf[i];
@@ -82,8 +83,8 @@ void log_init(void) {
         .fstat = log_vfs_fstat,
     };
     if (esp_vfs_register("/dev/log", &vfs, NULL) != ESP_OK) return;
-    console_fd = dup(fileno(stdout));
     fflush(stdout);
+    console_fd = open("/dev/console", O_WRONLY);
     if (freopen("/dev/log", "w", stdout)) setvbuf(stdout, NULL, _IOLBF, 256);
 }
 

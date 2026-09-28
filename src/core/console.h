@@ -48,4 +48,4 @@ void console_feed(const uint8_t *data, size_t len);
 // Routed lines, in order, for readers that pick their own (RFC 2217 clients). *seq: the reader's
 // position, from console_head(); false when nothing is new. Lines older than the last 32 are gone.
 uint32_t console_head(void);
-bool console_read(uint32_t *seq, int *owner, char *out, size_t size);
+bool console_read_line(uint32_t *seq, int *owner, char *out, size_t size);

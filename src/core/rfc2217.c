@@ -29,7 +29,7 @@ typedef struct {
     char ip[16];
     uint32_t since_ms;             // connected at (the oldest is replaced when all are taken)
     rfc2217_t proto;
-    uint32_t seq;                  // position in the console's routed lines (console_read)
+    uint32_t seq;                  // position in the console's routed lines (console_read_line)
     int modem_sent;                // modem state last announced (-1: not yet)
     // Lines go to the RT4K whole: bytes trickling in separately could be cut apart by one of
     // Cruller's own transfers (its "\r<cmd>\r\n" would end the client's line) or another client's.
@@ -195,7 +195,7 @@ static void rfc2217_task(void *param) {
             // What the RT4K says: the replies to this client's commands, and lines outside any
             // command's reply window (see console.h). The RT4K ends its lines with "\n".
             int owner;
-            while (c->fd >= 0 && console_read(&c->seq, &owner, (char *)text, sizeof(text) - 1)) {
+            while (c->fd >= 0 && console_read_line(&c->seq, &owner, (char *)text, sizeof(text) - 1)) {
                 if (owner != CON_CLIENT(i) && owner != CON_BROADCAST) continue;
                 size_t n = strlen((char *)text);
                 text[n++] = '\n';

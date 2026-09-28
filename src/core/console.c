@@ -18,7 +18,7 @@
 #define QUEUE_DEPTH           8
 #define CMD_MAX               200
 #define LINE_MAX_LEN          160
-#define HISTORY               64   // routed lines kept for console_read (power of two)
+#define HISTORY               64   // routed lines kept for console_read_line (power of two)
 
 typedef struct {
     int owner;
@@ -91,7 +91,7 @@ uint32_t console_head(void) {
     return h;
 }
 
-bool console_read(uint32_t *seq, int *owner, char *out, size_t size) {
+bool console_read_line(uint32_t *seq, int *owner, char *out, size_t size) {
     plat_lock_enter(&lock);
     if (head - *seq > HISTORY) *seq = head - HISTORY; // fell behind: the oldest still kept
     const bool have = *seq != head;
@@ -137,7 +137,7 @@ bool console_run(int owner, const char *cmd, void (*on_line)(const char *line, v
     for (const uint32_t t0 = now_ms(); now_ms() - t0 < (QUEUE_DEPTH + 1) * CON_MAX_MS;) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
         const bool done = *flag != 0;
-        while (console_read(&seq, &o, text, sizeof(text))) {
+        while (console_read_line(&seq, &o, text, sizeof(text))) {
             if (o == owner && on_line) on_line(text, ctx);
         }
         if (done) break;
@@ -159,7 +159,7 @@ bool console_query(const char *cmd, const char *expect, char *out, size_t size, 
         char text[LINE_MAX_LEN];
         int owner;
         while (!found && now_ms() - t0 < timeout_ms + QUEUE_DEPTH * CON_NO_REPLY_MS) {
-            if (!console_read(&seq, &owner, text, sizeof(text))) {
+            if (!console_read_line(&seq, &owner, text, sizeof(text))) {
                 vTaskDelay(pdMS_TO_TICKS(20));
                 continue;
             }
