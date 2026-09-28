@@ -37,6 +37,11 @@ idf_component_register(
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE CRULLER_VERSION="${CRULLER_VERSION}")
 
+# src/core includes the kernel's headers as "FreeRTOS.h", "task.h"... (the Pico SDK's way); ESP-IDF
+# puts them under freertos/.
+idf_component_get_property(freertos_dir freertos COMPONENT_DIR)
+target_include_directories(${COMPONENT_LIB} PRIVATE ${freertos_dir}/FreeRTOS-Kernel/include/freertos)
+
 # The web page, embedded as C arrays (the same as rp2, see src/web/embed.cmake).
 foreach(asset fw.js:web_fw_js app.js:web_app_js index.html:web_index_html)
     string(REPLACE ":" ";" asset ${asset})

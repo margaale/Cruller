@@ -14,7 +14,8 @@ out="build/$target"
 
 if [ "$target" = esp32 ]; then
     # Optimization comes from sdkconfig.defaults, not a build type.
-    idf.py -C "$src" -B "$out" ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} build
+    idf.py -C "$src" -B "$out" ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} reconfigure
+    ninja -C "$out" -k 0 # every error at once, not just the first
     ls -l "$out/cruller.bin"
     exit 0
 fi
