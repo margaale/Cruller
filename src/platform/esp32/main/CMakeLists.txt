@@ -17,6 +17,7 @@ idf_component_register(
         ${CORE}/rtl1_core.c
         ${CORE}/settings.c
         ${CORE}/svs.c
+        ${CORE}/svs_proto.c
         ${CORE}/ws.c
         ${CORE}/ws_proto.c
         ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c

@@ -364,7 +364,7 @@ static void handle_status(int fd) {
     respond(fd, 200, "OK", "application/json", body);
 }
 
-static void svs_json(char *out, size_t size);
+static void svs_json(char *out, size_t size, bool full);
 
 #ifndef PLAT_NAME
 #define PLAT_NAME "unknown" // a target that doesn't name itself in platform_target.h
@@ -416,7 +416,7 @@ void http_status_json(char *body, size_t size) {
     n = strlen(body);
     if (n && n < size && (svs_get(&s) || set.svs_bridge[0])) {
         char svs[640];
-        svs_json(svs, sizeof(svs));
+        svs_json(svs, sizeof(svs), false);
         snprintf(body + n - 1, size - (n - 1), ",\"svs\":%s}", svs);
     }
     // Its name and host name, and the setup wizard's join while one runs or has run.
@@ -811,13 +811,22 @@ static void handle_api_command(request_t *r) {
     respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", out);
 }
 
-// --- /api/svs: the Scalable Video Switch's active input (docs/SVS.md) ------------------------------
+// --- /api/svs: the Scalable Video Switch's active input, and the switch (docs/SVS.md) --------------
 //
-// POST {"id": "svs-bridge-…", "current_input": 3, "total_inputs": 8, "name": "PS2"} from the SVS Bridge
-// on every change, when it finds Cruller, and every 60 s ("input" works too; "name" is optional); GET
-// answers what Cruller last heard.
+// POST {"id": "svs-bridge-…", "current_input": 3, "total_inputs": 8, "firmware": "SVS_FW_1.21",
+// "inputs": [{"kind", "name", "auto_profile", ...}], "outputs": [{"kind", "name"}]} from the SVS Bridge
+// on every change, when it finds Cruller, and every 60 s (svs_proto.h reads it); GET answers what
+// Cruller last heard, the switch included.
 
-static void svs_json(char *out, size_t size) {
+#define SVS_BODY_MAX 8192 // 32 inputs with long names and every setting fit in about 6 KB
+
+// The POST body, or the GET answer (one request at a time): room for the longest switch Cruller keeps,
+// every name full of quotes to escape.
+static char svs_buf[10240];
+
+// The "svs" object. full: with the switch's description ("switch":{...}, for GET /api/svs); else just
+// its "switch_seq" (the status, which the page gets every few seconds: it fetches the rest on a change).
+static void svs_json(char *out, size_t size, bool full) {
     settings_t set;
     settings_get(&set);
     char paired[2 * SETTINGS_NAME_MAX + 2];
@@ -831,14 +840,24 @@ static void svs_json(char *out, size_t size) {
     json_escape(name, sizeof(name), s.name);
     json_escape(id, sizeof(id), s.id);
     const uint32_t now = plat_ms();
-    int n = snprintf(out, size, "{\"known\":true,\"input\":%d,\"total\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu,\"history\":[",
-        s.input, s.total, name, id, paired, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000));
+    int n = snprintf(out, size, "{\"known\":true,\"input\":%d,\"total\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu,\"switch_seq\":%lu,\"history\":[",
+        s.input, s.total, name, id, paired, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000),
+        (unsigned long)s.switch_seq);
     // The last input changes, newest first: [[input, seconds ago], ...].
     for (int i = 0; i < s.history_n && n > 0 && (size_t)n < size; i++) {
         n += snprintf(out + n, size - (size_t)n, "%s[%d,%lu]", i ? "," : "", s.history[i].input,
             (unsigned long)((now - s.history[i].at_ms) / 1000));
     }
-    if (n > 0 && (size_t)n < size) snprintf(out + n, size - (size_t)n, "]}");
+    if (n <= 0 || (size_t)n >= size) return;
+    n += snprintf(out + n, size - (size_t)n, "]");
+    static svs_switch_t sw; // (only the HTTP task asks for the full one)
+    if (full && (size_t)n + 16 < size && svs_get_switch(&sw)) {
+        n += snprintf(out + n, size - (size_t)n, ",\"switch\":");
+        const size_t w = svs_switch_json(&sw, out + n, size - (size_t)n - 1);
+        n = w ? n + (int)w : n - 10; // doesn't fit: left out (not half of it)
+        out[n] = 0;
+    }
+    if ((size_t)n + 1 < size) snprintf(out + n, size - (size_t)n, "}");
 }
 
 // POST /api/svs/unpair: forget the paired bridge; the next one to report is kept.
@@ -853,56 +872,58 @@ static void handle_svs_unpair(request_t *r) {
     respond(r->fd, 200, "OK", "application/json", "{\"ok\":true}");
 }
 
+typedef struct {
+    size_t len;
+} svs_body_t;
+
+static bool svs_sink(const uint8_t *data, size_t len, void *ctx) {
+    svs_body_t *b = ctx;
+    if (b->len + len > SVS_BODY_MAX) return false;
+    memcpy(svs_buf + b->len, data, len);
+    b->len += len;
+    return true;
+}
+
 static void handle_svs(request_t *r, bool post) {
-    char out[640];
-    if (post) {
-        static raw_t body;
-        body.len = 0;
-        if (r->content_length <= 0 || r->content_length >= 512 || !read_body(r, raw_sink, &body)) {
-            respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body\"}");
-            return;
-        }
-        body.buf[body.len] = 0;
-        const char *text = (const char *)body.buf;
-        // The bridge's own field names ({"current_input": 3, ...} as in its /api/v1/state), or "input".
-        const char *p = json_key(text, "current_input");
-        if (!p) p = json_key(text, "input");
-        while (p && (*p == ' ' || *p == ':' || *p == '\t')) p++;
-        char *end = NULL;
-        const long input = p ? strtol(p, &end, 10) : -1;
-        if (!p || end == p || input < 0 || input > 255) {
-            respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"need \\\"current_input\\\": <port number>\"}");
-            return;
-        }
-        char name[SVS_NAME_MAX + 1] = "", id[SVS_NAME_MAX + 1] = "";
-        if ((p = json_key(text, "name"))) json_string(p, name, sizeof(name));
-        if ((p = json_key(text, "id"))) json_string(p, id, sizeof(id));
-        // Pairing: the first bridge that reports (with an id) is kept; others are turned away, so a
-        // bridge set up for another RT4K can't change this one's profiles. POST /api/svs/unpair frees it.
-        settings_t s;
-        settings_get(&s);
-        if (s.svs_bridge[0] && strcmp(s.svs_bridge, id)) {
-            char paired[2 * SETTINGS_NAME_MAX + 2];
-            json_escape(paired, sizeof(paired), s.svs_bridge);
-            snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"paired with another SVS Bridge\",\"paired\":\"%s\"}", paired);
-            respond(r->fd, 409, "Conflict", "application/json", out);
-            return;
-        }
-        if (!s.svs_bridge[0] && id[0]) {
-            snprintf(s.svs_bridge, sizeof(s.svs_bridge), "%s", id);
-            printf("http: paired with SVS Bridge %s: %s\n", id, settings_save(&s) ? "saved" : "NOT saved");
-        }
-        long total = 0;
-        if ((p = json_key(text, "total_inputs"))) {
-            while (*p == ' ' || *p == ':' || *p == '\t') p++;
-            total = strtol(p, NULL, 10);
-            if (total < 0 || total > 64) total = 0;
-        }
-        const bool changed = svs_report((int)input, (int)total, name, id);
-        snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
-    } else {
-        svs_json(out, sizeof(out));
+    if (!post) {
+        svs_json(svs_buf, sizeof(svs_buf), true);
+        respond(r->fd, 200, "OK", "application/json", svs_buf);
+        return;
     }
+    char out[160];
+    svs_body_t body = {0};
+    if (r->content_length <= 0 || r->content_length > SVS_BODY_MAX || !read_body(r, svs_sink, &body)) {
+        respond(r->fd, r->content_length > SVS_BODY_MAX ? 413 : 400, r->content_length > SVS_BODY_MAX ? "Payload Too Large" : "Bad Request",
+            "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body (8 KB at most)\"}");
+        return;
+    }
+    svs_buf[body.len] = 0;
+    static svs_msg_t m;
+    const char *error;
+    if (!svs_parse(svs_buf, &m, &error)) {
+        char esc[96];
+        json_escape(esc, sizeof(esc), error);
+        snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\"}", esc);
+        respond(r->fd, 400, "Bad Request", "application/json", out);
+        return;
+    }
+    // Pairing: the first bridge that reports (with an id) is kept; others are turned away, so a bridge
+    // set up for another RT4K can't change this one's profiles. POST /api/svs/unpair frees it.
+    settings_t s;
+    settings_get(&s);
+    if (s.svs_bridge[0] && strcmp(s.svs_bridge, m.id)) {
+        char paired[2 * SETTINGS_NAME_MAX + 2];
+        json_escape(paired, sizeof(paired), s.svs_bridge);
+        snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"paired with another SVS Bridge\",\"paired\":\"%s\"}", paired);
+        respond(r->fd, 409, "Conflict", "application/json", out);
+        return;
+    }
+    if (!s.svs_bridge[0] && m.id[0]) {
+        snprintf(s.svs_bridge, sizeof(s.svs_bridge), "%s", m.id);
+        printf("http: paired with SVS Bridge %s: %s\n", m.id, settings_save(&s) ? "saved" : "NOT saved");
+    }
+    const bool changed = svs_report(&m);
+    snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
     respond(r->fd, 200, "OK", "application/json", out);
 }
 
