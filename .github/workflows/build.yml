@@ -1,0 +1,101 @@
+# Builds main as it is (Pico 2 W) and runs the host tests: a CI baseline. The images are kept as
+# artifacts. Note: Linux names objects *.c.o, which main's RAM linker override (*.c.obj) doesn't match,
+# so these images run the RT4K receive path from flash; the Windows build is the tested one.
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "CRULLER_VERSION (X.Y.Z); empty for the default in CMakeLists.txt"
+        required: false
+        default: ""
+
+env:
+  PICO_SDK_VERSION: "2.3.0"
+  PICOTOOL_VERSION: "2.3.0"
+  TINYUSB_VERSION: "0.21.0"
+  FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
+  ARM_GCC_RELEASE: "14.2.Rel1"
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # glibc declares strnlen (rtl1_core.c) only with _DEFAULT_SOURCE under -std=c11.
+      - run: |
+          printf '#!/bin/sh\nexec gcc -D_DEFAULT_SOURCE "$@"\n' > "$RUNNER_TEMP/cc" && chmod +x "$RUNNER_TEMP/cc"
+          CC="$RUNNER_TEMP/cc" bash tests/run.sh
+
+  rp2:
+    name: rp2 (pico2_w)
+    runs-on: ubuntu-24.04
+    env:
+      TOOLS: ${{ github.workspace }}/.tools
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Arm GNU toolchain
+        id: arm
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_GCC_RELEASE }}
+
+      - run: sudo apt-get install -y ninja-build
+
+      - name: Pico SDK, TinyUSB, FreeRTOS
+        run: |
+          mkdir -p "$TOOLS"
+          git clone -q --depth 1 -b "$PICO_SDK_VERSION" https://github.com/raspberrypi/pico-sdk "$TOOLS/pico-sdk"
+          git -C "$TOOLS/pico-sdk" submodule update -q --init --depth 1 lib/cyw43-driver lib/lwip lib/mbedtls lib/btstack
+          git clone -q --depth 1 -b "$TINYUSB_VERSION" https://github.com/hathach/tinyusb "$TOOLS/tinyusb"
+          git init -q "$TOOLS/FreeRTOS-Kernel"
+          git -C "$TOOLS/FreeRTOS-Kernel" fetch -q --depth 1 https://github.com/raspberrypi/FreeRTOS-Kernel "$FREERTOS_KERNEL_REF"
+          git -C "$TOOLS/FreeRTOS-Kernel" checkout -q FETCH_HEAD
+
+      - name: picotool (cached)
+        id: picotool-cache
+        uses: actions/cache@v6
+        with:
+          path: .tools/picotool-install
+          key: picotool-${{ env.PICOTOOL_VERSION }}-${{ runner.os }}
+
+      - name: picotool (build)
+        if: steps.picotool-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone -q --depth 1 -b "$PICOTOOL_VERSION" https://github.com/raspberrypi/picotool "$TOOLS/picotool"
+          cmake -S "$TOOLS/picotool" -B "$TOOLS/picotool/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DPICO_SDK_PATH="$TOOLS/pico-sdk" -DPICOTOOL_NO_LIBUSB=1
+          cmake --build "$TOOLS/picotool/build"
+          cmake --install "$TOOLS/picotool/build" --prefix "$TOOLS/picotool-install"
+
+      - name: Build
+        env:
+          CRULLER_VERSION: ${{ inputs.version }}
+          PICO_SDK_PATH: ${{ env.TOOLS }}/pico-sdk
+          FREERTOS_KERNEL_PATH: ${{ env.TOOLS }}/FreeRTOS-Kernel
+          PICO_TINYUSB_PATH: ${{ env.TOOLS }}/tinyusb
+          PICO_TOOLCHAIN_PATH: ${{ steps.arm.outputs.path }}
+          PICOTOOL_DIR: ${{ env.TOOLS }}/picotool-install/lib/cmake/picotool
+          PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
+        run: |
+          [ -n "$CRULLER_VERSION" ] || unset CRULLER_VERSION
+          bash scripts/build.sh Release
+          ninja -C build cruller_bench
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cruller-pico2_w-${{ inputs.version || 'default' }}-${{ github.sha }}
+          path: |
+            build/cruller.uf2
+            build/cruller_bench.uf2
+            build/cruller_migration.bin
+          if-no-files-found: error
