@@ -253,8 +253,7 @@ static void portal_open(uint8_t channel) {
     esp_wifi_set_config(WIFI_IF_AP, &cfg);
     esp_netif_ip_info_t info;
     esp_netif_get_ip_info(ap_if, &info);
-    ip_addr_t gw;
-    ip_addr_set_ip4_u32(&gw, info.ip.addr);
+    ip_addr_t gw = IPADDR4_INIT(info.ip.addr);
     LOCK_TCPIP_CORE();
     dns_server_init(&dns, esp_netif_get_netif_impl(ap_if), &gw);
     UNLOCK_TCPIP_CORE();

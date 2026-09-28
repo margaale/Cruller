@@ -22,6 +22,9 @@ typedef struct {
 
 // Records a report (total 0: not given); true if the input changed. Repeats (the bridge resends every
 // 60 s) only refresh at_ms.
+// Before the HTTP server starts.
+void svs_init(void);
+
 bool svs_report(int input, int total, const char *name, const char *id);
 
 // The last report; false if none since boot.

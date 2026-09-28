@@ -11,10 +11,15 @@
 static svs_state_t now_state;
 static bool known;
 static volatile uint32_t version;
+static plat_lock_t lock;
+
+void svs_init(void) {
+    plat_lock_init(&lock);
+}
 
 bool svs_report(int input, int total, const char *name, const char *id) {
     const uint32_t t = plat_ms();
-    taskENTER_CRITICAL();
+    plat_lock_enter(&lock);
     const bool changed = !known || now_state.input != input;
     now_state.input = input;
     if (total > 0) now_state.total = total;
@@ -30,16 +35,16 @@ bool svs_report(int input, int total, const char *name, const char *id) {
         version++;
     }
     known = true;
-    taskEXIT_CRITICAL();
+    plat_lock_exit(&lock);
     if (changed) printf("svs: input %d%s%s\n", input, name && *name ? " " : "", name ? name : "");
     return changed;
 }
 
 bool svs_get(svs_state_t *out) {
-    taskENTER_CRITICAL();
+    plat_lock_enter(&lock);
     const bool k = known;
     if (k) *out = now_state;
-    taskEXIT_CRITICAL();
+    plat_lock_exit(&lock);
     return k;
 }
 

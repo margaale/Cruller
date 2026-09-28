@@ -230,6 +230,25 @@ static const struct {
     {MEMP_SYS_TIMEOUT, "timeouts"},
 };
 
+// lwIP's figures where it keeps them (MEMP_STATS, MEM_STATS): ESP-IDF's lwIP takes pools and heap from
+// the system heap and has neither, so zeros there.
+static struct stats_mem pool_stats(int id) {
+#if MEMP_STATS
+    return *lwip_stats.memp[id];
+#else
+    (void)id;
+    return (struct stats_mem){0};
+#endif
+}
+
+static struct stats_mem heap_stats(void) {
+#if MEM_STATS
+    return lwip_stats.mem;
+#else
+    return (struct stats_mem){0};
+#endif
+}
+
 static void handle_debug_memory(int fd) {
     static char out[2048];
     http_debug_memory(out, sizeof(out));
@@ -248,12 +267,13 @@ void http_debug_memory(char *out, size_t size) {
 
     ADD("\nlwIP pools              used  peak  size  failed\n");
     for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
-        const struct stats_mem *m = lwip_stats.memp[pools[i].id];
-        ADD("  %-21s %5u %5u %5u %7lu\n", pools[i].name, (unsigned)m->used, (unsigned)m->max, (unsigned)m->avail,
-            (unsigned long)m->err);
+        const struct stats_mem m = pool_stats(pools[i].id);
+        ADD("  %-21s %5u %5u %5u %7lu\n", pools[i].name, (unsigned)m.used, (unsigned)m.max, (unsigned)m.avail,
+            (unsigned long)m.err);
     }
-    ADD("  %-21s %5u %5u %5u %7lu  (bytes)\n", "lwIP heap", (unsigned)lwip_stats.mem.used, (unsigned)lwip_stats.mem.max,
-        (unsigned)lwip_stats.mem.avail, (unsigned long)lwip_stats.mem.err);
+    const struct stats_mem lh = heap_stats();
+    ADD("  %-21s %5u %5u %5u %7lu  (bytes)\n", "lwIP heap", (unsigned)lh.used, (unsigned)lh.max, (unsigned)lh.avail,
+        (unsigned long)lh.err);
 
     plat_memory_t m;
     plat_memory(&m);
@@ -272,16 +292,16 @@ size_t http_debug_memory_json(char *out, size_t size) {
     ADD("{\"clients\":{\"used\":%d,\"max\":%d,\"web\":%d,\"rfc2217\":%d,\"http_waiting\":%d},\"pools\":[",
         clients_used(), CLIENTS_MAX, ws_clients(NULL), rfc2217_count(NULL), HTTP_BACKLOG);
     for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
-        const struct stats_mem *m = lwip_stats.memp[pools[i].id];
+        const struct stats_mem m = pool_stats(pools[i].id);
         ADD("%s{\"name\":\"%s\",\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu}", i ? "," : "", pools[i].name,
-            (unsigned)m->used, (unsigned)m->max, (unsigned)m->avail, (unsigned long)m->err);
+            (unsigned)m.used, (unsigned)m.max, (unsigned)m.avail, (unsigned long)m.err);
     }
+    const struct stats_mem lh = heap_stats();
     plat_memory_t mem;
     plat_memory(&mem);
     ADD("],\"lwip_heap\":{\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu},"
         "\"heap\":{\"size\":%u,\"free\":%u,\"lowest\":%u,\"largest\":%u}}",
-        (unsigned)lwip_stats.mem.used, (unsigned)lwip_stats.mem.max, (unsigned)lwip_stats.mem.avail,
-        (unsigned long)lwip_stats.mem.err, (unsigned)mem.heap_size, (unsigned)mem.heap_free,
+        (unsigned)lh.used, (unsigned)lh.max, (unsigned)lh.avail, (unsigned long)lh.err, (unsigned)mem.heap_size, (unsigned)mem.heap_free,
         (unsigned)mem.heap_lowest, (unsigned)mem.heap_largest);
 #undef ADD
     return o < size ? o : 0;

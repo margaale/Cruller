@@ -269,7 +269,7 @@ static void console_task(void *param) {
                 if (over) break;
             }
             const uint32_t i = cmd_log_n++ & (CMD_LOG - 1);
-            snprintf(cmd_log[i].cmd, sizeof(cmd_log[i].cmd), "%s", req.cmd);
+            snprintf(cmd_log[i].cmd, sizeof(cmd_log[i].cmd), "%.*s", (int)sizeof(cmd_log[i].cmd) - 1, req.cmd); // its start
             cmd_log[i].owner = (int8_t)req.owner;
             cmd_log[i].reply_ms = (int16_t)console_core_first_reply_ms();
             cmd_log[i].window_ms = (uint16_t)(now_ms() - t0);
