@@ -178,3 +178,17 @@ add_custom_command(
     COMMENT "DonutShop -> Cruller migration image"
 )
 add_custom_target(cruller_migration ALL DEPENDS ${MIGRATION_BIN})
+
+# --- factory image ----------------------------------------------------------------------------
+
+# A new board over USB: the same flash contents from offset 0 (partition table and slot A) as a UF2,
+# to drop on the RP2350 drive in BOOTSEL mode. Family "absolute": each block goes to its own address.
+# cruller.uf2 alone brings no partition table, and without one OTA has no partition to update.
+set(FACTORY_UF2 ${CMAKE_CURRENT_BINARY_DIR}/cruller-factory.uf2)
+add_custom_command(
+    OUTPUT ${FACTORY_UF2}
+    COMMAND picotool uf2 convert ${MIGRATION_BIN} -t bin ${FACTORY_UF2} -o 0x10000000 --family absolute
+    DEPENDS ${MIGRATION_BIN}
+    COMMENT "Factory UF2 (partition table + slot A)"
+)
+add_custom_target(cruller_factory ALL DEPENDS ${FACTORY_UF2})
