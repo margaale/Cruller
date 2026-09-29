@@ -6,6 +6,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// The API's version (docs/API.md): routes under /api/v1, "api=1" in the _rt4k TXT, "api_version" in
+// GET /api/v1/info. It moves on only for a change that breaks a v1 client (a route or field removed or
+// renamed, a meaning changed); new routes and fields keep it.
+#define HTTP_API_VERSION "1"
+
 void http_start(void);
 
 // A firmware upload (POST /update) in progress: bytes received of size. False when none.

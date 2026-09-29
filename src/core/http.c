@@ -992,7 +992,43 @@ static void handle_rt4k_ask(request_t *r, const char *query) {
     }
 }
 
-// --- POST /api/command -------------------------------------------------------------------------------
+// --- /api/v1: the API for Home Assistant and scripts (docs/API.md) ------------------------------------
+//
+// Versioned (HTTP_API_VERSION), so a client written for v1 keeps working as Cruller changes. The page
+// has /status, which changes with it; these answer what a client outside Cruller needs. /api/command
+// and /api/svs came before the version: they stay as other names of their v1 routes, for the SVS
+// Bridges and scripts that use them.
+
+// GET /api/v1/info: who this Cruller is, read once (Home Assistant's config flow).
+static void handle_api_info(int fd) {
+    char id[33], name[2 * SETTINGS_NAME_MAX + 2], body[384];
+    plat_board_id(id, sizeof(id));
+    settings_t set;
+    settings_get(&set);
+    json_escape(name, sizeof(name), set.name);
+    snprintf(body, sizeof(body),
+        "{\"id\":\"%s\",\"name\":\"%s\",\"hostname\":\"%s\",\"sw_version\":\"%s\",\"platform\":\"%s\","
+        "\"api_version\":" HTTP_API_VERSION "}",
+        id, name, net_hostname(), CRULLER_VERSION, PLAT_NAME);
+    respond(fd, 200, "OK", "application/json", body);
+}
+
+// GET /api/v1/state: what changes, for polling (gently: requests are served one at a time). "svs" is
+// GET /api/v1/svs's object without the switch.
+static void handle_api_state(int fd) {
+    rt4k_status_t rt;
+    rt4k_get_status(&rt);
+    char svs[640], body[1024];
+    svs_json(svs, sizeof(svs), false);
+    snprintf(body, sizeof(body),
+        "{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"},\"svs\":%s,"
+        "\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d}}",
+        rt.mounted ? "true" : "false", rt.mounted ? power_state_name(power_state()) : "unknown", svs,
+        CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), net_rssi());
+    respond(fd, 200, "OK", "application/json", body);
+}
+
+// --- POST /api/v1/command (also /api/command) ---------------------------------------------------------
 //
 // For automations (Home Assistant...): console commands in, their own replies out, through the same
 // queue as everything else (console.c), so they never get another sender's replies. Body:
@@ -1114,7 +1150,7 @@ static void handle_api_command(request_t *r) {
     respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", out);
 }
 
-// --- /api/svs: the Scalable Video Switch's active input, and the switch (docs/SVS.md) --------------
+// --- /api/v1/svs (also /api/svs): the Scalable Video Switch's active input, and the switch (docs/SVS.md)
 //
 // POST {"id": "svs-bridge-…", "current_input": 3, "total_inputs": 8, "inputs": [{"kind", "name"}, ...],
 // "output": {"kind", "name"}} from the SVS Bridge on every change, when it finds Cruller, and every
@@ -1126,8 +1162,9 @@ static void handle_api_command(request_t *r) {
 // every name full of quotes to escape.
 static char svs_buf[8192];
 
-// The "svs" object. full: with the switch's description ("switch":{...}, for GET /api/svs); else just
-// its "switch_seq" (the status, which the page gets every few seconds: it fetches the rest on a change).
+// The "svs" object. full: with the switch's description ("switch":{...}, for GET /api/v1/svs); else
+// just its "switch_seq" (the status, which the page gets every few seconds: it fetches the rest on a
+// change).
 static void svs_json(char *out, size_t size, bool full) {
     settings_t set;
     settings_get(&set);
@@ -1162,7 +1199,7 @@ static void svs_json(char *out, size_t size, bool full) {
     if ((size_t)n + 1 < size) snprintf(out + n, size - (size_t)n, "}");
 }
 
-// POST /api/svs/unpair: forget the paired bridge; the next one to report is kept.
+// POST /api/v1/svs/unpair: forget the paired bridge; the next one to report is kept.
 static void handle_svs_unpair(request_t *r) {
     settings_t s;
     settings_get(&s);
@@ -1210,7 +1247,7 @@ static void handle_svs(request_t *r, bool post) {
         return;
     }
     // Pairing: the first bridge that reports (with an id) is kept; others are turned away, so a bridge
-    // set up for another RT4K can't change this one's profiles. POST /api/svs/unpair frees it.
+    // set up for another RT4K can't change this one's profiles. POST /api/v1/svs/unpair frees it.
     settings_t s;
     settings_get(&s);
     if (s.svs_bridge[0] && strcmp(s.svs_bridge, m.id)) {
@@ -1413,7 +1450,9 @@ static void handle(request_t *r) {
     else if (post && !strcmp(r->path, "/rt4k/ask")) handle_rt4k_ask(r, query);
     else if (get && !strcmp(r->path, "/rt4k/ls")) handle_rt4k_ls(r, query);
     else if (get && !strcmp(r->path, "/rt4k/get")) handle_rt4k_get(r, query);
-    else if (post && !strcmp(r->path, "/api/command")) handle_api_command(r);
+    else if (get && !strcmp(r->path, "/api/v1/info")) handle_api_info(r->fd);
+    else if (get && !strcmp(r->path, "/api/v1/state")) handle_api_state(r->fd);
+    else if (post && (!strcmp(r->path, "/api/v1/command") || !strcmp(r->path, "/api/command"))) handle_api_command(r);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;
         const size_t n = rtl1_last_failure(&d);
@@ -1439,8 +1478,8 @@ static void handle(request_t *r) {
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/update/fetch")) handle_update_fetch(r, query);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
-    else if ((get || post) && !strcmp(r->path, "/api/svs")) handle_svs(r, post);
-    else if (post && !strcmp(r->path, "/api/svs/unpair")) handle_svs_unpair(r);
+    else if ((get || post) && (!strcmp(r->path, "/api/v1/svs") || !strcmp(r->path, "/api/svs"))) handle_svs(r, post);
+    else if (post && (!strcmp(r->path, "/api/v1/svs/unpair") || !strcmp(r->path, "/api/svs/unpair"))) handle_svs_unpair(r);
     else if ((get || post) && !strcmp(r->path, "/setup")) handle_setup(r, post);
     else if (post && !strcmp(r->path, "/settings")) handle_settings(r);
     else if (post && !strcmp(r->path, "/restart")) handle_restart(r, false);

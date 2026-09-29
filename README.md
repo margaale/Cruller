@@ -49,7 +49,7 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 flowchart LR
     browser["Web browser"] <-- "HTTP + WebSocket" --> cruller
     ha["Home Assistant<br/>or pyserial"] <-- "RFC 2217" --> cruller
-    scripts["Scripts"] -- "POST /api/command" --> cruller
+    scripts["Scripts"] -- "/api/v1" --> cruller
     bridge["SVS Bridge"] -- "active input" --> cruller
     cruller["Cruller<br/>(Pico 2 W)"] <-- "USB, 2 Mbaud" --> rt4k["RetroTINK 4K"]
 ```
@@ -189,12 +189,13 @@ sees only the replies to its own commands. [hass-RT4K](https://github.com/sjftec
 drives an RT4K through it once it takes network serial ports
 ([sjftech/hass-RT4K#1](https://github.com/sjftech/hass-RT4K/pull/1)).
 
-**HTTP API.** `POST /api/command` sends commands to the RT4K and returns their replies. The body can
-be `{"command": "…"}`, `{"commands": ["…", "…"]}` (up to 8), `{"button": "menu"}` with hass-RT4K's
-button names (`power_on`, `power_off`, `menu`, `up`…), or plain text, one command per line:
+**HTTP API.** `POST /api/v1/command` sends commands to the RT4K and returns their replies. The body
+can be `{"command": "…"}`, `{"commands": ["…", "…"]}` (up to 8), `{"button": "menu"}` with
+hass-RT4K's button names (`power_on`, `power_off`, `menu`, `up`…), or plain text, one command per
+line:
 
 ```bash
-curl -X POST http://cruller.local/api/command -d '{"command": "ver"}'
+curl -X POST http://cruller.local/api/v1/command -d '{"command": "ver"}'
 ```
 
 ```json
@@ -208,10 +209,12 @@ curl -X POST http://cruller.local/api/command -d '{"command": "ver"}'
 ```
 
 If a command couldn't be sent (the RT4K isn't connected), `ok` is `false` and the answer is a
-`503`. `GET /status` returns Cruller's state as JSON, the RT4K's power state included.
+`503`. `GET /api/v1/state` returns the RT4K's power state, the switch's active input and Cruller's
+own, and `GET /api/v1/info` who this Cruller is. The API is versioned: a script written for
+`/api/v1` keeps working as Cruller changes. All of it is in [docs/API.md](docs/API.md).
 
-**Discovery.** Cruller announces itself over mDNS as `_rt4k._tcp` (TXT `id`, `ver`, `api`, and
-`name` once named), `_rfc2217._tcp` and `_http._tcp`.
+**Discovery.** Cruller announces itself over mDNS as `_rt4k._tcp` (TXT `id`, `ver`, `api`: the API's
+version, and `name` once named), `_rfc2217._tcp` and `_http._tcp`.
 
 ## Security
 
@@ -358,8 +361,8 @@ needs a higher version than the last: the version's minor number carries CI's ru
 <details>
 <summary><b>SVS Bridge reports</b></summary>
 
-The bridge reports the active input and the switch's layout with `POST /api/svs` on every change
-and every 60 s. `GET /api/svs` returns what Cruller last heard. The format, discovery and pairing
+The bridge reports the active input and the switch's layout with `POST /api/v1/svs` on every change
+and every 60 s. `GET /api/v1/svs` returns what Cruller last heard. The format, discovery and pairing
 are in [docs/SVS.md](docs/SVS.md).
 
 </details>

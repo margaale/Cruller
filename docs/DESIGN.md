@@ -89,14 +89,14 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 ## Interfaces
 
 - **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, the RT4K's SD card (browse, download, upload, new folders, rename, delete), Cruller updates (from its GitHub releases, or a file). Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
-- **`POST /api/command`**: console commands in (`{"command"}`, `{"commands": []}`, `{"button"}` with hass-RT4K's names, or plain text lines), their own replies out once each window closes.
+- **The API** (`/api/v1`, [API.md](API.md)): for Home Assistant, scripts and the SVS Bridge, versioned so their clients keep working as the page's routes change. `GET /api/v1/info` (who this Cruller is), `GET /api/v1/state` (power, the switch's input, Cruller's own), `POST /api/v1/command` (console commands in: `{"command"}`, `{"commands": []}`, `{"button"}` with hass-RT4K's names, or plain text lines; their own replies out once each window closes), `/api/v1/svs` ([SVS.md](SVS.md)). The version is also the `api` in the `_rt4k._tcp` TXT (`HTTP_API_VERSION`). `/api/command` and `/api/svs`, from before the version, still answer as their v1 routes.
 - **RFC 2217** on TCP port 2217 (pyserial's `rfc2217://`, e.g. Home Assistant's hass-RT4K): each client sees only its own replies; TCP keepalive drops clients that vanished.
 - **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/core/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
 - **`POST /rt4k/put`, `POST /rt4k/ask`**: file uploads to the RT4K's SD card and single queries, used by the firmware updater.
 - **`GET /rt4k/ls`, `GET /rt4k/get`**: a folder of the SD card and a file from it, for the page's SD card view. A listing is collected whole before it goes out (`ls` can't be paged, and the console keeps only its last 64 lines), and read again if lines went missing; its lines stay out of the terminal (console owner "files"). Files come in 16 KB `get -o/-l` pieces, each verified before it's sent. Downloads and uploads run on their own task (xfer), so the page keeps answering meanwhile; console commands and the mirror's polls fit between a download's pieces, but not into an upload (put holds the link: they give up after 2 s, as before). The page uploads through `/rt4k/put` (SHA-256 in the browser, `src/web/sha256.js`) and makes folders, renames and deletes with the RT4K's `mkdir`, `mv` and `rm` through `/rt4k/ask`; a folder is deleted from the bottom up, since `rm` takes only empty ones. SD paths go up to 160 bytes (`RTL1_PATH_MAX`), UTF-8 included.
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
 - **`POST /update`, `POST /update/fetch`**: a Cruller image uploaded as the request body, or downloaded by Cruller itself from its GitHub releases (see "OTA").
-- **Status**: `GET /status` (JSON, also pushed over the WebSocket).
+- **Status**: `GET /status` (JSON, also pushed over the WebSocket), the page's: it changes with the page, so clients outside it use `GET /api/v1/state`.
 - **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/console`, `/debug/usbtrace`, `/debug/freeze`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`.
 
 ## Flash layout
@@ -160,7 +160,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 1. **M0, foundation (done 2026-09-25):** CMake project, flash layout with partition table, migration from DonutShop by OTA with the Wi-Fi credentials, station mode with the portal fallback, mDNS, Cruller-to-Cruller OTA with rollback.
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
 3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI. Not started.
-4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, `/api/command`, RFC 2217. LED patterns still to do.
+4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, the API (`/api/v1`), RFC 2217. LED patterns still to do.
 5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete) and firmware updates from RetroTINK's repository. Still to do: Extron/TESmart/MT-VIKI serial, IR, profiles.
 
 ### M0 results (2026-09-25)

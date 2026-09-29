@@ -1,4 +1,4 @@
-// The SVS Bridge's report (POST /api/svs, docs/SVS.md) with no I/O: parsing it, and writing the switch
+// The SVS Bridge's report (POST /api/v1/svs, docs/SVS.md) with no I/O: parsing it, and writing the switch
 // it describes as JSON. svs.c keeps it; tests/test_svs.c checks these on the host.
 
 #pragma once
