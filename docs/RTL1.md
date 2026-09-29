@@ -126,8 +126,13 @@ other models' `.rbf`, `rt4kup.bin` last, then runs `fwup` (tried: 1.87.0 to 1.87
 
 ## Cruller
 
-`src/core/rtl1.c` sees every byte from the RT4K. Text goes to the terminal; between a ready line and the
-end of the transfer, bytes go to the frame decoder instead, so the terminal never shows binary.
+`src/core/rtl1.c` sees every byte from the RT4K. Text goes to the terminal a whole line at a time;
+between a ready line and the end of the transfer, bytes go to the frame decoder instead, so the
+terminal never shows binary. That holds when a transfer goes wrong too: frames that come without
+their ready line (lost to an FT232R overrun, or late, after the wait for it ended) are known by their
+header (`A5 5A`, then control characters in the length and type) and swallowed to the closing line,
+and so is the rest of a transfer that failed or timed out. A line with a control character is never
+shown; nor is a closing line with bytes before its `[COM] `, the end of a transfer's frames.
 Frames are checked for CRC, nonce and sequence, and the payload against the SHA-256 (the RP2350's
 hardware engine). One transfer runs at a time, and terminal commands wait for it.
 `GET /rt4k/xfer?cmd=osd|osd2|font` returns a verified payload, with the ready line in `X-Ready`.
