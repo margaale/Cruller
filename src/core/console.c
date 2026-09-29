@@ -16,7 +16,7 @@
 #define CONSOLE_TASK_STACK    512
 #define CONSOLE_TASK_PRIORITY (tskIDLE_PRIORITY + 3)
 #define QUEUE_DEPTH           8
-#define CMD_MAX               200
+#define CMD_MAX               336  // "mv <path>|<path>" with two of rtl1.h's longest paths
 #define LINE_MAX_LEN          CON_LINE_MAX
 #define HISTORY              64   // routed lines kept for console_read_line (power of two)
 

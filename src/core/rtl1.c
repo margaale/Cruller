@@ -55,7 +55,7 @@ static SemaphoreHandle_t xfer_lock; // one transfer at a time
 // what it has buffered: all of it within a fraction of a second).
 static struct {
     volatile bool active;
-    char path[96];
+    char path[RTL1_PATH_MAX + 1];
     volatile uint32_t sent, size;
 } put_now;
 
@@ -154,7 +154,7 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
     capturing = true;
     xSemaphoreGive(feed_lock);
 
-    char line[200];
+    char line[RTL1_PATH_MAX + 48];
     const int len = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     rtl1_result_t result;
     if (len <= 0 || len >= (int)sizeof(line) || !rt4k_write(line, (size_t)len)) {
@@ -277,14 +277,14 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
     put_now.sent = 0;
     put_now.size = size;
     put_now.active = true;
-    char cmd[200];
+    char cmd[RTL1_PATH_MAX + 96];
     snprintf(cmd, sizeof(cmd), "put%s %lu %s %s", acked ? " -a" : "", (unsigned long)size, sha256_hex, path);
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     xSemaphoreTake(done_sem, 0); // stale
     rtl1_core_begin_put(cmd, info, 0, now_ms());
     xSemaphoreGive(feed_lock);
 
-    char line[208];
+    char line[RTL1_PATH_MAX + 104];
     const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     rtl1_result_t result = RTL1_ERR_NO_LINK;
     bool ok = n > 0 && n < (int)sizeof(line) && write_all((const uint8_t *)line, (size_t)n);

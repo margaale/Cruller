@@ -84,31 +84,18 @@ target_include_directories(cruller_app INTERFACE
     ${CRULLER_ROOT}/third_party/picow_ap)
 
 # Web assets kept as real files (src/web), embedded as C arrays (see src/web/embed.cmake).
-set(WEB_FW_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_fw_js.c)
-add_custom_command(OUTPUT ${WEB_FW_JS_C}
-    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/fw.js -DOUT=${WEB_FW_JS_C} -DNAME=web_fw_js
-        -P ${CRULLER_WEB}/embed.cmake
-    DEPENDS ${CRULLER_WEB}/fw.js ${CRULLER_WEB}/embed.cmake
-    VERBATIM)
-set(WEB_SD_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_sd_js.c)
-add_custom_command(OUTPUT ${WEB_SD_JS_C}
-    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/sd.js -DOUT=${WEB_SD_JS_C} -DNAME=web_sd_js
-        -P ${CRULLER_WEB}/embed.cmake
-    DEPENDS ${CRULLER_WEB}/sd.js ${CRULLER_WEB}/embed.cmake
-    VERBATIM)
-set(WEB_APP_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_app_js.c)
-add_custom_command(OUTPUT ${WEB_APP_JS_C}
-    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/app.js -DOUT=${WEB_APP_JS_C} -DNAME=web_app_js
-        -P ${CRULLER_WEB}/embed.cmake
-    DEPENDS ${CRULLER_WEB}/app.js ${CRULLER_WEB}/embed.cmake
-    VERBATIM)
-set(WEB_INDEX_C ${CMAKE_CURRENT_BINARY_DIR}/web_index_html.c)
-add_custom_command(OUTPUT ${WEB_INDEX_C}
-    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/index.html -DOUT=${WEB_INDEX_C} -DNAME=web_index_html
-        -P ${CRULLER_WEB}/embed.cmake
-    DEPENDS ${CRULLER_WEB}/index.html ${CRULLER_WEB}/embed.cmake
-    VERBATIM)
-target_sources(cruller_app INTERFACE ${WEB_FW_JS_C} ${WEB_SD_JS_C} ${WEB_APP_JS_C} ${WEB_INDEX_C})
+foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js app.js:web_app_js index.html:web_index_html)
+    string(REPLACE ":" ";" asset ${asset})
+    list(GET asset 0 file)
+    list(GET asset 1 name)
+    set(out ${CMAKE_CURRENT_BINARY_DIR}/${name}.c)
+    add_custom_command(OUTPUT ${out}
+        COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/${file} -DOUT=${out} -DNAME=${name}
+            -P ${CRULLER_WEB}/embed.cmake
+        DEPENDS ${CRULLER_WEB}/${file} ${CRULLER_WEB}/embed.cmake
+        VERBATIM)
+    target_sources(cruller_app INTERFACE ${out})
+endforeach()
 target_compile_definitions(cruller_app INTERFACE
     CRULLER_VERSION="${CRULLER_VERSION}"
     CYW43_HOST_NAME="cruller"

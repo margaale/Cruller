@@ -114,7 +114,8 @@ answered the previous console command is ignored (no ready line); right after th
 | `fwup check`             | `fwup ok version=<v> token=<hex>` once `rt4kup.bin` and its `.rbf` are on the card |
 | `fwup go <token>`        | `fwup: flashing`; the RT4K restarts and installs (~40 s)   |
 
-Paths are the rest of the line, with or without a leading `/`; spaces are fine. `ls` takes no flags
+Paths are the rest of the line, with or without a leading `/`; spaces are fine, and so are UTF-8
+names (`prueba ñ.txt` went through put, ls and get unchanged). `ls` takes no flags
 (`ls -h` lists a folder called `-h`) and sends the whole folder at once, about 0.7 ms a line
 (55 entries in 38 ms). None of these answer while the RT4K is in standby. Files written over RTL1
 get the time stamp 1577836800 (2020-01-01): the RT4K has no clock.

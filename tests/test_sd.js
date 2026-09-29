@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 
 const window = {};
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'sd.js'), 'utf8'), { window, Date });
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'sd.js'), 'utf8'), { window, Date, TextEncoder });
 const sd = window.sdInternals;
 
 let checks = 0, failures = 0;
@@ -54,7 +54,18 @@ check(sd.getUrl('profile/Nintendo SNES + SFC/a&b.rt4') === '/rt4k/get?path=profi
   'download address: the whole path escaped (+ and & too)');
 check(sd.dirFromParts(['bad%zz']) === 'bad%zz', 'a broken escape is kept as is');
 
-check(sd.size(0) === '0 B' && sd.size(1536) === '1.5 KB' && sd.size(45810) === '45 KB' && sd.size(4580256) === '4.4 MB', 'sizes');
+// New names (uploads, new folders, renames): what FAT and Cruller refuse.
+for (const ok of ['Sony PS2', 'Maverick - RGBS - CRT & HDR.rt4', 'Pokémon Stadium.rt4', '[1] (a).txt', '.hidden', 'a.b.c']) {
+  check(sd.nameProblem(ok) === '', 'name ok: ' + ok);
+}
+for (const bad of ['', 'a/b', 'a\\b', 'a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b', 'tab\there', 'x..y', '..', 'trailing ', 'trailing.']) {
+  check(sd.nameProblem(bad) !== '', 'name refused: ' + JSON.stringify(bad));
+}
+check(sd.utf8Length('abc') === 3 && sd.utf8Length('Pokémon') === 8, 'path length in UTF-8 bytes');
+check(sd.sameName('Sony PS2', 'sony ps2') && !sd.sameName('a', 'b'), 'names compare without case (FAT)');
+
+check(sd.size(39.094) === '39 B', 'a rate in bytes, rounded');
+check(sd.size(0) === '0 B' &&sd.size(1536) === '1.5 KB' && sd.size(45810) === '45 KB' && sd.size(4580256) === '4.4 MB', 'sizes');
 check(sd.when(1577836800) === '2020-01-01 00:00', 'dates as stored on the card');
 
 console.log(failures ? `sd.js: ${failures} of ${checks} checks failed` : `sd.js: ${checks} checks ok`);
