@@ -137,7 +137,7 @@ function st(s) {
 
 const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
 
-// The switch as the bridge describes it (GET /api/svs "switch"): fetched when its switch_seq changes.
+// The switch as the bridge describes it (GET /api/v1/svs "switch"): fetched when its switch_seq changes.
 const svsSw = { seq: 0, loading: 0, data: null, last: null };
 const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
 const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
@@ -257,7 +257,7 @@ async function svsLoad(seq) {
   if (svsSw.loading === seq) return;
   svsSw.loading = seq;
   try {
-    const v = await (await fetch('/api/svs')).json();
+    const v = await (await fetch('/api/v1/svs')).json();
     svsSw.data = v.switch || null;
     svsSw.seq = v.switch_seq || 0;
   } catch (e) { /* the next status tries again */ }
@@ -316,7 +316,7 @@ function showSvs(v) {
 
 async function unpair() {
   if (!(await askUser('Unpair the SVS Bridge?', 'Cruller forgets it; the next SVS Bridge that reports pairs instead.', 'Unpair', true))) return;
-  try { await fetch('/api/svs/unpair', { method: 'POST' }); } catch (e) { /* the next status shows it */ }
+  try { await fetch('/api/v1/svs/unpair', { method: 'POST' }); } catch (e) { /* the next status shows it */ }
 }
 
 // --- name --------------------------------------------------------------------------------------------------

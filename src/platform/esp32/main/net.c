@@ -20,6 +20,7 @@
 
 #include "creds.h"
 #include "dnsserver.h"
+#include "http.h"
 #include "platform.h"
 #include "settings.h"
 #include "status_led.h"
@@ -218,7 +219,7 @@ static void mdns_start(void) {
     mdns_txt_item_t rt4k_txt[] = {
         {"id", id},
         {"ver", CRULLER_VERSION},
-        {"api", "/api"},
+        {"api", HTTP_API_VERSION},
         {"name", s.name},
     };
     mdns_txt_item_t rfc2217_txt[] = {{"id", id}};
