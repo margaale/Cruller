@@ -136,6 +136,29 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .steps li[data-state=done] .si{border-color:var(--ok);color:var(--ok)}.steps li[data-state=done] .si::before{content:'✓'}
 .steps li[data-state=fail] .si{border-color:#E0453F;color:#E0453F}.steps li[data-state=fail] .si::before{content:'✕'}.steps li[data-state=fail] .sd{color:#F07A74}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* SD card (sd.js) */
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font:600 18px var(--head);min-width:0}
+.crumbs a{color:var(--muted);text-decoration:none;padding:2px 6px;border-radius:6px}.crumbs a:hover{color:var(--text);background:var(--raised)}
+.crumbs span{color:#6B6F76}.crumbs b{padding:2px 6px;font-weight:700;overflow-wrap:anywhere}
+#sds.bad{color:#F07A74}
+.files{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
+.files .cs{width:96px}.files .cw{width:150px}.files .ca{width:48px}
+.files th{font-weight:500;font-size:12px;color:var(--faint);text-align:left;padding:0 8px 8px;cursor:pointer;user-select:none}
+.files th[aria-sort=ascending]::after{content:' ▲';font-size:9px}.files th[aria-sort=descending]::after{content:' ▼';font-size:9px}
+.files th[aria-sort=ascending],.files th[aria-sort=descending]{color:var(--text)}
+.files td{height:40px;padding:0 8px;border-top:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.files tbody tr:hover td{background:var(--raised)}
+.files .num{text-align:right;font:13px var(--mono);color:var(--soft)}
+.files td.n a,.files td.n{color:var(--text);text-decoration:none}
+.files td.n a{display:flex;align-items:center;min-width:0;height:40px}
+.files td.n>.ico,.files td.n>.nm{vertical-align:middle}
+.files .nm{overflow:hidden;text-overflow:ellipsis}
+.files .ico{display:inline-flex;margin-right:10px;color:var(--warn);flex:none}.files .ico.f{color:var(--faint)}
+.files tr.up a{display:flex;align-items:center;color:var(--muted);text-decoration:none;height:40px;font-family:var(--mono)}
+#sde{color:var(--faint);text-align:center;padding:20px 0;border-top:1px solid var(--rule);margin-top:-12px}
+.files td.act{text-align:right;padding-right:4px;text-overflow:clip}
+.btn.ib{width:34px;height:34px;padding:0;border-color:transparent;color:var(--soft)}.btn.ib:hover{border-color:var(--line);color:var(--text)}
+@media (max-width:640px){.files .when{display:none}.files .cs{width:76px}.files .ca{width:42px}.files td{padding:0 4px}.sub a{white-space:nowrap}.sub span.soon{display:none}}
 /* setup wizard (portal) */
 body.setup header nav,body.setup header .chip{display:none}
 .wiz{max-width:430px;margin:auto;display:flex;flex-direction:column;gap:16px;min-height:calc(100vh - 110px)}
@@ -176,7 +199,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <main>
 <!-- RetroTINK -->
 <section data-view="rt4k">
-<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><span class="soon">SD card and profiles<b>SOON</b></span></div>
+<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><a href="#rt4k/sd" data-sub="sd">SD card</a><span class="soon">Profiles<b>SOON</b></span></div>
 
 <div data-subview="live" class="stage">
 <div class="panel" style="grid-area:screen">
@@ -199,6 +222,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 </div>
 
 <div data-subview="firmware" id="fw"></div>
+<div data-subview="sd" id="sd"></div>
 </section>
 
 <!-- Cruller -->
@@ -436,6 +460,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 </form>
 </dialog>
 <script src="/fw.js" defer></script>
+<script src="/sd.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>

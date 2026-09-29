@@ -45,18 +45,19 @@ let tab = 'rt4k';
 const IN_PORTAL = location.hostname === '192.168.4.1';
 
 function route() {
-  const [t, sub] = (location.hash.slice(1) || (IN_PORTAL ? 'setup' : 'rt4k')).split('/');
+  const [t, sub, ...rest] = (location.hash.slice(1) || (IN_PORTAL ? 'setup' : 'rt4k')).split('/');
   tab = ['rt4k', 'svs', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
   document.body.classList.toggle('setup', tab === 'setup');
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
   document.querySelectorAll('nav.tabs a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.tab === tab));
-  const view = sub === 'firmware' ? 'firmware' : 'live';
+  const view = sub === 'firmware' || sub === 'sd' ? sub : 'live';
   document.querySelectorAll('[data-subview]').forEach((e) => { e.hidden = e.dataset.subview !== view; });
   document.querySelectorAll('.sub a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.sub === view));
   $('chip-rt4k').hidden = tab !== 'rt4k';
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
+  if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
   if (tab === 'rt4k' && view === 'live') fit();
   tellVisibility();
   tellDebug();
@@ -73,6 +74,7 @@ function st(s) {
   statusAt = Date.now();
   showPower(s.rt4k_power);
   if (window.fwPutProgress) window.fwPutProgress(s.put); // the firmware updater's progress bar (fw.js)
+  if (window.sdStatus) window.sdStatus(s); // the SD card view reads the folder again once the RT4K is on
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;
   text('rt4k-chip', usb ? 'RT4K · ' + power + (fwVersion ? ' · firmware ' + fwVersion : '') : 'RT4K not connected');
@@ -1067,8 +1069,8 @@ const barCell = (used, size) => {
   const p = size ? Math.min(100, Math.round(100 * used / size)) : 0;
   return '<td><div class="bar"><div style="width:' + p + '%;background:' + (p > 85 ? 'var(--warn)' : '#C9CCD1') + '"></div></div></td>';
 };
-const OWNERS = ['page', 'power check', 'Cruller', 'HTTP API'];
-const owner = (n) => OWNERS[n] || 'RFC 2217 #' + (n - 3);
+const OWNERS = ['page', 'power check', 'Cruller', 'HTTP API', 'SD card'];
+const owner = (n) => OWNERS[n] || 'RFC 2217 #' + (n - 4);
 
 function onDebug(kind, t) {
   if (kind === 6) { // every line from the RT4K: "owner\ttext"

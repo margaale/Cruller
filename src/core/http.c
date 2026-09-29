@@ -7,6 +7,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "lwip/sockets.h"
 #include "lwip/memp.h"
 #include "lwip/stats.h"
@@ -33,6 +34,8 @@
 #define HTTP_TASK_PRIORITY  (tskIDLE_PRIORITY + 2)
 #define HTTP_PORT           80
 #define HTTP_BACKLOG        4    // connections waiting while one request is served
+#define XFER_TASK_STACK     2048
+#define XFER_QUEUE          3    // SD card transfers waiting for the one running
 #define RECV_TIMEOUT_MS     15000
 #define HEADER_MAX          1536
 #define BODY_CHUNK          1024
@@ -43,7 +46,7 @@ bool http_listening(void) { return listening; }
 typedef struct {
     int fd;
     char method[8];
-    char path[256];       // with the query string (/rt4k/put carries a 64-digit SHA-256)
+    char path[512];       // with the query string (/rt4k/put carries a 64-digit SHA-256, SD paths come escaped)
     long content_length;
     char head[HEADER_MAX];
     size_t head_len;      // bytes in head[] (headers plus any body bytes read along with them)
@@ -86,6 +89,8 @@ static void respond_bytes(int fd, const char *extra_headers, const uint8_t *body
 // Web assets embedded from src/web at build time (src/web/embed.cmake).
 extern const unsigned char web_fw_js[];
 extern const size_t web_fw_js_len;
+extern const unsigned char web_sd_js[];
+extern const size_t web_sd_js_len;
 extern const unsigned char web_app_js[];
 extern const size_t web_app_js_len;
 extern const unsigned char web_index_html[];
@@ -130,7 +135,7 @@ static bool read_request(request_t *r) {
         *end = 0; // headers are now a C string; body bytes (if any) follow after the terminator
         break;
     }
-    if (sscanf(r->head, "%7s %255s", r->method, r->path) != 2) return false;
+    if (sscanf(r->head, "%7s %511s", r->method, r->path) != 2) return false;
     for (char *line = strstr(r->head, "\r\n"); line; line = strstr(line + 2, "\r\n")) {
         if (!strncasecmp(line + 2, "Content-Length:", 15)) r->content_length = strtol(line + 17, NULL, 10);
     }
@@ -264,6 +269,7 @@ void http_debug_memory(char *out, size_t size) {
     ADD("  web pages (WebSocket)   %d (when full, a new one replaces the quietest page)\n", ws_n);
     ADD("  RFC 2217 (port 2217)    %d (when full, a new one replaces the oldest RFC 2217 client)\n", rfc_n);
     ADD("  HTTP                    1 request at a time, %d more waiting\n", HTTP_BACKLOG);
+    ADD("  SD card transfers       1 at a time on their own task, %d more waiting\n", XFER_QUEUE);
 
     ADD("\nlwIP pools              used  peak  size  failed\n");
     for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
@@ -665,6 +671,191 @@ static void handle_rt4k_put(request_t *r, const char *query) {
     printf("http: RT4K upload %s: %s", path, msg);
 }
 
+// --- the RT4K's SD card, for the page's file browser -------------------------------------------------
+
+#define SD_PATH_MAX 160    // on one console line with the command ("get -o <off> -l <len> -- <path>")
+#define LS_BUF      24576  // a listing, as sent (~50 bytes an entry)
+#define GET_CHUNK   16384  // bytes per RTL1 get; each piece is verified before it goes out
+
+// A folder listing being collected: console_run() hands over each reply line of "ls <dir>".
+typedef struct {
+    char *buf;
+    size_t len, size;
+    int entries;        // "ent" lines seen
+    long total;         // from "ls end <n>" (-1: not seen)
+    bool truncated;     // buf ran out
+    bool cut;           // the last line was as long as a console line gets: the next may be its rest
+    char err[64];       // "ls err=2 NOSUCH", "ls: ..."
+} ls_t;
+
+static void ls_append(ls_t *l, const char *s, size_t n) {
+    if (l->len + n > l->size) {
+        l->truncated = true;
+        return;
+    }
+    memcpy(l->buf + l->len, s, n);
+    l->len += n;
+}
+
+// "[COM] ent t=D sz=0 mt=1762343404 nm=Sony PS2" -> "D\t0\t1762343404\tSony PS2\n".
+static void ls_line(const char *line, void *ctx) {
+    ls_t *l = ctx;
+    const bool was_cut = l->cut;
+    l->cut = strlen(line) >= CON_LINE_MAX - 1;
+    if (strncmp(line, "[COM] ", 6)) {
+        // The rest of an entry whose line was cut (names over ~115 characters): its name goes on.
+        if (was_cut && !l->truncated && l->len && l->buf[l->len - 1] == '\n') {
+            l->len--;
+            ls_append(l, line, strlen(line));
+            ls_append(l, "\n", 1);
+        }
+        return;
+    }
+    line += 6;
+    char type;
+    unsigned long size, mtime;
+    int name = 0;
+    if (!strncmp(line, "ent ", 4)) {
+        if (sscanf(line + 4, "t=%c sz=%lu mt=%lu nm=%n", &type, &size, &mtime, &name) != 3 || !name) return;
+        l->entries++;
+        if (l->truncated) return;
+        char head[40];
+        const int h = snprintf(head, sizeof(head), "%c\t%lu\t%lu\t", type, size, mtime);
+        const size_t n = strlen(line + 4 + name);
+        if (l->len + (size_t)h + n + 1 > l->size) {
+            l->truncated = true;
+            return;
+        }
+        ls_append(l, head, (size_t)h);
+        ls_append(l, line + 4 + name, n);
+        ls_append(l, "\n", 1);
+    } else if (!strncmp(line, "ls end ", 7)) {
+        l->total = strtol(line + 7, NULL, 10);
+    } else if (!strncmp(line, "ls", 2)) {
+        snprintf(l->err, sizeof(l->err), "%s", line);
+    }
+}
+
+// GET /rt4k/ls?dir=<sd folder> (none: the root): its entries, one a line, "D|F\tsize\tunix time\tname".
+// X-Total has the RT4K's own count: more than the lines when the listing didn't fit.
+static void handle_rt4k_ls(request_t *r, const char *query) {
+    char dir[SD_PATH_MAX + 1] = "";
+    const bool given = query && strstr(query, "dir=");
+    if (given && (!form_field(query, "dir", dir, sizeof(dir)) || (dir[0] && !sd_path_ok(dir)))) {
+        respond(r->fd, 400, "Bad Request", "text/plain", "Need ?dir=<folder on the SD card>\n");
+        return;
+    }
+    ls_t l = {.size = LS_BUF};
+    l.buf = pvPortMalloc(LS_BUF);
+    if (!l.buf) {
+        respond(r->fd, 503, "Service Unavailable", "text/plain", "Out of memory\n");
+        return;
+    }
+    char cmd[SD_PATH_MAX + 8];
+    snprintf(cmd, sizeof(cmd), dir[0] ? "ls %s" : "ls", dir);
+    bool sent = false;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        l.len = 0;
+        l.entries = 0;
+        l.total = -1;
+        l.truncated = l.cut = false;
+        l.err[0] = 0;
+        sent = console_run(CON_FILES, cmd, ls_line, &l);
+        // Lines missing (the console's history overran while this task was held up): list it again.
+        if (!sent || l.err[0] || l.total < 0 || l.entries == l.total) break;
+    }
+    if (!sent) {
+        respond(r->fd, 503, "Service Unavailable", "text/plain", "RT4K not connected, or the link is busy\n");
+    } else if (l.err[0]) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "%s\n", l.err);
+        const bool missing = strstr(l.err, "NOSUCH") != NULL;
+        respond(r->fd, missing ? 404 : 409, missing ? "Not Found" : "Conflict", "text/plain", msg);
+    } else if (l.total < 0) {
+        respond(r->fd, 504, "Gateway Timeout", "text/plain", "The RT4K didn't answer: is it on?\n");
+    } else if (l.entries != l.total) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "The listing came incomplete (%d of %ld entries)\n", l.entries, l.total);
+        respond(r->fd, 502, "Bad Gateway", "text/plain", msg);
+    } else {
+        char hdr[200];
+        const int n = snprintf(hdr, sizeof(hdr),
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %u\r\nX-Total: %ld\r\n"
+            "Cache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)l.len, l.total);
+        send_all(r->fd, hdr, (size_t)n);
+        if (l.len) send_all(r->fd, l.buf, l.len);
+    }
+    vPortFree(l.buf);
+}
+
+// GET /rt4k/get?path=<sd file>: the file, read in GET_CHUNK pieces (RTL1 "get -o <off> -l <len>"), each
+// verified (CRC, sequence, SHA-256) before it goes out. The first piece's ready line gives the size;
+// a piece failing later cuts the response short, which Content-Length tells the browser.
+static void handle_rt4k_get(request_t *r, const char *query) {
+    char path[SD_PATH_MAX + 1];
+    if (!query || !form_field(query, "path", path, sizeof(path)) || !sd_path_ok(path)) {
+        respond(r->fd, 400, "Bad Request", "text/plain", "Need ?path=<file on the SD card>\n");
+        return;
+    }
+    uint8_t *buf = pvPortMalloc(GET_CHUNK);
+    if (!buf) {
+        respond(r->fd, 503, "Service Unavailable", "text/plain", "Out of memory\n");
+        return;
+    }
+    static rtl1_info_t info;
+    char cmd[SD_PATH_MAX + 40];
+    unsigned long off = 0, total = 0;
+    bool started = false;
+    const uint32_t t0 = plat_ms();
+    for (;;) {
+        snprintf(cmd, sizeof(cmd), "get -o %lu -l %u -- %s", off, (unsigned)GET_CHUNK, path);
+        const rtl1_result_t res = rtl1_transfer(cmd, buf, GET_CHUNK, &info, true, 0);
+        const char *f = strstr(info.ready, "off=");
+        unsigned long r_off = 0, r_len = 0, r_total = 0;
+        const bool ok = res == RTL1_OK && f && sscanf(f, "off=%lu len=%lu total=%lu", &r_off, &r_len, &r_total) == 3 &&
+            r_off == off && r_len == info.len && (!started || r_total == total);
+        if (!ok && started) {
+            printf("http: RT4K download %s stopped at %lu of %lu bytes: %s: %s\n", path, off, total,
+                rtl1_result_name(res), res == RTL1_OK ? "unexpected ready line" : info.detail);
+            break;
+        }
+        // An empty file has no piece at offset 0: "get err: offset past EOF (size=0)".
+        const bool empty = !ok && res == RTL1_ERR_DEVICE && strstr(info.detail, "(size=0)");
+        if (!ok && !empty) {
+            char msg[160];
+            snprintf(msg, sizeof(msg), "%s: %s\n", rtl1_result_name(res), res == RTL1_OK ? "unexpected ready line" : info.detail);
+            const bool missing = res == RTL1_ERR_DEVICE && strstr(info.detail, "cannot open");
+            respond(r->fd, missing ? 404 : res == RTL1_ERR_DEVICE ? 409 : 502,
+                missing ? "Not Found" : res == RTL1_ERR_DEVICE ? "Conflict" : "Bad Gateway", "text/plain", msg);
+            break;
+        }
+        if (!started) {
+            total = empty ? 0 : r_total;
+            // The name the browser saves it as (sd_path_ok: printable ASCII already).
+            const char *base = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+            char name[SD_PATH_MAX + 1];
+            size_t n = 0;
+            for (; base[n] && n < sizeof(name) - 1; n++) name[n] = base[n] == '"' ? '_' : base[n];
+            name[n] = 0;
+            char hdr[SD_PATH_MAX + 240];
+            const int h = snprintf(hdr, sizeof(hdr),
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %lu\r\n"
+                "Content-Disposition: attachment; filename=\"%s\"\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+                total, name);
+            if (!send_all(r->fd, hdr, (size_t)h)) break;
+            started = true;
+        }
+        if (empty || !r_len) break;
+        if (!send_all(r->fd, buf, info.len)) break; // the browser went away
+        off += info.len;
+        if (off >= total) {
+            printf("http: RT4K download %s, %lu bytes in %lu ms\n", path, total, (unsigned long)(plat_ms() - t0));
+            break;
+        }
+    }
+    vPortFree(buf);
+}
+
 // POST /rt4k/ask?expect=<text>[&timeout=<ms>] with a console command as the body: the first reply
 // line containing <text> (e.g. "ver" / "FW Version:", "fwup check" / "fwup").
 static void handle_rt4k_ask(request_t *r, const char *query) {
@@ -1040,6 +1231,7 @@ static void handle(request_t *r) {
     if (query) *query++ = 0;
     if (get && !strcmp(r->path, "/")) respond_asset(r->fd, "text/html; charset=utf-8", web_index_html, web_index_html_len);
     else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
+    else if (get && !strcmp(r->path, "/sd.js")) respond_asset(r->fd, "application/javascript", web_sd_js, web_sd_js_len);
     else if (get && !strcmp(r->path, "/app.js")) respond_asset(r->fd, "application/javascript", web_app_js, web_app_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
@@ -1106,6 +1298,8 @@ static void handle(request_t *r) {
     }
     else if (post && !strcmp(r->path, "/rt4k/put")) handle_rt4k_put(r, query);
     else if (post && !strcmp(r->path, "/rt4k/ask")) handle_rt4k_ask(r, query);
+    else if (get && !strcmp(r->path, "/rt4k/ls")) handle_rt4k_ls(r, query);
+    else if (get && !strcmp(r->path, "/rt4k/get")) handle_rt4k_get(r, query);
     else if (post && !strcmp(r->path, "/api/command")) handle_api_command(r);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;
@@ -1161,6 +1355,46 @@ static void handle(request_t *r) {
     else respond(r->fd, 404, "Not Found", "text/plain", "Not found\n");
 }
 
+// --- SD card transfers -------------------------------------------------------------------------------
+//
+// Downloads and uploads (GET /rt4k/get, POST /rt4k/put) last as long as the RT4K link takes: ~45 s for
+// a 4 MB file. They run on their own task so the page, folder listings and the API keep answering
+// meanwhile. One at a time (the link carries one transfer anyway); the next ones wait in xfer_queue,
+// each with its own copy of the request. Only this task runs their handlers, so their static buffers
+// stay theirs.
+
+static QueueHandle_t xfer_queue; // request_t *, from pvPortMalloc
+
+static bool is_transfer(const request_t *r) {
+    const size_t n = strcspn(r->path, "?");
+    return n == 9 && ((!strcmp(r->method, "GET") && !strncmp(r->path, "/rt4k/get", 9)) ||
+        (!strcmp(r->method, "POST") && !strncmp(r->path, "/rt4k/put", 9)));
+}
+
+static void hand_over(request_t *r) {
+    request_t *copy = pvPortMalloc(sizeof(*copy));
+    if (copy) {
+        memcpy(copy, r, sizeof(*copy));
+        if (xQueueSend(xfer_queue, &copy, 0) == pdTRUE) {
+            r->adopted = true; // the transfer task answers and closes it
+            return;
+        }
+        vPortFree(copy);
+    }
+    respond(r->fd, 503, "Service Unavailable", "text/plain", "Too many SD card transfers waiting: try again once one is done\n");
+}
+
+static void xfer_task(void *param) {
+    (void)param;
+    for (;;) {
+        request_t *r;
+        xQueueReceive(xfer_queue, &r, portMAX_DELAY);
+        handle(r);
+        closesocket(r->fd);
+        vPortFree(r);
+    }
+}
+
 // --- server ------------------------------------------------------------------------------------
 
 static void http_task(void *param) {
@@ -1185,11 +1419,16 @@ static void http_task(void *param) {
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         memset(&req, 0, sizeof(req));
         req.fd = fd;
-        if (read_request(&req)) handle(&req);
+        if (read_request(&req)) {
+            if (is_transfer(&req)) hand_over(&req);
+            else handle(&req);
+        }
         if (!req.adopted) closesocket(fd);
     }
 }
 
 void http_start(void) {
+    xfer_queue = xQueueCreate(XFER_QUEUE, sizeof(request_t *));
+    xTaskCreate(xfer_task, "xfer", PLAT_STACK(XFER_TASK_STACK), NULL, HTTP_TASK_PRIORITY, NULL);
     xTaskCreate(http_task, "http", PLAT_STACK(HTTP_TASK_STACK), NULL, HTTP_TASK_PRIORITY, NULL);
 }

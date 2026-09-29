@@ -19,8 +19,11 @@
 // after a key press got no ready line (and no FT232R overrun, so nothing was lost on our side). So a
 // transfer waits until the RT4K has answered the last command (console.c sees the reply), and at most
 // AFTER_COMMAND_MS after it went out (some commands are never answered). Enforced here, after taking
-// the link, so no caller can race past it. Back-to-back transfers need no gap.
+// the link, so no caller can race past it. Back-to-back transfers need no gap. A reply that has
+// started goes on until its known last line (console.c's final_line), at most REPLY_MAX_MS: a "get"
+// sent while "ls" still listed (~0.7 ms an entry) got no ready line either.
 #define AFTER_COMMAND_MS 100
+#define REPLY_MAX_MS     1000
 
 // Tuning (POST /debug/gap): fixed_ms > 0 waits that long after the command instead (the old rule);
 // otherwise after the reply, plus after_reply_ms.
@@ -38,6 +41,7 @@ static void wait_after_command(void) {
         return;
     }
     while (rt4k_ms_since_command() < AFTER_COMMAND_MS && console_reply_pending()) vTaskDelay(pdMS_TO_TICKS(2));
+    while (rt4k_ms_since_command() < REPLY_MAX_MS && console_reply_coming()) vTaskDelay(pdMS_TO_TICKS(2));
     if (gap_after_reply_ms && rt4k_ms_since_command() < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(gap_after_reply_ms));
 }
 
