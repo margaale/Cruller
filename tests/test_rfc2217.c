@@ -1,4 +1,4 @@
-// Host unit tests for the RFC 2217 server side (src/rfc2217_proto.c). Run with tests/run.sh.
+// Host unit tests for the RFC 2217 server side (src/core/rfc2217_proto.c). Run with tests/run.sh.
 
 #include <stdio.h>
 #include <string.h>

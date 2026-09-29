@@ -20,7 +20,7 @@ type in.
 `_rt4k._tcp` is generic on purpose: any RT4K bridge can announce it, and a Home Assistant integration
 (hass-RT4K) can list `_rt4k._tcp.local.` in its manifest's `zeroconf` to be offered every one.
 
-## The bridge reports the active input
+## The bridge reports the active input, and describes the switch
 
 The bridge browses `_rt4k._tcp`. To each Cruller it finds it sends, over plain HTTP:
 
@@ -28,14 +28,30 @@ The bridge browses `_rt4k._tcp`. To each Cruller it finds it sends, over plain H
 POST http://<host>:<port>/api/svs
 Content-Type: application/json
 
-{"id": "svs-bridge-aabbccddeeff", "current_input": 3, "total_inputs": 8, "live": true}
+{"id": "svs-bridge-aabbccddeeff", "current_input": 3, "total_inputs": 8, "live": true,
+ "inputs": [{"kind": "scart", "name": "Super Nintendo / Super Famicom", "device": "snes"}, ...],
+ "output": {"kind": "component", "name": "RetroTINK 4K", "device": "rt4k"}}
 ```
 
-- **When:** on every input change, as soon as it finds a Cruller (including one that just restarted
-  and announced itself again), and every 60 s otherwise, in case a report was lost.
-- **Fields:** the same names as the `svs` object of the bridge's `GET /api/v1/state`, plus `id`.
-  `current_input` is required (`input` is accepted too); a port `name` may be added later.
-- **Answer:** `{"ok": true, "changed": true|false}`. A repeat changes nothing on Cruller.
+- **When:** on every input change, whenever the switch's description changes (its layout is edited),
+  as soon as it finds a Cruller (including one that just restarted and announced itself again), and
+  every 60 s otherwise, in case a report was lost.
+- **The input:** the same names as the `svs` object of the bridge's `GET /api/v1/state`, plus `id`.
+  `current_input` is required (`input` is accepted too). The active port's name can come as `name` or
+  `current_input_name`; without either, Cruller takes it from `inputs`. `current_input: 0` means no
+  input is active (the page shows "no input active", and gameID treats it as no console on screen).
+- **The switch** (what the SVS can't report itself, as the bridge's SVS tab sets it up; the rest of
+  what the bridge knows about the SVS stays on the bridge):
+  - `inputs`, one per input in order (index 0 is input 1): `kind` is the module (`scart`, `component`,
+    `vga`, `svideo`, `dterm`; `""` until it is picked), `device` the console on it, as its id in the
+    bridge's list (`snes`, `ps2`, `megadrive`…; `""` if none is picked), and `name` its name (up to 32
+    bytes). An empty list when no layout is set up.
+  - `output`: the output that goes to the RetroTINK (the one whose device is `rt4k` or `rt4kce`), with
+    the same keys (`kind`: `scart`, `component`, `vga`, `svideo`, `bnc`); absent or `null` if none is.
+  - A report with either key replaces what Cruller had; one with neither (an older bridge) leaves it.
+  - A body is 6 KB at most (32 inputs with long names take about 4.5 KB).
+- **Answer:** `{"ok": true, "changed": true|false}` (`changed`: the input). A repeat changes nothing on
+  Cruller. A body it can't read gets `400 {"ok": false, "error": "…"}`.
 - **No token:** Cruller has no authentication anywhere (it's a LAN device, like its page and its
   RFC 2217 port), and it only records the report. The bridge's own API keeps its token.
 
@@ -58,10 +74,18 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
 ## What Cruller does with it
 
 - `GET /api/svs`: what Cruller last heard:
-  `{"known": true, "input": 3, "name": "", "id": "svs-bridge-…", "heard_s": 12, "since_s": 340}`
-  (`heard_s`: seconds since the last report; `since_s`: since the input last changed).
+  `{"known": true, "input": 3, "total": 8, "name": "PS2", "id": "svs-bridge-…", "paired": "svs-bridge-…",
+  "heard_s": 12, "since_s": 340, "switch_seq": 2, "history": [[3, 340], [1, 900]],
+  "switch": {"inputs": [{"kind", "name"}, ...], "output": {"kind", "name"} | null}}` (`heard_s`: seconds since the last report; `since_s`:
+  since the input last changed; `history`: the last input changes, `[input, seconds ago]`, newest
+  first; `switch`: the description, as the bridge sent it, once one has come in).
 - The `/status` JSON (and the page's status over the WebSocket) gets the same object as `"svs"` once a
-  report has come in.
+  report has come in, without `switch`: `switch_seq` changes with each new description, and the page
+  fetches `GET /api/svs` then. Cruller keeps it in RAM: after a restart, the bridge's next report
+  (it reports as soon as Cruller announces itself) brings it back.
+- The SVS tab shows each input's console as an icon (by its `device`: its controller or the machine,
+  with the buttons in their own colours; a plain pad and its name when Cruller has no drawing of
+  it) and its module, and the output to the RetroTINK.
 - gameID (coming): each console is assigned a switch input. Only the console on the active input
   changes the RT4K's profile, and switching inputs re-applies that console's game profile if it has
   one. Game profiles use their own SVS numbers (S100 and up) so they never overwrite the switch's
@@ -73,5 +97,5 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
    the mDNS announcements it sees).
 2. In its web UI, list the Crullers found (TXT `name`, `id`) and let the user pick one; store its `id`.
 3. `POST /api/svs` to the picked one (found by `id` each time) with the body above: on start, on each
-   input change, every 60 s. Show whether the last report went through, and a `409` as "this Cruller
-   is paired with another bridge".
+   input change, when the layout changes, every 60 s. Show whether the last report
+   went through, and a `409` as "this Cruller is paired with another bridge".

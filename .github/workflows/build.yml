@@ -1,10 +1,15 @@
-# Builds main (Pico 2 W) and runs the host tests; the images are kept as artifacts. GitVersion
-# (GitVersion.yml) gives the version, and every push to main is a release: tag vX.Y.Z and the images.
+# Builds Cruller for every board and runs the host tests. One job per platform (its toolchain), with
+# a matrix of that platform's boards; the images are kept as artifacts, one file each (not zipped).
+# Each board publishes two: the factory image, to install on a new board over USB, and the OTA image,
+# which the board's Cruller tab downloads to update itself.
+# GitVersion (GitVersion.yml) gives the version. A push to master is a release (vX.Y.Z), a push to develop
+# a pre-release (vX.Y.Z-alpha.N), both with every board's images; pull requests only build.
 name: build
 
 on:
   push:
-    branches: [main]
+    branches: [master, develop] # pull requests build through pull_request (one run per push, not two)
+  pull_request:
   workflow_dispatch:
 
 env:
@@ -13,13 +18,18 @@ env:
   TINYUSB_VERSION: "0.21.0"
   FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
   ARM_GCC_RELEASE: "14.2.Rel1"
+  ESP_IDF_VERSION: "v6.1"
   GITVERSION_VERSION: "6.x"
 
 jobs:
   version:
     runs-on: ubuntu-24.04
     outputs:
-      version: ${{ steps.gitversion.outputs.majorMinorPatch }}
+      # master: X.Y.Z, a release; develop: X.Y.Z-alpha.N; pull requests: X.Y.Z-pr.N, where N is this
+      # run's number (GitVersion.yml gives X.Y.Z and the label). The run number grows with every run
+      # in the repository, so the newest build is the newest version whatever its branch: squash
+      # merges leave no commit count to compare.
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -29,8 +39,17 @@ jobs:
           versionSpec: ${{ env.GITVERSION_VERSION }}
       - id: gitversion
         uses: gittools/actions/gitversion/execute@v4
-      - run: echo "Cruller ${{ steps.gitversion.outputs.majorMinorPatch }}"
+      - id: version
+        env:
+          CORE: ${{ steps.gitversion.outputs.majorMinorPatch }}
+          LABEL: ${{ steps.gitversion.outputs.preReleaseLabel }}
+          RELEASE: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          if [ "$RELEASE" = true ] || [ -z "$LABEL" ]; then v="$CORE"; else v="$CORE-$LABEL.$GITHUB_RUN_NUMBER"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Cruller $v (build $GITHUB_RUN_NUMBER)"
 
+  # src/core's pure modules and the page's JavaScript, on the host: the same for every board.
   tests:
     runs-on: ubuntu-24.04
     steps:
@@ -38,15 +57,17 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      # glibc declares strnlen (rtl1_core.c) only with _DEFAULT_SOURCE under -std=c11.
-      - run: |
-          printf '#!/bin/sh\nexec gcc -D_DEFAULT_SOURCE "$@"\n' > "$RUNNER_TEMP/cc" && chmod +x "$RUNNER_TEMP/cc"
-          CC="$RUNNER_TEMP/cc" bash tests/run.sh
+      - run: bash tests/run.sh
 
+  # Raspberry Pi RP2 boards: Pico SDK, target src/platform/rp2.
   rp2:
-    name: rp2 (pico2_w)
+    name: rp2 (${{ matrix.board }})
     needs: version
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [pico2_w]
     env:
       TOOLS: ${{ github.workspace }}/.tools
     steps:
@@ -91,6 +112,8 @@ jobs:
       - name: Build
         env:
           CRULLER_VERSION: ${{ needs.version.outputs.version }}
+          CRULLER_BUILD: ${{ github.run_number }}
+          PICO_BOARD: ${{ matrix.board }}
           PICO_SDK_PATH: ${{ env.TOOLS }}/pico-sdk
           FREERTOS_KERNEL_PATH: ${{ env.TOOLS }}/FreeRTOS-Kernel
           PICO_TINYUSB_PATH: ${{ env.TOOLS }}/tinyusb
@@ -98,29 +121,90 @@ jobs:
           PICOTOOL_DIR: ${{ env.TOOLS }}/picotool-install/lib/cmake/picotool
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
         run: |
-          bash scripts/build.sh Release
-          ninja -C build cruller_bench
+          bash scripts/build.sh rp2 Release
+          ninja -C build/rp2 cruller_bench # built so it keeps building; not published
 
-      # Named as released: cruller-<version>-<board>-<file>.
+      # Named as released: cruller-<version>-<board>-<file>. cruller-factory.uf2 installs a new board
+      # (BOOTSEL, then drop it on the drive); cruller.uf2 is the OTA image the Cruller tab looks for.
       - name: Name the images
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           mkdir dist
-          for f in build/cruller.uf2 build/cruller_bench.uf2 build/cruller_migration.bin; do
-            cp "$f" "dist/cruller-${VERSION}-pico2_w-$(basename "$f")"
+          for f in build/rp2/cruller-factory.uf2 build/rp2/cruller.uf2; do
+            cp "$f" "dist/cruller-${VERSION}-${{ matrix.board }}-$(basename "$f")"
           done
 
       - uses: actions/upload-artifact@v7
         with:
-          name: cruller-pico2_w
-          path: dist/*
+          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller-factory.uf2
+          archive: false # the image itself, not a zip: the artifact takes the file's name
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller.uf2
+          archive: false # the image itself, not a zip: the artifact takes the file's name
           if-no-files-found: error
 
-  # Every push to main: tag vX.Y.Z and a GitHub release with every board's images.
+  # Espressif ESP32 boards: ESP-IDF in Espressif's container, target src/platform/esp32.
+  esp32:
+    name: esp32 (${{ matrix.board }})
+    needs: version
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: esp32s3_devkitc1_n16r8
+            chip: esp32s3
+    steps:
+      - uses: actions/checkout@v7
+
+      # ESP-IDF compiles through ccache: keep its directory between runs (inside the workspace, which
+      # the container mounts), so only what changed is compiled again.
+      - name: ccache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-
+
+      - name: Build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.ESP_IDF_VERSION }}
+          target: ${{ matrix.chip }}
+          extra_docker_args: >-
+            -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=1
+            -e CRULLER_VERSION=${{ needs.version.outputs.version }}
+          command: bash scripts/build.sh esp32 && ccache -s
+
+      # Named as released: cruller-<version>-<board>-<file>. cruller-factory.bin installs a new board
+      # over USB at 0x0 (bootloader, partition table, OTA data and app in one); cruller.bin is the OTA image.
+      - name: Name the images
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir dist
+          for f in build/esp32/cruller-factory.bin build/esp32/cruller.bin; do
+            cp "$f" "dist/cruller-${VERSION}-${{ matrix.board }}-$(basename "$f")"
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller-factory.bin
+          archive: false # the image itself, not a zip: the artifact takes the file's name
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller.bin
+          archive: false # the image itself, not a zip: the artifact takes the file's name
+          if-no-files-found: error
+
+  # Every push to master: tag vX.Y.Z and a GitHub release with every board's images.
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [version, tests, rp2]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [version, tests, rp2, esp32]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -137,5 +221,30 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Cruller ${{ needs.version.outputs.version }}
           generate_release_notes: true
+          files: release/*
+          fail_on_unmatched_files: true
+
+  # Every push to develop: a pre-release vX.Y.Z-alpha.N with every board's images, to try on a board
+  # (the Cruller tab offers alphas only to a board already on one).
+  prerelease:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: [version, tests, rp2, esp32]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cruller-*
+          path: release
+          merge-multiple: true
+      - run: ls -l release
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Cruller ${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          prerelease: true
           files: release/*
           fail_on_unmatched_files: true

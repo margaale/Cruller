@@ -48,7 +48,7 @@ static void dns_socket_free(struct udp_pcb **udp) {
 
 static int dns_socket_bind(struct udp_pcb **udp, uint32_t ip, uint16_t port) {
     ip_addr_t addr;
-    IP4_ADDR(&addr, ip >> 24 & 0xff, ip >> 16 & 0xff, ip >> 8 & 0xff, ip & 0xff);
+    IP_ADDR4(&addr, ip >> 24 & 0xff, ip >> 16 & 0xff, ip >> 8 & 0xff, ip & 0xff);
     err_t err = udp_bind(*udp, &addr, port);
     if (err != ERR_OK) {
         ERROR_printf("dns failed to bind to port %u: %d", port, err);
@@ -197,7 +197,7 @@ static void dns_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p, 
 
     *answer_ptr++ = 0;
     *answer_ptr++ = 4; // length
-    memcpy(answer_ptr, &d->ip.addr, 4); // use our address
+    memcpy(answer_ptr, &ip_2_ip4(&d->ip)->addr, 4); // use our address
     answer_ptr += 4;
 
     dns_hdr->flags = lwip_htons(

@@ -54,6 +54,7 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .busy{position:fixed;inset:0;z-index:50;background:#0c0d0fe6;backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px}
 .busy-box{max-width:380px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px}
 .busy h3{margin:6px 0 0;font:700 22px var(--head)}.busy p{margin:0;font-size:15px;line-height:1.5;color:var(--soft);white-space:pre-line}
+.refresh{flex:none;width:38px;height:38px;padding:0;display:grid;place-items:center}.refresh.spin svg{animation:spin 1.1s linear infinite}
 .ring{position:relative;width:120px;height:120px}.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:6}.ring .track{stroke:#2B2F35}.ring .arc{stroke:var(--accent);stroke-linecap:round;stroke-dasharray:276.5;stroke-dashoffset:0;transition:stroke-dashoffset 1s linear,stroke .3s}
 .ring.spin svg{animation:spin 1.1s linear infinite}.ring.spin .arc{stroke-dashoffset:200;transition:none}
@@ -64,14 +65,24 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .upd{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px}
 @media (max-width:1000px){.upd{grid-template-columns:minmax(0,1fr)}}
 /* SVS tab */
-.svs-now{display:flex;flex-direction:column;align-items:center;padding:12px 0}
-.svs-now>span:first-child{font:700 72px/1 var(--head)}
-.svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
-.svs-grid div{height:64px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;font:700 22px var(--head);color:var(--faint)}
+.svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.svs-grid div{min-height:64px;padding:6px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--faint);min-width:0}
+.svs-grid div b{font:700 15px/1 var(--head);color:var(--muted)}
+.svs-grid div>span{font:600 14px/1.2 var(--sans);color:var(--soft);overflow-wrap:anywhere}
 .svs-grid div small{font:500 11px var(--sans);letter-spacing:.04em}
 .svs-grid div.on{background:#3A1E2A;border-color:var(--accent);color:var(--text)}
+.svs-grid div.on>span{color:var(--text)}
+.svs-grid .con{width:84px;height:56px;color:var(--soft)}
+.con .b{fill-opacity:.14;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round}
+.con .k{fill-opacity:.3;stroke:currentColor;stroke-width:1}
+.con .l{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
+.svs-grid div.on .con{color:var(--text)}
+.svs-grid div.empty .con,.svs-grid div.empty>span{color:var(--faint)}
+.svs-grid div.empty>span{font-weight:500}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
+dialog#ask p:empty{display:none}
+dialog#ask input{margin:0 0 18px}
 button:disabled{opacity:.5;cursor:default}
 input,select{font:14px var(--sans);color:var(--text);background:var(--well);border:1px solid var(--line);border-radius:8px;height:38px;padding:0 10px;width:100%}
 pre{margin:0;background:var(--well);border-radius:8px;padding:10px 12px;font:12px/1.55 var(--mono);color:#C9CCD1;overflow:auto;white-space:pre-wrap}
@@ -127,6 +138,36 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .steps li[data-state=done] .si{border-color:var(--ok);color:var(--ok)}.steps li[data-state=done] .si::before{content:'✓'}
 .steps li[data-state=fail] .si{border-color:#E0453F;color:#E0453F}.steps li[data-state=fail] .si::before{content:'✕'}.steps li[data-state=fail] .sd{color:#F07A74}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* SD card (sd.js) */
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font:600 18px var(--head);min-width:0}
+.crumbs a{color:var(--muted);text-decoration:none;padding:2px 6px;border-radius:6px}.crumbs a:hover{color:var(--text);background:var(--raised)}
+.crumbs span{color:#6B6F76}.crumbs b{padding:2px 6px;font-weight:700;overflow-wrap:anywhere}
+#sds.bad{color:#F07A74}
+.sdh{flex-wrap:wrap}
+.sdp{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--raised);border-radius:10px}
+#sdbox.drop{outline:2px dashed var(--accent);outline-offset:-2px}
+.files{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
+.files .cs{width:96px}.files .cw{width:150px}.files .ca{width:116px}
+.files th{font-weight:500;font-size:12px;color:var(--faint);text-align:left;padding:0 8px 8px;cursor:pointer;user-select:none}
+.files th[aria-sort=ascending]::after{content:' ▲';font-size:9px}.files th[aria-sort=descending]::after{content:' ▼';font-size:9px}
+.files th[aria-sort=ascending],.files th[aria-sort=descending]{color:var(--text)}
+.files td{height:40px;padding:0 8px;border-top:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.files tbody tr:hover td{background:var(--raised)}
+.files .num{text-align:right;font:13px var(--mono);color:var(--soft)}
+.files td.n a,.files td.n{color:var(--text);text-decoration:none}
+.files td.n a,.files .fn{display:flex;align-items:center;min-width:0;height:40px}
+.files .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.files .ico{display:inline-flex;margin-right:10px;color:var(--warn);flex:none}.files .ico.f{color:var(--faint)}
+.files tr.up a{display:flex;align-items:center;color:var(--muted);text-decoration:none;height:40px;font-family:var(--mono)}
+#sde{color:var(--faint);text-align:center;padding:20px 0;border-top:1px solid var(--rule);margin-top:-12px}
+.files td.act{text-align:right;padding-right:4px;text-overflow:clip}
+.files .ib{width:34px;height:34px;padding:0;border-color:transparent;color:var(--soft)}.files .ib:hover:not(:disabled){border-color:var(--line);color:var(--text)}
+.files .ib.del:hover:not(:disabled){border-color:#5A2A28;color:#F07A74}
+.files .msz{display:none}
+/* Narrow screens: no date, the size under the name, names wrap instead of being cut. */
+@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:98px}.files td{padding:0 4px}.files .ib{width:30px}.sub a{white-space:nowrap}.sub span.soon{display:none}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
+.files td.n{white-space:normal;overflow-wrap:break-word;height:auto;padding-top:6px;padding-bottom:6px}.files td.n a,.files .fn{height:auto;min-height:28px}
+.files .msz{display:block;font:12px var(--mono);color:var(--faint)}}
 /* setup wizard (portal) */
 body.setup header nav,body.setup header .chip{display:none}
 .wiz{max-width:430px;margin:auto;display:flex;flex-direction:column;gap:16px;min-height:calc(100vh - 110px)}
@@ -167,7 +208,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <main>
 <!-- RetroTINK -->
 <section data-view="rt4k">
-<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><span class="soon">SD card and profiles<b>SOON</b></span></div>
+<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><a href="#rt4k/sd" data-sub="sd">SD card</a><span class="soon">Profiles<b>SOON</b></span></div>
 
 <div data-subview="live" class="stage">
 <div class="panel" style="grid-area:screen">
@@ -190,6 +231,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 </div>
 
 <div data-subview="firmware" id="fw"></div>
+<div data-subview="sd" id="sd"></div>
 </section>
 
 <!-- Cruller -->
@@ -250,7 +292,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="row"><h2 class="grow">Cruller firmware</h2><span class="small" id="u-state">Checking GitHub…</span></div>
 <div class="upd">
 <div style="display:flex;flex-direction:column;gap:10px">
-<select id="u-ver" onchange="updShow()"></select>
+<div style="display:flex;gap:8px"><select id="u-ver" class="grow" onchange="updShow()"></select><button class="refresh" id="u-refresh" onclick="updLoad()" title="Check GitHub again" aria-label="Check GitHub again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
 <button class="primary" id="u-go" onclick="updInstall()" disabled>Download and install</button>
 <button onclick="$('u-file').click()">Install from a file…</button>
 <input type="file" id="u-file" accept=".uf2,.bin" hidden onchange="updFile(this.files[0])">
@@ -263,23 +305,19 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 
 <!-- SVS: the Scalable Video Switch, through its bridge (docs/SVS.md) -->
 <section data-view="svs" class="grid3">
-<div class="panel">
-<div class="row"><h2 class="grow">Active input</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
-<div class="svs-now"><span id="v-input">–</span><span id="v-name" class="small"></span></div>
+<div class="panel span3">
+<div class="row"><h2 class="grow">Inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
 <div class="small" id="v-since"></div>
 <div class="small svs-wait">The SVS Bridge finds this Cruller on the network by itself and starts reporting the switch's input. Nothing to set up here.</div>
-</div>
-
-<div class="panel span2 svs-more">
-<div class="row"><h2 class="grow">Inputs</h2><span class="small" id="v-total"></span></div>
-<div class="svs-grid" id="v-grid" hidden></div>
-<div class="small" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
-<div class="small">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
+<div class="svs-grid svs-more" id="v-grid" hidden></div>
+<div class="small svs-more" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
+<div class="small" id="v-noname" hidden>Pick each input's module and the console on it in the SVS Bridge's SVS tab: they show up here.</div>
+<div class="small svs-more">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
 </div>
 
 <div class="panel svs-more">
 <h2>SVS Bridge</h2>
-<div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span></div>
+<div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span><span>To the RetroTINK</span><span id="v-out">–</span></div>
 <div class="small" id="v-hint">The SVS Bridge finds this Cruller on the network and pairs with it by itself.</div>
 <div class="grow"></div>
 <button onclick="unpair()" id="v-unpair" hidden>Unpair</button>
@@ -427,10 +465,13 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <form method="dialog">
 <h3 id="ask-title"></h3>
 <p id="ask-text"></p>
+<input id="ask-input" autocomplete="off" autocapitalize="none" spellcheck="false" hidden>
 <div class="row" style="justify-content:flex-end"><button value="no" id="ask-no">Cancel</button><button value="yes" id="ask-yes" class="primary">OK</button></div>
 </form>
 </dialog>
+<script src="/sha256.js" defer></script>
 <script src="/fw.js" defer></script>
+<script src="/sd.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>

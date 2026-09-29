@@ -11,7 +11,7 @@ Status: M1 (RT4K link) done, parts of M3 and M4 done; M2 (gameID) not started. D
 - **Robust networking.** Use the Pico SDK's own FreeRTOS + lwIP + CYW43 integration, with lwIP core locking. The arduino-pico FreeRTOS layers showed races, a skipped CYW43 mutex and 8–15 s CYW43 bring-ups (see "Lessons from the DonutShop port").
 - **A two-way RT4K link over USB** (the RT4K is an FTDI FT232R, 0403:6001, at 2 Mbaud) and over the HD-15 serial port.
 
-Non-goals for now: other scalers, other boards, and reusing the DonutShop v0.7 web UI (its source isn't published).
+Non-goals for now: other scalers, and reusing the DonutShop v0.7 web UI (its source isn't published).
 
 ## Hardware
 
@@ -27,14 +27,25 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 | RGB status LED | GP16 / GP17 / GP18 | optional, active low |
 | Status LED | CYW43 GPIO 0 | on-board |
 
+## Source layout
+
+Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and the ESP32-S3-DevKitC-1 N16R8 (`esp32`, ESP-IDF 6.1; in progress: no RT4K link yet, nothing tried on a board).
+
+- `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings, firmware downloads from GitHub) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `tls.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
+- `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
+- `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time.
+- `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
+- `src/version.cmake`: the version, for every target.
+
 ## Software stack
 
 - Pico SDK 2.3, built with CMake (`scripts/build.sh`). Arm GNU toolchain 14.2.
 - FreeRTOS-Kernel SMP (the SDK's RP2350 port).
 - lwIP with `pico_cyw43_arch_lwip_sys_freertos`: lwIP runs in its own tcpip thread, and application code takes the lwIP core lock. That lock is the only way into lwIP.
 - The CYW43 driver through `pico_cyw43_arch`, initialized from core 0 so its async context and IRQ stay there.
-- TinyUSB 0.21 in host mode on the native port (not the SDK's 0.18: its host runs bulk transfers once per frame, too slow for 2 Mbaud). Two patches in `patches/tinyusb`: FTDI status bytes stripped per packet (so transfers can span several packets) and a callback with each packet's status bytes.
+- TinyUSB 0.21 in host mode on the native port (not the SDK's 0.18: its host runs bulk transfers once per frame, too slow for 2 Mbaud). Two patches in `src/platform/rp2/patches/tinyusb`: FTDI status bytes stripped per packet (so transfers can span several packets) and a callback with each packet's status bytes.
 - littlefs for configuration and lwIP's mDNS responder.
+- mbedTLS 3.6 (the SDK's), for Cruller's own firmware downloads from GitHub: a TLS 1.2 client only (`src/platform/rp2/mbedtls_config.h`).
 
 ## Tasks
 
@@ -45,7 +56,9 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 | async_context_t | 4 | 0 | CYW43 driver (SDK) |
 | console | 3 | any | the RT4K console queue: one command at a time, reply windows (see "RT4K console") |
 | net | 3 | any | Wi-Fi: join, fallback to the provisioning portal, mDNS |
-| http | 2 | any | HTTP server (page, API, OTA upload), hands WebSockets over to ws |
+| http | 2 | any | HTTP server (page, API, OTA upload), hands WebSockets over to ws and SD card transfers to xfer |
+| xfer | 2 | any | SD card downloads and uploads (`/rt4k/get`, `/rt4k/put`), one at a time, 3 more waiting |
+| fetch | 2 | any | only while Cruller downloads an update of itself from GitHub (see "OTA") |
 | ws | 2 | any | WebSocket clients: terminal, mirror planes, log, status |
 | mirror | 2 | any | polls the RT4K's OSD planes for the page's screen mirror |
 | rfc2217 | 2 | any | RFC 2217 server on port 2217 |
@@ -54,33 +67,35 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 | led | 1 | any | status LED |
 | tcpip_thread | 1 | any | lwIP (SDK) |
 
-The RT4K receive path (TinyUSB, CDC, the RTL1 engine, the FreeRTOS kernel) runs from RAM: from flash it went cold in the XIP cache while Wi-Fi code ran on core 0, and the FT232R overflowed (`cmake/linker/default_text_excludes.incl`).
+The RT4K receive path (TinyUSB, CDC, the RTL1 engine, the FreeRTOS kernel) runs from RAM: from flash it went cold in the XIP cache while Wi-Fi code ran on core 0, and the FT232R overflowed (`src/platform/rp2/cmake/linker/default_text_excludes.incl`).
 
 ## RT4K link
 
 - **USB:** the RT4K enumerates as an FTDI FT232R. 2 Mbaud is the most it takes (`baud` accepts 115200, 500000, 1000000 and 2000000). Hot-plug works: the link is up when the device mounts.
-- **RTL1:** the binary transfer protocol of firmware 1.75+ (OSD planes, font, files, uploads), in `src/rtl1_core.c` (pure, host-tested) and `src/rtl1.c`. See [RTL1.md](RTL1.md), which also covers the file and firmware commands.
+- **RTL1:** the binary transfer protocol of firmware 1.75+ (OSD planes, font, files, uploads), in `src/core/rtl1_core.c` (pure, host-tested) and `src/core/rtl1.c`. See [RTL1.md](RTL1.md), which also covers the file and firmware commands.
 - **Flow control:** the RT4K wires CTS to the FT232R. Cruller keeps RTS/CTS on at the chip all the time (asked again at every mount), so uploads stream (~94 KB/s, the RT4K's own pace while it writes its card) and commands wait instead of being lost while the RT4K is busy. The RT4K keeps CTS asserted in standby too: "pwr on" gets through with flow control on (measured).
 - **HD-15:** not used yet.
 
 ### RT4K console
 
-The RT4K's text console is shared by the web page, Cruller's own checks, `/api/command` and RFC 2217 clients. Its replies carry no sender, so `src/console.c` sends one command at a time and opens a reply window: lines that come back meanwhile belong to that command's sender. The window closes on the reply's known last line (`Serial Remote:` for a key, `Build tag:` for `ver`, `ls end`...; a `Bad Command` always ends it), otherwise after 50 ms of quiet, or 1 s after a command nothing answered. Lines outside any window go to everyone. Windows last the RT4K's own reply time, 4–23 ms.
+The RT4K's text console is shared by the web page, Cruller's own checks, `/api/command` and RFC 2217 clients. Its replies carry no sender, so `src/core/console.c` sends one command at a time and opens a reply window: lines that come back meanwhile belong to that command's sender. The window closes on the reply's known last line (`Serial Remote:` for a key, `Build tag:` for `ver`, `ls end`...; a `Bad Command` always ends it), otherwise after 50 ms of quiet, or 1 s after a command nothing answered. Lines outside any window go to everyone. Windows last the RT4K's own reply time, 4–23 ms.
 
 An OSD transfer waits until the RT4K has answered the last command (it ignores transfer requests sent right behind one), at most 100 ms. Key to screen on the page: ~91 ms.
 
 ### Power state
 
-`src/power_core.c` (pure, host-tested) follows what the RT4K shows: any `[COM]` reply means on, `Power On Requested` means starting, `Serial Remote: pwr` or unanswered polls and probes mean standby. It probes with `ver`, which a sleeping RT4K ignores without waking: every 5 s in standby, every second while starting, and after 10 s without a sign of life when on. The mirror stops polling while the RT4K sleeps. (The line break an RT4K is said to produce when it powers down never showed up over USB.)
+`src/core/power_core.c` (pure, host-tested) follows what the RT4K shows: any `[COM]` reply means on, `Power On Requested` means starting, `Serial Remote: pwr` or unanswered polls and probes mean standby. It probes with `ver`, which a sleeping RT4K ignores without waking: every 5 s in standby, every second while starting, and after 10 s without a sign of life when on. The mirror stops polling while the RT4K sleeps. (The line break an RT4K is said to produce when it powers down never showed up over USB.)
 
 ## Interfaces
 
-- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, Cruller OTA upload. Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`cmake/embed.cmake`).
+- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, the RT4K's SD card (browse, download, upload, new folders, rename, delete), Cruller updates (from its GitHub releases, or a file). Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
 - **`POST /api/command`**: console commands in (`{"command"}`, `{"commands": []}`, `{"button"}` with hass-RT4K's names, or plain text lines), their own replies out once each window closes.
 - **RFC 2217** on TCP port 2217 (pyserial's `rfc2217://`, e.g. Home Assistant's hass-RT4K): each client sees only its own replies; TCP keepalive drops clients that vanished.
-- **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
+- **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/core/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
 - **`POST /rt4k/put`, `POST /rt4k/ask`**: file uploads to the RT4K's SD card and single queries, used by the firmware updater.
+- **`GET /rt4k/ls`, `GET /rt4k/get`**: a folder of the SD card and a file from it, for the page's SD card view. A listing is collected whole before it goes out (`ls` can't be paged, and the console keeps only its last 64 lines), and read again if lines went missing; its lines stay out of the terminal (console owner "files"). Files come in 16 KB `get -o/-l` pieces, each verified before it's sent. Downloads and uploads run on their own task (xfer), so the page keeps answering meanwhile; console commands and the mirror's polls fit between a download's pieces, but not into an upload (put holds the link: they give up after 2 s, as before). The page uploads through `/rt4k/put` (SHA-256 in the browser, `src/web/sha256.js`) and makes folders, renames and deletes with the RT4K's `mkdir`, `mv` and `rm` through `/rt4k/ask`; a folder is deleted from the bottom up, since `rm` takes only empty ones. SD paths go up to 160 bytes (`RTL1_PATH_MAX`), UTF-8 included.
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
+- **`POST /update`, `POST /update/fetch`**: a Cruller image uploaded as the request body, or downloaded by Cruller itself from its GitHub releases (see "OTA").
 - **Status**: `GET /status` (JSON, also pushed over the WebSocket).
 - **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/console`, `/debug/usbtrace`, `/debug/freeze`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`.
 
@@ -95,7 +110,7 @@ DonutShop Pico layout (arduino-pico, `flash=4194304_2097152`):
 | `0x1FF000`–`0x3FF000` | LittleFS: `wifi.json`, `consoles.json`, `gameDB.json`, `settings.json` |
 | `0x3FF000`–`0x400000` | EEPROM emulation |
 
-Cruller layout (`pt.json`). The RP2350 boot ROM reads the partition table and does A/B selection:
+Cruller layout (`src/platform/rp2/pt.json`). The RP2350 boot ROM reads the partition table and does A/B selection:
 
 | Flash offset | Size | Content |
 | --- | --- | --- |
@@ -104,11 +119,15 @@ Cruller layout (`pt.json`). The RP2350 boot ROM reads the partition table and do
 | `0x1D2000` | 1856 KB | slot B |
 | after B | rest | data (littlefs: configuration) |
 
+## First install on a new board
+
+`cruller-factory.uf2` (in every release) is the migration image below as a UF2 of the family "absolute": the partition table and slot A, each block at its own address. Dropped on the RP2350's drive in BOOTSEL mode, it gives the board the partition table, which OTA needs (`cruller.uf2` alone would run, but leave OTA no partition to update), and Cruller in slot A, built without TBYB so a normal boot keeps it. With no Wi-Fi network saved, the first boot opens the setup portal.
+
 ## Migration from DonutShop (first install)
 
 DonutShop's `/update` stores the uploaded file as `firmware.bin` in its LittleFS. On reboot, its OTA stage-3 copies itself to RAM and writes the file to flash from `0x000000`. It doesn't check what the image contains; DonutShop only rejects ESP32 images (first byte `0xE9`).
 
-So the migration image is the Cruller flash image from offset 0: the partition table followed by slot A. It must stay below the old LittleFS while being copied out of it. It can be installed through the DonutShop web UI (manual firmware upload), or through DonutShop's GitHub updater (a release with the asset `DonutShop_v<version>_pico2w_update.bin` and a version above 0.6.3).
+So the migration image is the Cruller flash image from offset 0: the partition table followed by slot A. It must stay below the old LittleFS while being copied out of it. It can be installed through the DonutShop web UI (manual firmware upload), or through DonutShop's GitHub updater (a release with the asset `DonutShop_v<version>_pico2w_update.bin` and a version above 0.6.3). Cruller's releases don't carry it: it's `build/rp2/cruller_migration.bin` from a build.
 
 On its first boot, Cruller finds no data partition and runs the migration: it mounts the old LittleFS read-only, reads the configuration, formats the data partition and writes the converted configuration (credentials first).
 
@@ -116,11 +135,14 @@ Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (millis
 
 ## OTA (Cruller to Cruller)
 
-- **Upload** from the web page or `curl --data-binary @build/cruller.uf2 http://<board>/update`; images over 1 MiB make curl send `Expect: 100-continue`, which Cruller answers.
+- **Upload** from the web page or `curl --data-binary @build/rp2/cruller.uf2 http://<board>/update`; images over 1 MiB make curl send `Expect: 100-continue`, which Cruller answers.
+- **From GitHub:** the page lists the releases (GitHub's API allows cross-origin reads; a release's assets don't, so the page can't download them) and hands this board's image to `POST /update/fetch?url=&sha=&size=`, with the asset's URL, SHA-256 and size from the API. Cruller downloads it on its own task (`src/core/ota_fetch.c`) over HTTPS (`src/core/tls.h`), following github.com's redirect to its asset host. It takes only this project's release assets, and redirects only to github.com or `*.githubusercontent.com`. The image goes into the inactive slot as it arrives, hashed on the way; Cruller restarts into it only if its size and SHA-256 match, and otherwise leaves it as an upload cut short does. The status has the progress or why it failed (`"update":{"from":"github",...}`); the page follows it, and can be closed meanwhile.
+- **Certificates:** the chain and the host name are checked, against a few roots on the Pico (`src/platform/rp2/tls_roots.c`, written by `scripts/tls_roots.sh`) and ESP-IDF's bundle on the ESP32; not their dates (no clock). What vouches for the image is its SHA-256, which the page got from GitHub's API over the browser's own HTTPS.
+- **Memory:** TLS takes ~50 KB of the FreeRTOS heap while a download runs, plus the task's 12 KB stack. The same code on a PC against GitHub (the Pico's mbedTLS configuration and roots) peaked at 58 KB with the download's buffers.
 - **Write:** straight into the inactive slot, a sector at a time, with the RT4K's USB host quiet meanwhile (`flash_quiet_begin`).
 - **Switch:** the boot ROM's "try before you buy" flow. After a reboot into the new slot, the image is confirmed once healthy; otherwise the boot ROM's watchdog returns to the previous slot. Cruller's own watchdog stays off during the trial and takes over after the confirmation.
 - **Reboots:** power the CYW43 down (`WL_REG_ON` low) and stop feeding the watchdog before every software reboot (feeding it postpones a scheduled reboot).
-- **Versions** (`CRULLER_VERSION`) must grow with every image: the boot ROM chooses between A and B by version.
+- **Versions** (`CRULLER_VERSION`) must grow with every image: the boot ROM chooses between A and B by version. Its version is two numbers: MAJOR = X*100+Y and MINOR = 10000 + the build number (CI's run number), so the newest build of an X.Y runs after a reset, whatever its branch (pull requests are squash-merged: there is no commit count to compare).
 
 ## Networking
 
@@ -139,7 +161,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
 3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI. Not started.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, `/api/command`, RFC 2217. LED patterns still to do.
-5. **M4, extras (partly done):** RT4K SD file transfers and firmware updates from RetroTINK's repository. Still to do: Extron/TESmart/MT-VIKI serial, IR, profiles.
+5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete) and firmware updates from RetroTINK's repository. Still to do: Extron/TESmart/MT-VIKI serial, IR, profiles.
 
 ### M0 results (2026-09-25)
 
@@ -148,7 +170,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 
 ## Testing
 
-- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, RFC 2217 parsing, console reply windows, the page's JavaScript (syntax), and the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip).
+- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, RFC 2217 parsing, console reply windows, the GitHub download's URLs and reply heads, the page's JavaScript (syntax), the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses, which names it takes).
 - **On the bench:** `cruller_bench` (not built by default) has the USB port as a serial console and no RT4K link.
 - **On the board behind the RT4K:** OTA only. `/debug/tasks` has the link counters (FT232R overruns, key -> screen times), `/debug/console` the last commands' reply times, and `/debug/freeze` where both cores were before a watchdog reset (kept across it).
 

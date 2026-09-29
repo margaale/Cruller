@@ -8,9 +8,12 @@ const path = require('path');
 const vm = require('vm');
 
 const window = {};
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'fw.js'), 'utf8'), {
+const context = vm.createContext({
   window, TextDecoder, Blob, Response, DecompressionStream, Uint8Array, Uint32Array, DataView,
 });
+for (const file of ['sha256.js', 'fw.js']) { // as index.html loads them
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', file), 'utf8'), context);
+}
 const fw = window.fwInternals;
 
 let checks = 0, failures = 0;

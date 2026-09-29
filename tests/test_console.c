@@ -1,4 +1,4 @@
-// Host unit tests for the console reply windows (src/console_core.c). Run with tests/run.sh.
+// Host unit tests for the console reply windows (src/core/console_core.c). Run with tests/run.sh.
 
 #include <stdio.h>
 #include <string.h>
@@ -175,8 +175,31 @@ static void test_waiting_reply_until_no_reply_timeout(void) {
     CHECK(!console_core_waiting_reply());
 }
 
+// A transfer waits while a listing still comes (the RT4K ignores one sent meanwhile).
+static void test_reply_coming_until_its_last_line(void) {
+    reset();
+    console_core_begin(4, NULL, 0, "ls end|ls err|ls:", now);
+    CHECK(!console_core_reply_coming()); // nothing yet: console_core_waiting_reply's case
+    for (int i = 0; i < 3; i++) {
+        now += 1;
+        console_core_line("[COM] ent t=F sz=1 mt=0 nm=x", now);
+        CHECK(console_core_reply_coming());
+    }
+    now += 1;
+    console_core_line("[COM] ls end 3", now);
+    CHECK(!console_core_reply_coming());
+    CHECK(console_core_poll(now));
+    // Without a known last line, the first reply line is all a transfer waits for.
+    console_core_begin(4, NULL, 0, NULL, now);
+    now += 1;
+    console_core_line("[COM] something", now);
+    CHECK(!console_core_reply_coming());
+    run_until_closed(5000);
+}
+
 #define T(fn) {#fn, fn}
 static const struct { const char *name; void (*fn)(void); } tests[] = {
+    T(test_reply_coming_until_its_last_line),
     T(test_key_closes_on_its_reply),
     T(test_refusal_closes_at_once),
     T(test_alternative_final_lines),
