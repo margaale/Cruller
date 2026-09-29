@@ -5,7 +5,8 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "hardware/irq.h"
+#include "hardware/exception.h"
+#include "hardware/structs/m33_eppb.h"
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "pico/platform.h"
@@ -16,12 +17,15 @@
 #define PERIOD_US    250000u
 #define SAMPLES      16u      // per core: the last 4 s (the watchdog fires after 8 s without feeding)
 #define NAME_LEN     12
-#define FREEZE_MAGIC 0x46525a31u // "FRZ1"
+#define FREEZE_MAGIC 0x46525a32u // "FRZ2" (FRZ1's samples had no context and masks: a record of it is dropped)
 
 typedef struct {
     uint32_t us, pc, lr;
     uint32_t wdt_left_ms; // watchdog time remaining
     uint32_t fed_ago_ms;  // since the feeder task last ran (health.c)
+    uint16_t exc;         // what was interrupted: 0 a task, else its exception number (IRQ n: 16 + n)
+    uint8_t primask;      // 1: with its interrupts off (a pico critical section or spin lock)
+    uint8_t basepri;      // not 0: in a FreeRTOS critical section
     char task[NAME_LEN];
 } sample_t;
 
@@ -36,16 +40,25 @@ typedef struct {
 static record_t __uninitialized_ram(rec);
 static int alarm_of[2] = {-1, -1};
 
-// The ISR touches nothing in flash (only registers and RAM), so it keeps sampling even if flash
-// access (XIP) stalls: then the record shows where each core is stuck. If the samples stop anyway,
-// interrupts are off on that core. The running task's name is read straight from its TCB: FreeRTOS
-// keeps the current TCB per core in pxCurrentTCBs, and the name's offset in a TCB is measured once.
+// The sample is taken in an NMI: the timer alarm's IRQ is routed to the core's NMI and never enabled
+// in the NVIC. Unlike an IRQ it also samples a core with its interrupts off, and both cores of a frozen
+// board were exactly that (FreeRTOS critical sections only raise BASEPRI, an IRQ at priority 0 still
+// saw into those). Samples then stop only on a core stuck on a bus access, halted by the RCP (a boot
+// ROM check that failed: see ota.c's rom_pin()), or locked up.
+// The handler touches nothing in flash (only registers and RAM; the vector table is in RAM), so it
+// keeps sampling even if flash access (XIP) stalls: then the record shows where each core is stuck.
+// The running task's name is read straight from its TCB: FreeRTOS keeps the current TCB per core in
+// pxCurrentTCBs, and the name's offset in a TCB is measured once.
 extern void *volatile pxCurrentTCBs[];
 static uint32_t name_offset; // 0: not measured yet
-static char no_task[] = "-"; // in RAM, like everything the ISR reads (a string literal is in flash)
+static char no_task[] = "-"; // in RAM, like everything the handler reads (a string literal is in flash)
 
 // Called by freeze_isr with the exception frame (r0-r3, r12, lr, pc, xpsr) of what was interrupted.
 void __attribute__((used)) __not_in_flash_func(freeze_sample)(const uint32_t *frame) {
+    // The interrupted code's masks: taking an NMI changes neither.
+    uint32_t primask, basepri;
+    __asm volatile("mrs %0, primask" : "=r"(primask));
+    __asm volatile("mrs %0, basepri" : "=r"(basepri));
     const uint core = get_core_num();
     const uint alarm = (uint)alarm_of[core];
     timer_hw->intr = 1u << alarm; // acknowledge
@@ -55,6 +68,9 @@ void __attribute__((used)) __not_in_flash_func(freeze_sample)(const uint32_t *fr
     s->us = timer_hw->timerawl;
     s->pc = frame[6];
     s->lr = frame[5];
+    s->exc = (uint16_t)(frame[7] & 0x1ffu); // the stacked xPSR's IPSR
+    s->primask = (uint8_t)(primask & 1u);
+    s->basepri = (uint8_t)basepri;
     s->wdt_left_ms = (watchdog_hw->ctrl & WATCHDOG_CTRL_TIME_BITS) / 1000; // the counter ticks in µs
     s->fed_ago_ms = (s->us - health_feed_us) / 1000;
     const char *tcb = (const char *)pxCurrentTCBs[core];
@@ -77,7 +93,9 @@ void __attribute__((naked, section(".time_critical.freeze_isr"))) freeze_isr(voi
         "b freeze_sample  \n");
 }
 
-// The record as text. Times are relative to the newest sample of either core.
+// The record as text. Times are relative to the newest sample of either core. After the task: in a
+// task or an exception ("irq n", "exc n": 3 HardFault, 14 PendSV, 15 SysTick), and its interrupts
+// (on, "OFF": all masked, "rtos": in a FreeRTOS critical section).
 static size_t format(char *out, size_t size) {
     uint32_t newest = 0;
     bool any = false;
@@ -98,8 +116,15 @@ static size_t format(char *out, size_t size) {
             char task[NAME_LEN];
             memcpy(task, s->task, NAME_LEN);
             task[NAME_LEN - 1] = 0;
-            o += (size_t)snprintf(out + o, size - o, "core %d %6ld ms %-11s pc=%08lx lr=%08lx wdt left %lu fed %lu ms ago\n",
-                c, -(long)((newest - s->us) / 1000), task, (unsigned long)s->pc, (unsigned long)s->lr,
+            char where[12];
+            if (!s->exc) snprintf(where, sizeof(where), "task");
+            else if (s->exc >= 16) snprintf(where, sizeof(where), "irq %u", (unsigned)(s->exc - 16));
+            else snprintf(where, sizeof(where), "exc %u", (unsigned)s->exc);
+            // Signed: a sample the reset cut short (its count not yet stepped) can be newer than "newest".
+            const long ms = (long)((int32_t)(s->us - newest) / 1000);
+            o += (size_t)snprintf(out + o, size - o,
+                "core %d %6ld ms %-11s pc=%08lx lr=%08lx %-6s ints %-4s wdt left %lu fed %lu ms ago\n", c, ms,
+                task, (unsigned long)s->pc, (unsigned long)s->lr, where, s->primask ? "OFF" : s->basepri ? "rtos" : "on",
                 (unsigned long)s->wdt_left_ms, (unsigned long)s->fed_ago_ms);
         }
     }
@@ -114,7 +139,7 @@ void freeze_report(void) {
     // Watchdog reset reason: bit 0 the timer ran out, bit 1 forced (watchdog_reboot(), rom_reboot()).
     const uint32_t reason = watchdog_hw->reason;
     if (rec.magic == FREEZE_MAGIC && watchdog_caused_reboot()) {
-        static char text[2 * SAMPLES * 110];
+        static char text[2 * SAMPLES * 128];
         format(text, sizeof(text));
         printf("\n*** freeze record, watchdog reason 0x%lx (%s) (ms relative to the last sample):\n%s",
             (unsigned long)reason, reason & 1 ? "timeout" : reason & 2 ? "forced" : "?", text);
@@ -132,11 +157,10 @@ static void start_task(void *param) {
     if (alarm >= 0) {
         alarm_of[core] = alarm;
         const uint irq = hardware_alarm_get_irq_num((uint)alarm);
-        irq_set_exclusive_handler(irq, freeze_isr);
-        irq_set_priority(irq, PICO_HIGHEST_IRQ_PRIORITY); // samples inside other handlers too
+        exception_set_exclusive_handler(NMI_EXCEPTION, freeze_isr); // the same for both cores (one vector table)
+        hw_set_bits(&eppb_hw->nmi_mask[irq / 32u], 1u << (irq % 32u)); // this core's NMI (the register is core-local)
         hw_set_bits(&timer_hw->inte, 1u << alarm);
         timer_hw->alarm[alarm] = timer_hw->timerawl + PERIOD_US;
-        irq_set_enabled(irq, true); // on this core
     } else {
         printf("freeze: no free timer alarm for core %u\n", core);
     }
