@@ -298,12 +298,12 @@ static void test_ok_without_closing_line(void) {
 }
 
 static void test_text_passes_through_when_idle(void) {
-    // Outside a transfer every byte is terminal text, even ones that look like a frame.
+    // Outside a transfer text lines go through whole, even with bytes like a frame's magic in them.
     reset();
     put_str("[COM] hello\n");
-    put("\xa5\x5a", 2);
-    deliver(0);
-    CHECK(term_len == 14);
+    put("\xa5\x5a\n", 3);
+    deliver(1);
+    CHECK(term_len == 15);
     CHECK(tx_len == 0);
 }
 
@@ -620,6 +620,155 @@ static void test_quiet_then_loud(void) {
     check_osd2_ok();
 }
 
+// --- tests: frames nobody is decoding ---------------------------------------------------------------
+//
+// Whatever goes wrong, a transfer's bytes (from its ready line to its closing line) never reach the
+// terminal: console.c cuts lines at their first NUL, so leaked frames showed as one line of binary
+// and the closing line, "<end of the digest and CRC>[COM] osd done", kept by every page loaded later.
+
+static void put_osd2_frames(void) {
+    put_frame(NONCE, 3, 0, osd2, 2048);
+    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
+    put_frame(NONCE, 2, 2, osd2_digest, 32);
+}
+
+static void test_ready_line_lost(void) {
+    // A mirror poll whose ready line lost its end (the FT232R overran while Wi-Fi was busy, here a
+    // download from GitHub): the frames came while the transfer still waited for its ready line.
+    static const size_t chunks[] = {0, 1, 62};
+    for (size_t k = 0; k < 3; k++) {
+        reset();
+        rtl1_core_begin("osd2", out, sizeof(out), &info, true, 600, clock_ms);
+        put_str("[COM] osd2 ready on=1 osk=0 rows=4 co"); // the rest of the line never came
+        put_osd2_frames();
+        put_str("[COM] osd done\n[COM] after\n");
+        deliver(chunks[k]);
+        CHECK(!term_has_binary());
+        CHECK(term_equals("[COM] after\n")); // a quiet poll: its closing line stays hidden too
+        CHECK(rtl1_core_result() == RTL1_ERR_PROTOCOL); // the RT4K did answer
+        CHECK_STR_HAS(info.detail, "frames without a ready line");
+        CHECK(rtl1_core_phase() == RTL1_PH_IDLE);
+        CHECK(finished_calls == 1);
+    }
+}
+
+static void test_ready_line_lost_whole(void) {
+    // All of the ready line lost, and a transfer shown in the terminal: still no binary.
+    reset();
+    begin("osd2", sizeof(out));
+    put_osd2_frames();
+    put_str("[COM] osd done\n[COM] after\n");
+    deliver(62);
+    CHECK(!term_has_binary());
+    CHECK(term_equals("[COM] after\n"));
+    CHECK(rtl1_core_result() == RTL1_ERR_PROTOCOL);
+}
+
+static void test_ready_line_after_the_wait(void) {
+    // The ready line came after the poll gave up waiting: its frames and closing line are drained,
+    // and the ready line itself stays hidden like the rest of a quiet poll.
+    reset();
+    rtl1_core_begin("osd2", out, sizeof(out), &info, true, 600, clock_ms);
+    CHECK(rtl1_core_poll(clock_ms + 601));
+    CHECK(rtl1_core_result() == RTL1_ERR_TIMEOUT);
+    rtl1_core_end();
+    clock_ms += 700;
+    put_osd2_transfer();
+    put_str("[COM] after\n");
+    deliver(62);
+    CHECK(!term_has_binary());
+    CHECK(term_equals("[COM] after\n"));
+    CHECK(rtl1_core_phase() == RTL1_PH_IDLE);
+}
+
+static void test_rest_after_giving_up(void) {
+    // The transfer stops mid-frame (the USB host parked while flash is written, say), the caller gives
+    // up, and the rest arrives much later: still drained, still no binary.
+    reset();
+    begin_quiet("osd2", sizeof(out));
+    put_str(READY_OSD2);
+    put_frame(NONCE, 3, 0, osd2, 2048);
+    const size_t cut = wire_len + 1000;
+    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
+    put_frame(NONCE, 2, 2, osd2_digest, 32);
+    put_str("[COM] osd done\n[COM] after\n");
+    static uint8_t rest[4096];
+    const size_t rest_len = wire_len - cut;
+    memcpy(rest, wire + cut, rest_len);
+    wire_len = cut;
+    deliver(62);
+    const uint32_t t = clock_ms;
+    CHECK(!rtl1_core_poll(t + RTL1_STALL_TIMEOUT_MS + 10));
+    CHECK(rtl1_core_poll(t + RTL1_STALL_TIMEOUT_MS + RTL1_TAIL_TIMEOUT_MS + 20));
+    rtl1_core_end();
+    clock_ms = t + 30000;
+    put(rest, rest_len);
+    deliver(62);
+    CHECK(!term_has_binary());
+    CHECK(term_equals("[COM] after\n"));
+}
+
+static void test_tail_of_frames_without_control_bytes(void) {
+    // The last bytes of a digest (the line seen on the page, minus its unprintable bytes) glued to the
+    // closing line: no control character to give them away, still not console text.
+    reset();
+    put_str("\xaa" "0\x99\xbf/\xf0q\xc8" "C\xbb" "e\xb5\xf4\xe2!>V!9\xbf\xf8[COM] osd done\n[COM] after\n");
+    deliver(0);
+    CHECK(term_equals("[COM] after\n"));
+}
+
+static void test_frames_while_idle(void) {
+    // Frames with no transfer at all: drained; once the RT4K has gone quiet, text shows again.
+    reset();
+    put_osd2_frames();
+    deliver(62);
+    CHECK(term_len == 0);
+    CHECK(rtl1_core_phase() == RTL1_PH_DRAIN);
+    clock_ms += RTL1_TAIL_TIMEOUT_MS + 10;
+    put_str("[COM] after\n");
+    deliver(0);
+    CHECK(term_equals("[COM] after\n"));
+}
+
+static void test_transfer_typed_in_terminal(void) {
+    // "osd2" typed in the terminal: its ready line shows, its frames don't.
+    reset();
+    put_osd2_transfer();
+    put_str("[COM] after\n");
+    deliver(62);
+    CHECK(!term_has_binary());
+    CHECK(term_equals(READY_OSD2 "[COM] after\n"));
+}
+
+static void test_closing_line_after_the_wait(void) {
+    // Data verified, the closing line came after the tail timeout: a quiet poll's, so still hidden.
+    reset();
+    begin_quiet("osd2", sizeof(out));
+    put_str(READY_OSD2);
+    put_osd2_frames();
+    deliver(0);
+    CHECK(rtl1_core_poll(clock_ms + RTL1_TAIL_TIMEOUT_MS + 10));
+    CHECK(rtl1_core_result() == RTL1_OK);
+    rtl1_core_end();
+    clock_ms += RTL1_TAIL_TIMEOUT_MS + 500;
+    put_str("[COM] osd done\n[COM] after\n");
+    deliver(0);
+    CHECK(term_equals("[COM] after\n"));
+}
+
+static void test_line_in_progress_when_transfer_starts(void) {
+    // A console line half received when a poll starts is shown whole.
+    reset();
+    put_str("[COM] RT4KPRO, FW");
+    deliver(0);
+    begin_quiet("osd2", sizeof(out));
+    put_str(" Version: 1.87.0\n");
+    put_osd2_transfer();
+    deliver(1);
+    CHECK(rtl1_core_result() == RTL1_OK);
+    CHECK(term_equals("[COM] RT4KPRO, FW Version: 1.87.0\n"));
+}
+
 // --- uploads (put) -----------------------------------------------------------------------------------
 
 #define PUT_CMD   "put -a 8 0123abcd x.txt"
@@ -815,6 +964,15 @@ static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_quiet_hides_refusal),
     T(test_quiet_keeps_other_lines),
     T(test_quiet_then_loud),
+    T(test_ready_line_lost),
+    T(test_ready_line_lost_whole),
+    T(test_ready_line_after_the_wait),
+    T(test_rest_after_giving_up),
+    T(test_tail_of_frames_without_control_bytes),
+    T(test_frames_while_idle),
+    T(test_transfer_typed_in_terminal),
+    T(test_closing_line_after_the_wait),
+    T(test_line_in_progress_when_transfer_starts),
     T(test_put_ready_enters_send),
     T(test_put_acks_then_done),
     T(test_put_byte_by_byte),

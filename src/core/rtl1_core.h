@@ -24,11 +24,11 @@ typedef struct {
 } rtl1_hooks_t;
 
 typedef enum {
-    RTL1_PH_IDLE,    // no transfer: text only
+    RTL1_PH_IDLE,    // no transfer: text (a ready line or frames that come anyway start a drain)
     RTL1_PH_READY,   // command sent, waiting for "<name> ready ... nonce=0x..."
     RTL1_PH_BINARY,  // frames
     RTL1_PH_DONE,    // digest checked, waiting for the closing text line
-    RTL1_PH_DRAIN,   // failed or aborted: swallow bytes until the closing text line
+    RTL1_PH_DRAIN,   // failed, aborted, or frames nobody waits for: swallow bytes until the closing text line
     RTL1_PH_SEND,    // upload (put): the caller sends frames; ACK/NAK frames and text lines come back
 } rtl1_phase_t;
 
@@ -43,9 +43,10 @@ typedef struct {
 void rtl1_core_init(const rtl1_hooks_t *hooks);
 
 // Starts waiting for the ready line of `cmd` (whose first word names it). The caller then sends the
-// command; `out` and `info` must stay valid until the transfer ends. `quiet`: no text reaches the
-// terminal while the transfer runs (ready, closing and refusal lines, and anything in between).
-// ready_timeout_ms: how long to wait for the ready line (0 = RTL1_READY_TIMEOUT_MS).
+// command; `out` and `info` must stay valid until the transfer ends. `quiet`: the transfer's own lines
+// (ready, closing, refusal) stay out of the terminal, also when they come after it gave up waiting
+// for them; other lines still show. ready_timeout_ms: how long to wait for the ready line
+// (0 = RTL1_READY_TIMEOUT_MS).
 void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
     uint32_t ready_timeout_ms, uint32_t now_ms);
 
@@ -57,12 +58,17 @@ void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *inf
 void rtl1_core_begin_put(const char *cmd, rtl1_info_t *info, uint32_t ready_timeout_ms, uint32_t now_ms);
 void rtl1_core_put_state(rtl1_put_state_t *out);
 
+// Bytes from the RT4K. Text goes to hooks->text a whole line at a time; a transfer's bytes, from its
+// ready line to its closing line, never do: not when the ready line was lost or came late (frames are
+// known by their header), nor after the transfer failed or timed out.
 void rtl1_core_feed(const uint8_t *data, size_t len, uint32_t now_ms);
 
 // Timeouts. True once the transfer is over (the result is then final).
 bool rtl1_core_poll(uint32_t now_ms);
 
-// Forgets the transfer (caller gave up, or is done reading the result).
+// Forgets the transfer (caller gave up, or is done reading the result). A drain goes on: the rest of
+// the transfer is swallowed until its closing line, or until the RT4K has been quiet for
+// RTL1_TAIL_TIMEOUT_MS.
 void rtl1_core_end(void);
 
 rtl1_phase_t rtl1_core_phase(void);

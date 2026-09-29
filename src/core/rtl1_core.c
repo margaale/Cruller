@@ -12,12 +12,18 @@
 #define TYPE_NAK      5
 #define TYPE_ABORT    6
 
+// What the RT4K may still send of a transfer given up on (rtl1_core_poll's timeouts).
+#define OWED_NONE  0
+#define OWED_READY 1            // its ready line (and frames): it came after the wait for it
+#define OWED_CLOSE 2            // its closing line
+
 static const rtl1_hooks_t *hooks;
 
 static struct {
     rtl1_phase_t phase;
-    bool quiet;                 // this transfer's text stays out of the terminal
+    bool quiet;                 // this transfer's text stays out of the terminal (kept after it: see owed)
     char name[16];              // first word of the command ("osd2", "font", "get")
+    int owed;                   // OWED_*
     uint8_t *out;
     size_t max;
     rtl1_info_t *info;
@@ -30,8 +36,12 @@ static struct {
     uint32_t ready_timeout_ms;
     uint32_t last_ms;           // last progress
     uint32_t now;               // time of the bytes being fed
-    char line[192];             // text line being assembled
+    char line[192];             // text line being assembled: it goes on whole, once judged
     size_t line_len;
+    bool line_bad;              // it had a control character: not console text, never shown
+    bool line_out;              // its start went on already (longer than line[])
+    uint8_t prev;               // the last text byte
+    uint8_t after_magic;        // text bytes since an A5 5A (0: none lately)
     // frame decoder
     int st;
     uint16_t f_nonce, f_len, f_idx, crc, rx_crc;
@@ -106,11 +116,52 @@ static bool ends_with(const char *s, const char *suffix) {
     return a >= b && strcmp(s + a - b, suffix) == 0;
 }
 
+// A transfer's last line: "osd done", "get done" (font), or "... aborted" / "... failed".
+static bool closing_line(const char *line) {
+    return ends_with(line, " done") || contains_ci(line, "aborted") || contains_ci(line, "failed");
+}
+
+// "<command> ready ... nonce=0x<hex>": binary frames follow.
+static bool ready_line(const char *line) {
+    const size_t w = strcspn(line, " ");
+    return w && !strncmp(line + w, " ready", 6) && strstr(line, "nonce=0x");
+}
+
+// The end of a transfer's frames with its closing line glued on ("...[COM] osd done"): console lines
+// start with "[COM] ", so what comes before it is binary.
+static bool frames_tail(const char *line) {
+    const char *com = strstr(line, "[COM] ");
+    return com && com != line && closing_line(com + 6);
+}
+
+// Never in console text. Every frame header has some: the length's high byte (0-8) and the type (1-7).
+static bool not_text(uint8_t b) {
+    return b < 0x20 && b != '\t' && b != '\r' && b != '\n';
+}
+
 // Returns true when the line belongs to the transfer (its ready, refusal or closing line).
 static bool on_line(char *line) {
     if (!strncmp(line, "[COM] ", 6)) line += 6;
     const size_t name_len = strlen(e.name);
     switch (e.phase) {
+        case RTL1_PH_IDLE: {
+            // Nobody waits, but a transfer's lines still come: a ready line (late, after its transfer
+            // gave up waiting; or a command typed in the terminal) starts a drain of its frames, and
+            // the closing line of one that gave up waiting for it is still its own.
+            const bool ours = !strncmp(line, e.name, name_len) && line[name_len] == ' ';
+            if (ready_line(line)) {
+                const bool late = e.owed == OWED_READY && ours;
+                e.owed = OWED_NONE;
+                e.phase = RTL1_PH_DRAIN;
+                e.last_ms = e.now;
+                return late;
+            }
+            if (e.owed == OWED_CLOSE && closing_line(line)) {
+                e.owed = OWED_NONE;
+                return true;
+            }
+            return false;
+        }
         case RTL1_PH_READY:
             if (!strncmp(line, e.name, name_len) && !strncmp(line + name_len, " ready", 6)) {
                 const char *n = strstr(line, "nonce=0x");
@@ -147,7 +198,7 @@ static bool on_line(char *line) {
             return false;
         case RTL1_PH_DONE:
         case RTL1_PH_DRAIN:
-            if (ends_with(line, " done") || contains_ci(line, "aborted") || contains_ci(line, "failed")) {
+            if (closing_line(line)) {
                 finish();
                 return true;
             }
@@ -251,51 +302,87 @@ static void decode(uint8_t b) {
     }
 }
 
+// A drain ending without its closing line: what it had of a line is binary leftovers.
+static void drop_leftovers(void) {
+    e.line_len = 0;
+    e.line_bad = false;
+}
+
+// A frame header where text was expected: frames whose ready line was lost (bytes the FT232R
+// dropped) or came after the wait for it, or more of a transfer given up on. Drained to the closing line.
+static void frames_outside_transfer(rtl1_phase_t ph) {
+    if (ph == RTL1_PH_READY) {
+        e.result = RTL1_ERR_PROTOCOL;
+        set_detail("frames without a ready line");
+    }
+    e.phase = RTL1_PH_DRAIN;
+    e.last_ms = e.now;
+}
+
+// A whole text line: to the transfer (on_line), then to the terminal unless it's hidden. A quiet
+// transfer's own lines are; other lines (replies to terminal commands, console messages) still show.
+static void end_line(rtl1_phase_t ph) {
+    if (e.line_len && e.line[e.line_len - 1] == '\r') e.line_len--;
+    e.line[e.line_len] = 0;
+    const size_t len = e.line_len;
+    const bool bad = e.line_bad;
+    e.line_len = 0;
+    e.line_bad = false;
+    const bool own = on_line(e.line);
+    if (ph != RTL1_PH_DRAIN && !bad && !(own && e.quiet) && !frames_tail(e.line)) {
+        e.line[len] = '\n';
+        hooks->text((const uint8_t *)e.line, len + 1);
+    } else if (e.line_out) {
+        hooks->text((const uint8_t *)"\n", 1); // ends the part that went on
+    }
+    e.line_out = false;
+}
+
+// Text reaches the terminal a whole line at a time (console.c routes whole lines anyway), so a line
+// that turns out to be binary is never shown, not even its first bytes ("A5 5A" and the nonce, before
+// the frame header's first control character).
+static void text_byte(uint8_t b) {
+    const rtl1_phase_t ph = e.phase;
+    if (ph == RTL1_PH_DRAIN || ph == RTL1_PH_DONE) e.last_ms = e.now;
+    const bool after_magic = e.after_magic != 0;
+    e.after_magic = e.prev == 0xa5 && b == 0x5a ? 1 : after_magic && e.after_magic < 6 ? e.after_magic + 1 : 0;
+    e.prev = b;
+    if (b == '\n') {
+        end_line(ph);
+    } else if (not_text(b) || (ph == RTL1_PH_DRAIN && b >= 0x80)) {
+        // Binary: the line is never shown, and starts over so a closing line glued to the end of the
+        // frames is still seen whole.
+        e.line_len = 0;
+        e.line_bad = true;
+        if (after_magic && (ph == RTL1_PH_IDLE || ph == RTL1_PH_READY || ph == RTL1_PH_DONE)) {
+            frames_outside_transfer(ph);
+        }
+    } else {
+        if (e.line_len >= sizeof(e.line) - 2) { // overlong: no transfer's line, pass on what we have
+            if (ph != RTL1_PH_DRAIN && !e.line_bad) {
+                hooks->text((const uint8_t *)e.line, e.line_len);
+                e.line_out = true;
+            }
+            e.line_len = 0;
+        }
+        e.line[e.line_len++] = (char)b;
+    }
+}
+
 void rtl1_core_feed(const uint8_t *data, size_t len, uint32_t now_ms) {
     e.now = now_ms;
-    size_t text_from = 0; // start of the pending run of terminal text
+    if (e.phase == RTL1_PH_DRAIN && !e.info && now_ms - e.last_ms > RTL1_TAIL_TIMEOUT_MS) {
+        drop_leftovers(); // a drain nobody waits for went quiet: its closing line isn't coming
+        e.phase = RTL1_PH_IDLE;
+    }
     for (size_t i = 0; i < len; i++) {
         const uint8_t b = data[i];
-        const rtl1_phase_t ph = e.phase;
-        if (ph == RTL1_PH_SEND && (e.st != 0 || b == 0xa5)) {
-            decode(b); // a reply frame (text lines never contain 0xa5)
-            text_from = i + 1;
-            continue;
-        }
-        if (ph == RTL1_PH_BINARY) {
-            decode(b);
-            if (e.phase != RTL1_PH_BINARY) text_from = i + 1; // back to text after the last frame
-            continue;
-        }
-        // A quiet transfer's text is judged line by line: its own lines are hidden, other lines
-        // (replies to terminal commands, console messages) still reach the terminal.
-        const bool by_line = e.quiet && (ph == RTL1_PH_READY || ph == RTL1_PH_DONE || ph == RTL1_PH_SEND);
-        if (ph == RTL1_PH_DRAIN || ph == RTL1_PH_DONE) e.last_ms = now_ms;
-        if (b == '\n') {
-            e.line[e.line_len] = 0;
-            if (e.line_len && e.line[e.line_len - 1] == '\r') e.line[e.line_len - 1] = 0;
-            const size_t line_len = strlen(e.line);
-            e.line_len = 0;
-            const bool own = on_line(e.line);
-            if (by_line && !own) {
-                e.line[line_len] = '\n';
-                hooks->text((const uint8_t *)e.line, line_len + 1);
-            }
-            if (e.phase == RTL1_PH_BINARY) {
-                // The ready line goes to the terminal (unless quiet); the frames after it don't.
-                if (!e.quiet && i + 1 > text_from) hooks->text(data + text_from, i + 1 - text_from);
-                text_from = i + 1;
-            }
-        } else if (ph == RTL1_PH_DRAIN && (b >= 0x80 || (b < 0x20 && b != '\r' && b != '\t'))) {
-            e.line_len = 0; // binary leftovers: start the line over so the closing line is seen whole
+        if (e.phase == RTL1_PH_BINARY || (e.phase == RTL1_PH_SEND && (e.st != 0 || b == 0xa5))) {
+            decode(b); // frames; while uploading, a reply frame (text lines never contain 0xa5)
         } else {
-            if (e.line_len >= sizeof(e.line) - 2) e.line_len = 0; // overlong: keep the latest text
-            e.line[e.line_len++] = (char)b;
+            text_byte(b);
         }
-        // Drained bytes never reach the terminal as a run, nor a quiet transfer's (see by_line).
-        if (ph == RTL1_PH_DRAIN || by_line) text_from = i + 1;
     }
-    if (e.phase != RTL1_PH_BINARY && e.phase != RTL1_PH_DRAIN && text_from < len) hooks->text(data + text_from, len - text_from);
 }
 
 void rtl1_core_init(const rtl1_hooks_t *h) {
@@ -316,8 +403,9 @@ void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *inf
     e.info = info;
     e.nonce = 0;
     e.put = false;
+    e.owed = OWED_NONE;
     e.result = RTL1_ERR_TIMEOUT;
-    e.line_len = 0;
+    if (e.phase == RTL1_PH_DRAIN) drop_leftovers(); // a text line in progress goes on
     e.start_ms = e.last_ms = e.now = now_ms;
     e.phase = RTL1_PH_READY;
 }
@@ -340,6 +428,7 @@ bool rtl1_core_poll(uint32_t now_ms) {
             if (now_ms - e.start_ms > e.ready_timeout_ms) {
                 set_detail("no ready line from the RT4K");
                 e.phase = RTL1_PH_IDLE;
+                e.owed = OWED_READY;
             }
             break;
         case RTL1_PH_BINARY:
@@ -349,7 +438,11 @@ bool rtl1_core_poll(uint32_t now_ms) {
             break;
         case RTL1_PH_DONE:
         case RTL1_PH_DRAIN:
-            if (now_ms - e.last_ms > RTL1_TAIL_TIMEOUT_MS) e.phase = RTL1_PH_IDLE; // verified, or given up
+            if (now_ms - e.last_ms > RTL1_TAIL_TIMEOUT_MS) { // verified, or given up
+                if (e.phase == RTL1_PH_DRAIN) drop_leftovers();
+                e.phase = RTL1_PH_IDLE;
+                e.owed = OWED_CLOSE;
+            }
             break;
         default:
             break;
@@ -358,7 +451,7 @@ bool rtl1_core_poll(uint32_t now_ms) {
 }
 
 void rtl1_core_end(void) {
-    e.phase = RTL1_PH_IDLE;
+    if (e.phase != RTL1_PH_DRAIN) e.phase = RTL1_PH_IDLE; // a drain goes on without the caller
     e.info = NULL;
     e.out = NULL;
 }
