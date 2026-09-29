@@ -5,6 +5,7 @@
 //   power probes ("ver")         CON_POWER     nobody sees the replies (power.c reads all lines)
 //   queries (rt4k_query)         CON_QUERY     the caller gets the line it waits for
 //   POST /api/command            CON_HTTP      the request's own replies, in the response
+//   the page's SD card browser   CON_FILES     the request's own replies (GET /rt4k/ls), not the terminal
 //   RFC 2217 client n            CON_CLIENT(n) that client, plus lines outside any window
 
 #pragma once
@@ -19,7 +20,10 @@
 #define CON_POWER     1
 #define CON_QUERY     2
 #define CON_HTTP      3   // POST /api/command
-#define CON_CLIENT(n) (4 + (n))
+#define CON_FILES     4   // GET /rt4k/ls
+#define CON_CLIENT(n) (5 + (n))
+
+#define CON_LINE_MAX  160 // a longer line from the RT4K arrives cut in pieces of CON_LINE_MAX - 1 characters
 
 void console_start(void);
 

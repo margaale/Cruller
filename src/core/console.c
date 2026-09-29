@@ -17,8 +17,8 @@
 #define CONSOLE_TASK_PRIORITY (tskIDLE_PRIORITY + 3)
 #define QUEUE_DEPTH           8
 #define CMD_MAX               200
-#define LINE_MAX_LEN          160
-#define HISTORY               64   // routed lines kept for console_read_line (power of two)
+#define LINE_MAX_LEN          CON_LINE_MAX
+#define HISTORY              64   // routed lines kept for console_read_line (power of two)
 
 typedef struct {
     int owner;
@@ -57,7 +57,7 @@ static void route(const char *text) {
     plat_lock_exit(&lock);
     if (owner != CON_BROADCAST && console_task_h) xTaskNotifyGive(console_task_h); // may close its window
     power_feed_line(text);
-    if (owner != CON_POWER && owner != CON_QUERY) { // the web terminal: all but Cruller's own checks
+    if (owner != CON_POWER && owner != CON_QUERY && owner != CON_FILES) { // the web terminal: all but Cruller's own
         rt4k_term_push((const uint8_t *)text, strlen(text));
         rt4k_term_push((const uint8_t *)"\n", 1);
     }
@@ -133,9 +133,10 @@ bool console_run(int owner, const char *cmd, void (*on_line)(const char *line, v
     char text[LINE_MAX_LEN];
     int o;
     // Commands queued before ours go first: allow for them. The flag decides; the notification only
-    // wakes us up early.
+    // wakes us up early. Read often: "ls" sends a line every ~0.7 ms, and the history keeps only
+    // HISTORY lines (~45 ms of them).
     for (const uint32_t t0 = now_ms(); now_ms() - t0 < (QUEUE_DEPTH + 1) * CON_MAX_MS;) {
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
         const bool done = *flag != 0;
         while (console_read_line(&seq, &o, text, sizeof(text))) {
             if (o == owner && on_line) on_line(text, ctx);

@@ -85,11 +85,12 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 
 ## Interfaces
 
-- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, Cruller OTA upload. Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
+- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, the RT4K's SD card (browse and download), Cruller OTA upload. Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
 - **`POST /api/command`**: console commands in (`{"command"}`, `{"commands": []}`, `{"button"}` with hass-RT4K's names, or plain text lines), their own replies out once each window closes.
 - **RFC 2217** on TCP port 2217 (pyserial's `rfc2217://`, e.g. Home Assistant's hass-RT4K): each client sees only its own replies; TCP keepalive drops clients that vanished.
 - **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/core/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
 - **`POST /rt4k/put`, `POST /rt4k/ask`**: file uploads to the RT4K's SD card and single queries, used by the firmware updater.
+- **`GET /rt4k/ls`, `GET /rt4k/get`**: a folder of the SD card and a file from it, for the page's SD card view. A listing is collected whole before it goes out (`ls` can't be paged, and the console keeps only its last 64 lines), and read again if lines went missing; its lines stay out of the terminal (console owner "files"). Files come in 16 KB `get -o/-l` pieces, each verified before it's sent.
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
 - **Status**: `GET /status` (JSON, also pushed over the WebSocket).
 - **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/console`, `/debug/usbtrace`, `/debug/freeze`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`.
@@ -149,7 +150,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
 3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI. Not started.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, `/api/command`, RFC 2217. LED patterns still to do.
-5. **M4, extras (partly done):** RT4K SD file transfers and firmware updates from RetroTINK's repository. Still to do: Extron/TESmart/MT-VIKI serial, IR, profiles.
+5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download) and firmware updates from RetroTINK's repository. Still to do: uploading, renaming and deleting from the SD card view, Extron/TESmart/MT-VIKI serial, IR, profiles.
 
 ### M0 results (2026-09-25)
 
@@ -158,7 +159,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 
 ## Testing
 
-- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, RFC 2217 parsing, console reply windows, the page's JavaScript (syntax), and the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip).
+- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, RFC 2217 parsing, console reply windows, the page's JavaScript (syntax), the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses).
 - **On the bench:** `cruller_bench` (not built by default) has the USB port as a serial console and no RT4K link.
 - **On the board behind the RT4K:** OTA only. `/debug/tasks` has the link counters (FT232R overruns, key -> screen times), `/debug/console` the last commands' reply times, and `/debug/freeze` where both cores were before a watchdog reset (kept across it).
 

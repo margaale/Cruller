@@ -91,6 +91,12 @@ add_custom_command(OUTPUT ${WEB_FW_JS_C}
         -P ${CRULLER_WEB}/embed.cmake
     DEPENDS ${CRULLER_WEB}/fw.js ${CRULLER_WEB}/embed.cmake
     VERBATIM)
+set(WEB_SD_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_sd_js.c)
+add_custom_command(OUTPUT ${WEB_SD_JS_C}
+    COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/sd.js -DOUT=${WEB_SD_JS_C} -DNAME=web_sd_js
+        -P ${CRULLER_WEB}/embed.cmake
+    DEPENDS ${CRULLER_WEB}/sd.js ${CRULLER_WEB}/embed.cmake
+    VERBATIM)
 set(WEB_APP_JS_C ${CMAKE_CURRENT_BINARY_DIR}/web_app_js.c)
 add_custom_command(OUTPUT ${WEB_APP_JS_C}
     COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/app.js -DOUT=${WEB_APP_JS_C} -DNAME=web_app_js
@@ -103,7 +109,7 @@ add_custom_command(OUTPUT ${WEB_INDEX_C}
         -P ${CRULLER_WEB}/embed.cmake
     DEPENDS ${CRULLER_WEB}/index.html ${CRULLER_WEB}/embed.cmake
     VERBATIM)
-target_sources(cruller_app INTERFACE ${WEB_FW_JS_C} ${WEB_APP_JS_C} ${WEB_INDEX_C})
+target_sources(cruller_app INTERFACE ${WEB_FW_JS_C} ${WEB_SD_JS_C} ${WEB_APP_JS_C} ${WEB_INDEX_C})
 target_compile_definitions(cruller_app INTERFACE
     CRULLER_VERSION="${CRULLER_VERSION}"
     CYW43_HOST_NAME="cruller"

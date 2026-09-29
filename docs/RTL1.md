@@ -59,10 +59,16 @@ Types: 1 command, 2 response, 3 data, 4 acknowledgement, 5 negative acknowledgem
 | `osd`            | `rows stride width cells nonce`                     | main OSD plane: 2048 character codes, then 2048 colour bytes |
 | `osd2`           | `on osk rows cols stride cells nonce`               | secondary plane (messages, on-screen keyboard), same layout |
 | `font`           | `size glyphs w h layout nonce`                      | 256 glyphs, 8×16, row-major, 4096 bytes |
-| `get -- <path>`  | `off len total nonce`                               | a file from the SD card, in chunks |
+| `get [-o <off>] [-l <len>] -- <path>` | `off len total nonce`          | a file from the SD card, or a piece of it |
 
 Colour byte: bits 5-4 red, 3-2 green, 1-0 blue (2 bits each, ×85 for 8-bit), bits 7-6 background
 mode. Text-only queries: `ver`, `model`, `osd2 state`, `banner`.
+
+**get** (tried on 1.87.4): flags `-a` (acknowledged), `-n` (not worked out), `-o <off>`, `-l <len>`
+(`get: bad flags (use -a  -n  -o <off>  -l <len>)`). The ready line says which piece comes:
+`get ready off=100 len=20 total=42381 nonce=0x5C0D`; `len` stops at the end of the file, and `-l 0`
+or no `-l` sends the rest. Refusals: `get err: cannot open <path>` (no such file, or a folder),
+`get err: offset past EOF (size=<n>)`, `get: need a path`.
 
 **Line speed:** `baud <rate>` answers `baud switching to <rate> -- send 'baud ok' within 5000 ms`
 (or `bad baud <rate> -- use 115200/500000/1000000/2000000`, or `baud: busy`). The host switches its
@@ -100,13 +106,18 @@ answered the previous console command is ignored (no ready line); right after th
 
 | Command                  | Reply                                                      |
 |--------------------------|------------------------------------------------------------|
-| `ls [dir]`               | `ent t=F\|D sz=<bytes> mt=<unix time> nm=<name>` per entry, then `ls end <count>` |
-| `stat <path>`            | `stat t=F sz=... mt=... at=0x20 nm=<path>`, or `stat err=2 NOSUCH` |
+| `ls [dir]`               | `ent t=F\|D sz=<bytes> mt=<unix time> nm=<name>` per entry, then `ls end <count>`; `ls err=2 NOSUCH` |
+| `stat <path>`            | `stat t=F\|D sz=... mt=... at=0x20\|0x10 nm=<path>`, or `stat err=2 NOSUCH` |
 | `mkdir <path>`           | `mkdir ok`, or `mkdir err=64 EXIST`                        |
-| `rm <path>`              | `rm ok` (empty folders too)                                |
-| `mv <old>\|<new>`        | (not tried)                                                |
+| `rm <path>`              | `rm ok` (empty folders too), `rm err=70 NOTEMPTY`, `rm err=2 NOSUCH` |
+| `mv <old>\|<new>`        | `mv ok` (across folders too), `mv err=2 NOSUCH`, `mv: usage 'mv <old>\|<new>'` |
 | `fwup check`             | `fwup ok version=<v> token=<hex>` once `rt4kup.bin` and its `.rbf` are on the card |
 | `fwup go <token>`        | `fwup: flashing`; the RT4K restarts and installs (~40 s)   |
+
+Paths are the rest of the line, with or without a leading `/`; spaces are fine. `ls` takes no flags
+(`ls -h` lists a folder called `-h`) and sends the whole folder at once, about 0.7 ms a line
+(55 entries in 38 ms). None of these answer while the RT4K is in standby. Files written over RTL1
+get the time stamp 1577836800 (2020-01-01): the RT4K has no clock.
 
 A firmware zip from RetroTINK holds `rt4kup.bin`, one `.rbf` per model (`rt4k_` Pro, `rt4kce_` CE,
 `rt6x_` 6X) and sometimes extra folders (`lumacode/`). Cruller's page writes all of it except the
@@ -122,3 +133,6 @@ hardware engine). One transfer runs at a time, and terminal commands wait for it
 `POST /rt4k/put?path=<path>&sha=<sha256>` writes the request body to the SD card;
 `POST /rt4k/ask?expect=<text>` sends the body as a command and returns the first reply line
 containing `<text>`.
+`GET /rt4k/ls?dir=<path>` lists a folder (`D|F`, size, time and name, tab-separated, one entry a
+line; `X-Total` has the RT4K's count), and `GET /rt4k/get?path=<path>` downloads a file in 16 KB
+`get -o/-l` pieces, each verified before it goes out.
