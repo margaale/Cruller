@@ -125,53 +125,116 @@ const svsSw = { seq: 0, loading: 0, data: null, last: null };
 const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
 const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
 
-// The consoles, by their id in the SVS Bridge's list: a short name, and an icon (line drawings of
-// their controllers or the machines themselves, 48x32, in the text colour). An id not here shows
-// its name instead.
+// The consoles, by their id in the SVS Bridge's list: a short name, and an icon. Each is its
+// controller (or the machine itself) seen from above on a 60x40 grid: the body a tint of the text
+// colour (.con .b in index.html), sticks and pads in the text colour, and the buttons in their own
+// colours (PlayStation's shapes, the ABXY of Xbox, SNES and Dreamcast, GameCube's big green A,
+// Neo Geo's four) so each reads at a glance, even between siblings (PS1 has no sticks, PS2 its red
+// analog light, PS3 its PS button and player lights; the first Xbox its big jewel).
+const HUE = { red: '#E5534B', yellow: '#F0B44C', green: '#4CC38A', blue: '#5B8DEF', pink: '#E07FBF', teal: '#3FBFA8', orange: '#F08A24', grey: '#9EA3AB' };
 const I = {
-  dpad: (x, y) => `<path d="M${x - 1.5} ${y - 4.5}h3v3h3v3h-3v3h-3v-3h-3v-3h3z" fill="currentColor" stroke="none"/>`,
-  dot: (x, y, r = 1.8) => `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor" stroke="none"/>`,
-  ring: (x, y, r = 2.5) => `<circle cx="${x}" cy="${y}" r="${r}"/>`,
+  body: (d) => `<path class="b" d="${d}"/>`,
+  // The cross, s its half length.
+  dpad: (x, y, s = 4.6) => { const w = s * 0.36; return `<path d="M${x - w} ${y - s}h${2 * w}v${s - w}h${s - w}v${2 * w}h${w - s}v${s - w}h${-2 * w}v${w - s}h${w - s}v${-2 * w}h${s - w}z"/>`; },
+  // PS1's: four separate arrows.
+  arrows: (x, y) => `<path class="l" style="stroke-width:2.4;stroke-linecap:butt" d="M${x} ${y - 5}v3M${x} ${y + 2}v3M${x - 5} ${y}h3M${x + 2} ${y}h3"/>`,
+  // A round pad with the cross on it (Mega Drive, Saturn).
+  disc: (x, y, r = 5.2) => `<circle class="k" cx="${x}" cy="${y}" r="${r}"/><path class="l" style="stroke-width:1.1" d="M${x} ${y - r + 1.6}v${2 * r - 3.2}M${x - r + 1.6} ${y}h${2 * r - 3.2}"/>`,
+  btn: (x, y, r, c) => `<circle cx="${x}" cy="${y}" r="${r}"${c ? ` fill="${c}"` : ''}/>`,
+  stick: (x, y, r = 3.4) => `<circle class="k" cx="${x}" cy="${y}" r="${r}"/><circle cx="${x}" cy="${y}" r="${r * 0.42}"/>`,
+  pill: (x, y, w = 3.6) => `<path class="l" style="stroke-width:1.5" d="M${x - w / 2} ${y}h${w}"/>`,
+  // △ ○ × □, around (x, y).
+  ps: (x, y, d = 4.6, s = 1.8) => `<g class="l" style="stroke-width:1.2">` +
+    `<path stroke="${HUE.teal}" d="M${x} ${y - d - s}l${s * 1.1} ${s * 1.8}h${-s * 2.2}z"/>` +
+    `<circle stroke="${HUE.red}" cx="${x + d}" cy="${y}" r="${s}"/>` +
+    `<path stroke="${HUE.blue}" d="M${x - s * 0.9} ${y + d - s * 0.9}l${s * 1.8} ${s * 1.8}m0 ${-s * 1.8}l${-s * 1.8} ${s * 1.8}"/>` +
+    `<rect stroke="${HUE.pink}" x="${x - d - s * 0.85}" y="${y - s * 0.85}" width="${s * 1.7}" height="${s * 1.7}"/></g>`,
+  // Four buttons in a diamond: top, right, bottom, left.
+  diamond: (x, y, d, r, [t, rt, b, l]) => I.btn(x, y - d, r, t) + I.btn(x + d, y, r, rt) + I.btn(x, y + d, r, b) + I.btn(x - d, y, r, l),
 };
-const dogbone = `<path d="M14 7h20a9 9 0 0 1 0 18H14a9 9 0 0 1 0-18z"/>`;
-const crescent = `<path d="M5 14c0-5 7-7 19-7s19 2 19 7-4 11-9 11c-3 0-6-3-10-3s-7 3-10 3c-5 0-9-6-9-11z"/>`;
-const dualshock = `<path d="M13 7h22c5 0 8 4 9 10s0 11-4 11-5-5-8-6H16c-3 1-4 6-8 6s-5-5-4-11 4-10 9-10z"/>`;
-const psButtons = I.dot(36, 11.5, 1.5) + I.dot(40, 15, 1.5) + I.dot(36, 18.5, 1.5) + I.dot(32, 15, 1.5);
-const keyboard = `<rect x="3" y="11" width="42" height="15" rx="2"/><path d="M8 16h32M8 20h32M16 23.5h16" stroke-dasharray="2 2"/>`;
+// The PlayStation pads' body, and a computer's rows of keys.
+const dualshock = 'M17 8h26c6 0 10 3 11.5 9.5 2 8 3 16-1.5 18-4 1.8-7-2.5-9.5-6.5-1-1.5-2-2-3.5-2h-21c-1.5 0-2.5.5-3.5 2-2.5 4-5.5 8.3-9.5 6.5-4.5-2-3.5-10-1.5-18C7 11 11 8 17 8z';
+const keyRows = (x0, x1, ys) => `<path class="l" style="stroke-width:1.9;stroke-dasharray:1.9 1.1;stroke-linecap:butt" d="${ys.map((y) => `M${x0} ${y}H${x1}`).join('')}"/>`;
 const CONSOLES = {
-  nes: ['NES', `<rect x="4" y="9" width="40" height="14" rx="1.5"/>${I.dpad(12, 16)}<path d="M19 17h3M25 17h3"/>${I.dot(33, 17, 2.3)}${I.dot(39, 17, 2.3)}`],
-  snes: ['SNES', `${dogbone}${I.dpad(14, 16)}${I.dot(34, 12.5, 1.7)}${I.dot(38, 16, 1.7)}${I.dot(34, 19.5, 1.7)}${I.dot(30, 16, 1.7)}<path d="M21 17l2-1M25 17l2-1"/>`],
-  n64: ['N64', `<path d="M5 12c0-4 4-6 8-6h22c4 0 8 2 8 6l-2 13c-.5 2-3 2-3.5 0L34 17H14l-3.5 8c-.5 2-3 2-3.5 0z"/><path d="M20 17l2 10c.3 1.5 3.7 1.5 4 0l2-10"/>${I.dpad(14, 12.5)}${I.ring(24, 14, 1.8)}${I.dot(36, 10, 1.4)}${I.dot(39, 12, 1.4)}${I.dot(35, 14, 1.4)}`],
-  gamecube: ['GameCube', `<path d="M10 8h28c4 0 7 4 7 9s-2 10-6 10-5-4-8-5H17c-3 1-4 5-8 5s-6-5-6-10 3-9 7-9z"/>${I.ring(13, 14, 3)}${I.dot(35, 14, 3)}${I.dot(40, 10.5, 1.4)}${I.dot(30.5, 16.5, 1.4)}${I.ring(26, 19, 1.6)}`],
-  wii: ['Wii', `<rect x="3" y="11" width="42" height="10" rx="5"/>${I.dpad(11, 16)}${I.ring(19, 16, 2)}${I.dot(31, 16, 1)}${I.dot(35, 16, 1)}${I.dot(39, 16, 1)}`],
-  sms: ['Master System', `<rect x="5" y="9" width="38" height="14" rx="1"/><path d="M5 16H2"/>${I.dpad(14, 16)}<rect x="28" y="14" width="4" height="4" fill="currentColor" stroke="none"/><rect x="35" y="14" width="4" height="4" fill="currentColor" stroke="none"/>`],
-  megadrive: ['Mega Drive', `${crescent}${I.ring(14, 14, 4)}${I.dot(29, 17, 1.8)}${I.dot(33.5, 15, 1.8)}${I.dot(38, 13, 1.8)}<path d="M22 12h4"/>`],
-  saturn: ['Saturn', `${crescent}${I.dpad(14, 14)}${I.dot(29, 18, 1.5)}${I.dot(33, 17, 1.5)}${I.dot(37, 16, 1.5)}${I.dot(29, 13.5, 1.2)}${I.dot(33, 12.5, 1.2)}${I.dot(37, 11.5, 1.2)}`],
-  dreamcast: ['Dreamcast', `<path d="M9 6h30c4 0 6 3 6 7l-2 11c-1 3-5 3-7 0l-3-4H15l-3 4c-2 3-6 3-7 0L3 13c0-4 2-7 6-7z"/><rect x="19" y="6" width="10" height="8" rx="1"/>${I.ring(12, 13, 2.8)}${I.dot(36, 11, 1.4)}${I.dot(39, 14, 1.4)}${I.dot(36, 17, 1.4)}${I.dot(33, 14, 1.4)}`],
-  ps1: ['PS1', `${dualshock}${I.dpad(12, 15)}${psButtons}`],
-  ps2: ['PS2', `${dualshock}${I.dpad(12, 15)}${psButtons}${I.ring(19, 21, 2.5)}${I.ring(29, 21, 2.5)}`],
-  ps3: ['PS3', `${dualshock}${I.dpad(12, 15)}${psButtons}${I.ring(19, 21, 2.5)}${I.ring(29, 21, 2.5)}${I.dot(24, 15, 1.2)}`],
-  xbox: ['Xbox', `<path d="M11 7h26c5 0 8 5 8 11 0 5-2 9-5 9s-5-4-8-5H16c-3 1-5 5-8 5s-5-4-5-9c0-6 3-11 8-11z"/>${I.ring(12, 13, 2.8)}${I.dpad(19, 17)}${I.ring(29, 18, 2.5)}${I.dot(36, 10.5, 1.4)}${I.dot(39.5, 13.5, 1.4)}${I.dot(36, 16.5, 1.4)}${I.dot(32.5, 13.5, 1.4)}`],
-  xbox360: ['Xbox 360', `<path d="M11 7h26c5 0 8 5 8 11 0 5-2 9-5 9s-5-4-8-5H16c-3 1-5 5-8 5s-5-4-5-9c0-6 3-11 8-11z"/>${I.ring(12, 13, 2.8)}${I.dpad(19, 17)}${I.ring(29, 18, 2.5)}${I.dot(36, 10.5, 1.4)}${I.dot(39.5, 13.5, 1.4)}${I.dot(36, 16.5, 1.4)}${I.dot(32.5, 13.5, 1.4)}${I.ring(24, 11, 2)}`],
-  pce: ['PC Engine', `<rect x="5" y="9" width="38" height="15" rx="3"/>${I.dpad(13, 17)}<path d="M29 12h3M35 12h3"/>${I.dot(31, 19, 2.3)}${I.dot(37, 19, 2.3)}<path d="M20 20h3M25 20h3"/>`],
-  neogeo: ['Neo Geo', `<rect x="3" y="15" width="42" height="12" rx="2"/><path d="M12 15V8"/>${I.dot(12, 6.5, 3)}${I.dot(23, 22, 2)}${I.dot(29, 21, 2)}${I.dot(35, 20, 2)}${I.dot(41, 19, 2)}`],
-  atari2600: ['Atari 2600', `<rect x="12" y="19" width="24" height="9" rx="1.5"/><path d="M26 19V8"/>${I.ring(26, 6.5, 2.2)}${I.dot(17, 22, 2.2)}`],
-  jaguar: ['Jaguar', `<path d="M13 5h22c6 0 10 5 10 11s-4 11-9 11c-3 0-4-2-6-2H18c-2 0-3 2-6 2-5 0-9-5-9-11S7 5 13 5z"/>${I.dpad(11, 14)}${I.dot(37, 11, 1.5)}${I.dot(40, 14, 1.5)}${I.dot(37, 17, 1.5)}` +
-    [0, 1, 2].map((c) => [0, 1, 2, 3].map((r) => I.dot(20 + c * 4, 11 + r * 3.6, 1)).join('')).join('')],
-  '3do': ['3DO', `<path d="M10 9h28c4 0 6 3 6 7s-2 8-6 8H10c-4 0-6-4-6-8s2-7 6-7z"/>${I.dpad(13, 16)}${I.dot(30, 18, 1.8)}${I.dot(34.5, 16, 1.8)}${I.dot(39, 14, 1.8)}<path d="M22 13h4"/>`],
-  cdi: ['CD-i', `<rect x="6" y="8" width="36" height="16" rx="5"/>${I.ring(15, 16, 4.5)}${I.dot(15, 16, 1.2)}${I.dot(31, 16, 2)}${I.dot(37, 16, 2)}`],
-  amiga: ['Amiga', keyboard + `<path d="M36 7l3 4"/>`],
-  c64: ['C64', `<path d="M3 26l3-14h36l3 14z"/><path d="M9 16h30M8 20h32M14 23.5h20" stroke-dasharray="2 2"/>`],
-  msx: ['MSX', keyboard + `<path d="M8 11V8h32v3"/>`],
-  supergun: ['Arcade', `<path d="M15 3h18l2 7-2 3v16H15V13l-2-3z"/><rect x="18" y="6" width="12" height="7" rx="1"/><path d="M13 16h22"/>${I.dot(19, 19, 1.3)}${I.dot(24, 19, 1.3)}${I.dot(29, 19, 1.3)}`],
-  pc: ['PC', `<rect x="9" y="4" width="30" height="19" rx="2"/><path d="M24 23v4M17 28h14"/>`],
+  nes: ['NES', I.body('M5 10h50a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2z') +
+    `<rect class="k" x="6" y="13" width="48" height="15" rx="1"/>${I.dpad(13.5, 20.5)}` +
+    `<path class="l" style="stroke-width:.9;opacity:.6" d="M22 15.5h13M22 17.5h13"/>${I.pill(25, 23.5)}${I.pill(32, 23.5)}` +
+    `<rect x="37.5" y="17" width="7" height="7" rx="1" class="k"/><rect x="46" y="17" width="7" height="7" rx="1" class="k"/>${I.btn(41, 20.5, 2.6, HUE.red)}${I.btn(49.5, 20.5, 2.6, HUE.red)}`],
+  snes: ['SNES', I.body('M16 9h28a11 11 0 0 1 0 22H16a11 11 0 0 1 0-22z') + `<path class="l" style="stroke-width:1.8" d="M8 9.5a12 12 0 0 1 7-2.3M45 7.2a12 12 0 0 1 7 2.3"/>` +
+    `${I.dpad(15.5, 20)}<path class="l" style="stroke-width:1.7" d="M25 22.5l3-1.7M31 22.5l3-1.7"/>${I.diamond(44.5, 20, 4.4, 2.3, [HUE.blue, HUE.red, HUE.yellow, HUE.green])}`],
+  n64: ['N64', I.body('M7 9.5C12 6.5 22 7 30 7s18-.5 23 2.5c3.5 2 4 6 3 10.5l-2.5 12c-.7 3-4.3 3-5 0l-2.3-9c-.4-1.5-1.3-2-2.7-2h-4.3l-2.7 13c-.6 3-7.4 3-8 0L22.8 21.5h-4.3c-1.4 0-2.3.5-2.7 2l-2.3 9c-.7 3-4.3 3-5 0L6 20c-1-4.5-.5-8.5 1-10.5z') +
+    `${I.dpad(13, 15.5, 4)}${I.stick(30, 18, 3)}${I.btn(30, 11.5, 1.5, HUE.red)}${I.btn(41.5, 19, 2.4, HUE.blue)}${I.btn(38, 14.5, 2.1, HUE.green)}` +
+    I.diamond(48.5, 14, 3, 1.35, [HUE.yellow, HUE.yellow, HUE.yellow, HUE.yellow])],
+  gamecube: ['GameCube', I.body('M14 8c6-1 11 1.5 16 1.5S40 7 46 8c7.5 1.3 11.5 8 11 16-.4 6.5-3.5 10.5-8 10.3-4-.2-5.5-3.7-8-6.3-1-1-2-1.5-3.5-1.5h-15c-1.5 0-2.5.5-3.5 1.5-2.5 2.6-4 6.1-8 6.3-4.5.2-7.6-3.8-8-10.3-.5-8 3.5-14.7 11-16z') +
+    `${I.stick(13.5, 16.5, 4)}${I.dpad(22, 23, 3.2)}${I.btn(30, 16.5, 1.2)}${I.btn(44.5, 16.5, 3.6, HUE.green)}${I.btn(39, 20.5, 1.9, HUE.red)}${I.btn(36.5, 24.3, 2.2, HUE.yellow)}` +
+    `<path class="l" style="stroke-width:2.2" d="M50 12.3a6.2 6.2 0 0 1 .3 8.6M39.6 12.2a6.2 6.2 0 0 1 8.4-1.9"/>`],
+  wii: ['Wii', I.body('M8 13h44a5 5 0 0 1 5 5v4a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5v-4a5 5 0 0 1 5-5z') +
+    `${I.btn(7, 16.5, 1.1, HUE.red)}${I.dpad(13, 20, 3.8)}<circle class="k" cx="22" cy="20" r="2.8"/>${I.btn(30, 16.3, .9)}${I.btn(30, 20, 1.3, HUE.blue)}${I.btn(30, 23.7, .9)}` +
+    `${I.btn(38, 20, 1.8)}${I.btn(43.5, 20, 1.8)}${[16.5, 19, 21.5, 24].map((y) => I.btn(52.5, y, .7, HUE.blue)).join('')}`],
+  sms: ['Master System', I.body('M4 11h52a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V12a1 1 0 0 1 1-1z') + `<path class="l" d="M12 11c0-3.5 2-5.5 6-5.5"/>` +
+    `<rect class="k" x="7.5" y="14" width="13" height="13" rx="2"/>${I.dpad(14, 20.5, 4.4)}<rect x="34" y="17" width="7" height="7" rx="1.2"/><rect x="45" y="17" width="7" height="7" rx="1.2"/>`],
+  megadrive: ['Mega Drive', I.body('M9 10.5c8-4 34-4 42 0 6.5 3.5 7 13 2 19-3.5 4-8 4-12 .5-3.5-3-7.5-4-11-4s-7.5 1-11 4c-4 3.5-8.5 3.5-12-.5-5-6-4.5-15.5 2-19z') +
+    `${I.disc(15, 19, 5.5)}${I.pill(30, 15.5)}${I.btn(37, 23, 2.7)}${I.btn(43, 20.3, 2.7)}${I.btn(49, 17.6, 2.7)}`],
+  saturn: ['Saturn', I.body('M11 9c9-2.5 29-2.5 38 0 7 2 8.5 12 6 18.5-2 5.5-8 6.5-12 2.5-2-2-4.5-3-6.5-3h-13c-2 0-4.5 1-6.5 3-4 4-10 3-12-2.5-2.5-6.5-1-16.5 6-18.5z') +
+    `<path class="l" style="stroke-width:1.8" d="M7 10.5a10 10 0 0 1 7-3M46 7.5a10 10 0 0 1 7 3"/>${I.disc(14.5, 18.5, 5)}${I.pill(30, 19)}` +
+    `${I.btn(38.5, 22.5, 2.1)}${I.btn(43.5, 21, 2.1)}${I.btn(48.5, 19.5, 2.1)}${I.btn(38.5, 16, 1.5)}${I.btn(43, 14.5, 1.5)}${I.btn(47.5, 13, 1.5)}`],
+  dreamcast: ['Dreamcast', I.body('M10 7h40c5 0 7.5 4 7 9l-2 13c-.8 5-5.5 6-8.5 2.5L42 26H18l-4.5 5.5C10.5 35 5.8 34 5 29L3 16c-.5-5 2-9 7-9z') +
+    `<rect class="k" x="23" y="8.5" width="14" height="10" rx="1.5"/>${I.stick(12.5, 14.5, 3.4)}${I.dpad(15, 23.5, 3.8)}` +
+    `<path d="M31.3 22.3a1.6 1.6 0 1 1-1.9-1.6 3 3 0 1 1-2.3 3.7" fill="none" stroke="${HUE.orange}" stroke-width="1.2" stroke-linecap="round"/>` +
+    I.diamond(46, 15.5, 3.9, 1.9, [HUE.green, HUE.blue, HUE.red, HUE.yellow])],
+  ps1: ['PS1', I.body(dualshock) + `${I.arrows(14, 17)}${I.pill(26, 17, 3)}${I.pill(33.5, 17, 3)}${I.ps(46, 17)}`],
+  ps2: ['PS2', I.body(dualshock) + `${I.dpad(14, 16, 4.2)}${I.ps(46, 16)}${I.stick(22, 24, 3.3)}${I.stick(38, 24, 3.3)}${I.btn(30, 21.5, .9, HUE.red)}${I.pill(26.5, 15.5, 2.6)}${I.pill(33.5, 15.5, 2.6)}`],
+  ps3: ['PS3', I.body(dualshock) + `<path class="l" style="stroke:${HUE.red};stroke-width:1.3;stroke-linecap:butt" d="M25 9.5h1.8M28.1 9.5h1.8M31.2 9.5h1.8M34.3 9.5h1.8"/>` +
+    `${I.dpad(14, 16, 4.2)}${I.ps(46, 16)}${I.stick(22, 24, 3.3)}${I.stick(38, 24, 3.3)}<circle class="k" cx="30" cy="20.5" r="2.1"/>${I.pill(26.5, 15, 2.6)}${I.pill(33.5, 15, 2.6)}`],
+  xbox: ['Xbox', I.body('M12 5h36c6 0 10 5 10.5 12 .5 9-1 18-6 18-4 0-6-4-8-6.5H15.5c-2 2.5-4 6.5-8 6.5-5 0-6.5-9-6-18C2 10 6 5 12 5z') +
+    `${I.stick(11.5, 13.5, 3.6)}${I.dpad(20.5, 23, 3.6)}${I.stick(39.5, 23, 3.4)}` +
+    `<circle class="k" cx="30" cy="14" r="5.2"/><circle cx="30" cy="14" r="3.4" fill="${HUE.green}"/><path class="l" style="stroke:#1B1D21;stroke-width:1.2" d="M28.3 12.3l3.4 3.4m0-3.4l-3.4 3.4"/>` +
+    `${I.diamond(48, 13.5, 3.8, 1.8, [HUE.yellow, HUE.red, HUE.green, HUE.blue])}${I.btn(52, 21.5, 1.3)}${I.btn(55, 18, 1.3, '#E6E4DE')}`],
+  xbox360: ['Xbox 360', I.body('M14 8c6-1 11 1.5 16 1.5S40 7 46 8c7 1 11 7 11.5 14 .5 8-2.5 13-7 12.5-3.5-.4-5-4-8-6.5H18c-3 2.5-4.5 6.1-8 6.5-4.5.5-7.5-4.5-7-12.5C3.5 15 7.5 9 14 8z') +
+    `${I.stick(14, 16, 3.4)}${I.dpad(22.5, 24, 3.4)}${I.stick(37.5, 24, 3.2)}` +
+    `<circle class="k" cx="30" cy="15" r="2.9"/><circle cx="30" cy="15" r="1.6" fill="${HUE.green}"/>${I.btn(24.5, 15.5, .9)}${I.btn(35.5, 15.5, .9)}` +
+    I.diamond(46, 16, 3.8, 1.9, [HUE.yellow, HUE.red, HUE.green, HUE.blue])],
+  pce: ['PC Engine', I.body('M8 10h44a4 4 0 0 1 4 4v13a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V14a4 4 0 0 1 4-4z') +
+    `${I.dpad(13.5, 20.5)}${I.pill(25, 24)}${I.pill(31.5, 24)}<rect class="k" x="37" y="13" width="5" height="3.2" rx=".8"/><rect class="k" x="45" y="13" width="5" height="3.2" rx=".8"/>` +
+    `${I.btn(40.5, 23, 2.9)}${I.btn(48.5, 21.5, 2.9)}`],
+  neogeo: ['Neo Geo', I.body('M6 12h48a3 3 0 0 1 3 3v17a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V15a3 3 0 0 1 3-3z') +
+    `<circle class="k" cx="15" cy="23.5" r="7.2"/>${I.btn(15, 23.5, 4.8, HUE.red)}<circle cx="13.5" cy="22" r="1.4" fill="#fff" fill-opacity=".45"/>` +
+    `${I.btn(29, 27.5, 2.9, HUE.red)}${I.btn(36, 24.5, 2.9, HUE.yellow)}${I.btn(43.5, 23, 2.9, HUE.green)}${I.btn(51, 23.5, 2.9, HUE.blue)}${I.pill(44, 16)}${I.pill(50.5, 16)}`],
+  atari2600: ['Atari 2600', I.body('M17 16h26a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H17a3 3 0 0 1-3-3V19a3 3 0 0 1 3-3z') +
+    `<ellipse cx="22" cy="20.5" rx="3.3" ry="2.3" fill="${HUE.red}"/><ellipse class="k" cx="32" cy="26.5" rx="5.5" ry="3.8"/>` +
+    `<path class="l" style="stroke-width:3.6" d="M32 26V6.5"/>`],
+  jaguar: ['Jaguar', I.body('M12 5h36c6 0 10 5 10 11.5S54.5 28 49.5 28c-3 0-5-2-7.5-2l-.8 8.5c-.2 2-1.7 3-3.7 3H22.5c-2 0-3.5-1-3.7-3L18 26c-2.5 0-4.5 2-7.5 2C5.5 28 2 22.5 2 16.5S6 5 12 5z') +
+    `${I.dpad(12, 15, 4.2)}${I.btn(42, 20, 2.1)}${I.btn(47, 16.5, 2.1)}${I.btn(52, 13, 2.1)}${I.pill(25.5, 12, 3)}${I.pill(34.5, 12, 3)}` +
+    [0, 1, 2].map((c) => [0, 1, 2, 3].map((r) => `<rect x="${22.2 + c * 5.8}" y="${18.2 + r * 4}" width="3.8" height="2.6" rx=".6"/>`).join('')).join('')],
+  '3do': ['3DO', I.body('M13 9h34c6 0 10 4 10 10.5 0 7-4 12.5-9.5 12.5-3.5 0-5.5-2-8-4.5-1.3-1.3-2.5-2-4.5-2h-10c-2 0-3.2.7-4.5 2C18 30 16 32 12.5 32 7 32 3 26.5 3 19.5 3 13 7 9 13 9z') +
+    `${I.dpad(14, 20, 4.4)}${I.btn(37, 24, 2.6)}${I.btn(42.5, 20.5, 2.6)}${I.btn(48, 17, 2.6)}${I.pill(27, 15, 3)}${I.pill(33, 15, 3)}`],
+  cdi: ['CD-i', I.body('M11 9h38a7 7 0 0 1 7 7v9a7 7 0 0 1-7 7H11a7 7 0 0 1-7-7v-9a7 7 0 0 1 7-7z') +
+    `<circle class="k" cx="17" cy="20.5" r="6.5"/><circle cx="17" cy="20.5" r="2.4"/>${I.btn(38, 20.5, 3, HUE.grey)}${I.btn(47, 20.5, 3, HUE.grey)}` +
+    `<path class="l" style="stroke-width:.9;opacity:.6" d="M35 26.5h15"/>`],
+  amiga: ['Amiga', I.body('M4 10h52a2 2 0 0 1 2 2v19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2z') +
+    keyRows(6, 31, [14]) + keyRows(6, 43, [18.5, 22, 25.5]) + `<path class="l" style="stroke-width:2.2" d="M15 29.3h18"/>` + keyRows(46, 54, [18.5, 22, 25.5, 29]) +
+    `${I.btn(38, 14, .9, HUE.green)}${I.btn(41.5, 14, .9, HUE.orange)}<path class="l" style="stroke-width:1.1;opacity:.7" d="M58 17v9"/>`],
+  c64: ['C64', I.body('M7 10h46c1.3 0 2.2.7 2.5 2L58 30.5c.3 1.5-.6 2.5-2 2.5H4c-1.4 0-2.3-1-2-2.5L4.5 12c.3-1.3 1.2-2 2.5-2z') +
+    keyRows(8, 44, [15, 19, 23, 27]) + `<path class="l" style="stroke-width:2.2" d="M17 30.2h20"/>` +
+    [14.5, 19, 23.5, 28].map((y) => `<rect x="47.5" y="${y - 1.6}" width="6" height="3.2" rx=".6"/>`).join('') +
+    `<path d="M9 12.4h6" stroke="${HUE.blue}" stroke-width="1.2"/><path d="M15.5 12.4h3" stroke="${HUE.red}" stroke-width="1.2"/>`],
+  msx: ['MSX', I.body('M4 12h52a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V14a2 2 0 0 1 2-2z') + `<rect class="k" x="36" y="6" width="17" height="6" rx="1"/>` +
+    keyRows(6, 40, [17, 21, 25]) + `<path class="l" style="stroke-width:2.2" d="M13 29h22"/>` + I.diamond(49.5, 22, 3.6, 1.6, [])],
+  supergun: ['Arcade', I.body('M18 2h24l1.5 6-2 2v10l3 3v15H15.5V23l3-3V10l-2-2z') +
+    `<rect x="19.5" y="3" width="21" height="4" rx=".8" fill="${HUE.orange}" fill-opacity=".85"/><rect x="20.5" y="10" width="19" height="10" rx="1" fill="#0E0F11" stroke="currentColor" stroke-width="1"/>` +
+    `<path class="l" style="stroke-width:1.1" d="M15.5 23h29"/>${I.btn(22.5, 21.5, 1.7, HUE.red)}${I.btn(30.5, 22.2, 1.2, HUE.blue)}${I.btn(34.5, 22.2, 1.2, HUE.blue)}${I.btn(38.5, 22.2, 1.2, HUE.blue)}` +
+    `<rect class="k" x="26" y="28" width="8" height="6" rx=".8"/>`],
+  pc: ['PC', I.body('M12 4h36a2 2 0 0 1 2 2v21a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z') +
+    `<rect x="13" y="7" width="34" height="18" rx="1" fill="#0E0F11" stroke="currentColor" stroke-width="1"/><path class="l" style="stroke-width:1.8" d="M30 29v4M21 35h18"/>` +
+    `${I.btn(45.5, 27, .7, HUE.green)}`],
 };
+// A console Cruller has no drawing of (a newer bridge's list, or only a name): a plain pad.
+const PAD = I.body('M16 10h28c7 0 11 5 12 11.5.8 5.5-1 10.5-5.5 10.5-3.5 0-5-3-7.5-5.5H17c-2.5 2.5-4 5.5-7.5 5.5C5 32 3.2 27 4 21.5 5 15 9 10 16 10z') +
+  `${I.dpad(15.5, 19.5, 4)}${I.diamond(44.5, 19.5, 3.6, 1.7, [])}${I.pill(26.5, 18, 3)}${I.pill(33.5, 18, 3)}`;
+const svgCon = (body, cls = 'con') => `<svg class="${cls}" viewBox="0 0 60 40" fill="currentColor" aria-hidden="true">${body}</svg>`;
 // An input with nothing on it: the icon's place, outlined.
-const EMPTY_ICON = '<svg class="con" viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" ' +
-  'aria-hidden="true"><rect x="6" y="6" width="36" height="20" rx="8"/></svg>';
-const consoleIcon = (id) => CONSOLES[id]
-  ? `<svg class="con" viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CONSOLES[id][1]}</svg>`
-  : '';
+const EMPTY_ICON = svgCon('<rect x="8" y="8" width="44" height="24" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3.5 3"/>');
+const consoleIcon = (id) => svgCon(CONSOLES[id] ? CONSOLES[id][1] : PAD);
 
 async function svsLoad(seq) {
   if (svsSw.loading === seq) return;
@@ -215,7 +278,7 @@ function showSvs(v) {
     // The console's icon and short name when the bridge says which it is, else the name given.
     // Nothing picked on it: the same tile, with an empty slot for the icon.
     const n = i + 1, p = port(n), on = v.input === n, what = short(p);
-    const icon = consoleIcon(p.device) || (what ? '' : EMPTY_ICON);
+    const icon = what ? consoleIcon(p.device) : EMPTY_ICON;
     return '<div class="' + (on ? 'on' : '') + (what ? '' : ' empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
       (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + '<span>' + (what ? esc(what) : 'Empty') + '</span>' +
       '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small></div>';
