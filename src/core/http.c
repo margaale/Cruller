@@ -11,6 +11,8 @@
 #include "lwip/sockets.h"
 #include "lwip/memp.h"
 #include "lwip/stats.h"
+#include "lwip/tcpip.h"
+#include "lwip/priv/tcp_priv.h" // /debug/tcp: lwIP's PCB lists
 
 #include "creds.h"
 #include "health.h"
@@ -294,6 +296,79 @@ void http_debug_memory(char *out, size_t size) {
         (unsigned)(m.ram_total / 1024), (unsigned)(m.ram_data / 1024), (unsigned)(m.ram_bss / 1024),
         (unsigned)(rest / 1024));
 #undef ADD
+}
+
+// GET /debug/tcp: every TCP connection lwIP holds (not the listeners), with its peer, and how many
+// each peer has. Cruller closes first ("Connection: close"), so each HTTP request leaves its PCB in
+// TIME_WAIT for 2 * TCP_MSL (2 minutes); lwIP reuses the oldest of those when the pool runs out.
+#define TCP_LIST_MAX 24 // the Pico 2 W's whole pool
+
+typedef struct {
+    uint8_t state;
+    uint16_t local_port, remote_port;
+    ip_addr_t remote;
+    uint32_t idle_ms; // since its last activity (in TIME_WAIT: since it closed)
+} tcp_conn_t;
+
+// Copies the PCBs out under the core lock; returns how many there are (can be more than max).
+static size_t tcp_conns(tcp_conn_t *out, size_t max) {
+    size_t n = 0;
+    LOCK_TCPIP_CORE();
+    struct tcp_pcb *const lists[] = {tcp_active_pcbs, tcp_tw_pcbs};
+    for (size_t l = 0; l < 2; l++) {
+        for (const struct tcp_pcb *p = lists[l]; p; p = p->next, n++) {
+            if (n < max) {
+                out[n] = (tcp_conn_t){(uint8_t)p->state, p->local_port, p->remote_port, p->remote_ip,
+                    (tcp_ticks - p->tmr) * TCP_SLOW_INTERVAL};
+            }
+        }
+    }
+    UNLOCK_TCPIP_CORE();
+    return n;
+}
+
+static void handle_debug_tcp(int fd) {
+    static const char *const states[] = {"CLOSED", "LISTEN", "SYN_SENT", "SYN_RCVD", "ESTABLISHED", "FIN_WAIT_1",
+        "FIN_WAIT_2", "CLOSE_WAIT", "CLOSING", "LAST_ACK", "TIME_WAIT"};
+    // On the stack, not static: the Pico 2 W's RAM has no 3 KB to spare, the HTTP task's stack does.
+    tcp_conn_t conns[TCP_LIST_MAX];
+    char out[2560];
+    const size_t total = tcp_conns(conns, TCP_LIST_MAX);
+    const size_t n = total < TCP_LIST_MAX ? total : TCP_LIST_MAX;
+    size_t o = 0;
+    out[0] = 0;
+#define ADD(...) o += (size_t)snprintf(out + o, o < sizeof(out) ? sizeof(out) - o : 0, __VA_ARGS__)
+    ADD("TCP connections: %u of %d (TIME_WAIT ones last 2 minutes after closing)\n", (unsigned)total, MEMP_NUM_TCP_PCB);
+
+    // Per peer: all its connections and how many of them are in TIME_WAIT.
+    ADD("\npeer              total  TIME_WAIT\n");
+    bool counted[TCP_LIST_MAX] = {false};
+    for (size_t i = 0; i < n; i++) {
+        if (counted[i]) continue;
+        unsigned all = 0, tw = 0;
+        for (size_t j = i; j < n; j++) {
+            if (counted[j] || !ip_addr_cmp(&conns[j].remote, &conns[i].remote)) continue;
+            counted[j] = true;
+            all++;
+            tw += conns[j].state == TIME_WAIT;
+        }
+        char ip[IPADDR_STRLEN_MAX];
+        ipaddr_ntoa_r(&conns[i].remote, ip, sizeof(ip));
+        ADD("%-17s %5u %10u\n", ip, all, tw);
+    }
+
+    ADD("\nstate        local  peer                   idle\n");
+    for (size_t i = 0; i < n; i++) {
+        char ip[IPADDR_STRLEN_MAX], peer[IPADDR_STRLEN_MAX + 8];
+        ipaddr_ntoa_r(&conns[i].remote, ip, sizeof(ip));
+        snprintf(peer, sizeof(peer), "%s:%u", ip, conns[i].remote_port);
+        const char *st = conns[i].state < sizeof(states) / sizeof(states[0]) ? states[conns[i].state] : "?";
+        ADD("%-12s %5u  %-21s %5lu.%lu s\n", st, conns[i].local_port, peer, (unsigned long)(conns[i].idle_ms / 1000),
+            (unsigned long)(conns[i].idle_ms % 1000 / 100));
+    }
+    if (total > n) ADD("... and %u more\n", (unsigned)(total - n));
+#undef ADD
+    respond(fd, 200, "OK", "text/plain", out);
 }
 
 size_t http_debug_memory_json(char *out, size_t size) {
@@ -1350,6 +1425,7 @@ static void handle(request_t *r) {
         respond(r->fd, 200, "OK", "text/plain", trace_text);
     }
     else if (get && !strcmp(r->path, "/debug/memory")) handle_debug_memory(r->fd);
+    else if (get && !strcmp(r->path, "/debug/tcp")) handle_debug_tcp(r->fd);
     else if (get && !strcmp(r->path, "/debug/console")) {
         static char console_text[1600];
         console_debug(console_text, sizeof(console_text));
