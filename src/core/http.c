@@ -301,7 +301,7 @@ void http_debug_memory(char *out, size_t size) {
 // GET /debug/tcp: every TCP connection lwIP holds (not the listeners), with its peer, and how many
 // each peer has. Cruller closes first ("Connection: close"), so each HTTP request leaves its PCB in
 // TIME_WAIT for 2 * TCP_MSL (2 minutes); lwIP reuses the oldest of those when the pool runs out.
-#define TCP_LIST_MAX 32
+#define TCP_LIST_MAX 24 // the Pico 2 W's whole pool
 
 typedef struct {
     uint8_t state;
@@ -330,8 +330,9 @@ static size_t tcp_conns(tcp_conn_t *out, size_t max) {
 static void handle_debug_tcp(int fd) {
     static const char *const states[] = {"CLOSED", "LISTEN", "SYN_SENT", "SYN_RCVD", "ESTABLISHED", "FIN_WAIT_1",
         "FIN_WAIT_2", "CLOSE_WAIT", "CLOSING", "LAST_ACK", "TIME_WAIT"};
-    static tcp_conn_t conns[TCP_LIST_MAX];
-    static char out[3072];
+    // On the stack, not static: the Pico 2 W's RAM has no 3 KB to spare, the HTTP task's stack does.
+    tcp_conn_t conns[TCP_LIST_MAX];
+    char out[2560];
     const size_t total = tcp_conns(conns, TCP_LIST_MAX);
     const size_t n = total < TCP_LIST_MAX ? total : TCP_LIST_MAX;
     size_t o = 0;
