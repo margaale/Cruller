@@ -7,6 +7,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "lwip/sockets.h"
 #include "lwip/memp.h"
 #include "lwip/stats.h"
@@ -33,6 +34,8 @@
 #define HTTP_TASK_PRIORITY  (tskIDLE_PRIORITY + 2)
 #define HTTP_PORT           80
 #define HTTP_BACKLOG        4    // connections waiting while one request is served
+#define XFER_TASK_STACK     2048
+#define XFER_QUEUE          3    // SD card transfers waiting for the one running
 #define RECV_TIMEOUT_MS     15000
 #define HEADER_MAX          1536
 #define BODY_CHUNK          1024
@@ -266,6 +269,7 @@ void http_debug_memory(char *out, size_t size) {
     ADD("  web pages (WebSocket)   %d (when full, a new one replaces the quietest page)\n", ws_n);
     ADD("  RFC 2217 (port 2217)    %d (when full, a new one replaces the oldest RFC 2217 client)\n", rfc_n);
     ADD("  HTTP                    1 request at a time, %d more waiting\n", HTTP_BACKLOG);
+    ADD("  SD card transfers       1 at a time on their own task, %d more waiting\n", XFER_QUEUE);
 
     ADD("\nlwIP pools              used  peak  size  failed\n");
     for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
@@ -1331,6 +1335,46 @@ static void handle(request_t *r) {
     else respond(r->fd, 404, "Not Found", "text/plain", "Not found\n");
 }
 
+// --- SD card transfers -------------------------------------------------------------------------------
+//
+// Downloads and uploads (GET /rt4k/get, POST /rt4k/put) last as long as the RT4K link takes: ~45 s for
+// a 4 MB file. They run on their own task so the page, folder listings and the API keep answering
+// meanwhile. One at a time (the link carries one transfer anyway); the next ones wait in xfer_queue,
+// each with its own copy of the request. Only this task runs their handlers, so their static buffers
+// stay theirs.
+
+static QueueHandle_t xfer_queue; // request_t *, from pvPortMalloc
+
+static bool is_transfer(const request_t *r) {
+    const size_t n = strcspn(r->path, "?");
+    return n == 9 && ((!strcmp(r->method, "GET") && !strncmp(r->path, "/rt4k/get", 9)) ||
+        (!strcmp(r->method, "POST") && !strncmp(r->path, "/rt4k/put", 9)));
+}
+
+static void hand_over(request_t *r) {
+    request_t *copy = pvPortMalloc(sizeof(*copy));
+    if (copy) {
+        memcpy(copy, r, sizeof(*copy));
+        if (xQueueSend(xfer_queue, &copy, 0) == pdTRUE) {
+            r->adopted = true; // the transfer task answers and closes it
+            return;
+        }
+        vPortFree(copy);
+    }
+    respond(r->fd, 503, "Service Unavailable", "text/plain", "Too many SD card transfers waiting: try again once one is done\n");
+}
+
+static void xfer_task(void *param) {
+    (void)param;
+    for (;;) {
+        request_t *r;
+        xQueueReceive(xfer_queue, &r, portMAX_DELAY);
+        handle(r);
+        closesocket(r->fd);
+        vPortFree(r);
+    }
+}
+
 // --- server ------------------------------------------------------------------------------------
 
 static void http_task(void *param) {
@@ -1355,11 +1399,16 @@ static void http_task(void *param) {
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         memset(&req, 0, sizeof(req));
         req.fd = fd;
-        if (read_request(&req)) handle(&req);
+        if (read_request(&req)) {
+            if (is_transfer(&req)) hand_over(&req);
+            else handle(&req);
+        }
         if (!req.adopted) closesocket(fd);
     }
 }
 
 void http_start(void) {
+    xfer_queue = xQueueCreate(XFER_QUEUE, sizeof(request_t *));
+    xTaskCreate(xfer_task, "xfer", PLAT_STACK(XFER_TASK_STACK), NULL, HTTP_TASK_PRIORITY, NULL);
     xTaskCreate(http_task, "http", PLAT_STACK(HTTP_TASK_STACK), NULL, HTTP_TASK_PRIORITY, NULL);
 }

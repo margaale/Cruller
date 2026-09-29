@@ -45,6 +45,8 @@ size_t console_debug_json(char *out, size_t size);
 
 // True while the last command sent hasn't been answered yet (its window is open, no line so far).
 bool console_reply_pending(void);
+// True while its reply is still coming: started, and its known last line hasn't come yet.
+bool console_reply_coming(void);
 
 // Text from the RT4K (rt4k task): split into lines and routed.
 void console_feed(const uint8_t *data, size_t len);

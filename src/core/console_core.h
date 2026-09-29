@@ -30,6 +30,10 @@ void console_core_begin(int owner, const char *expect, uint32_t timeout_ms, cons
 // True while the window is open and nothing has come back yet.
 bool console_core_waiting_reply(void);
 
+// True while a reply has started and its known last line (done_when) hasn't come yet ("ls" sends its
+// entries for up to ~165 ms).
+bool console_core_reply_coming(void);
+
 // How long after the command its first reply line came (-1: none), for the open or last window.
 int32_t console_core_first_reply_ms(void);
 

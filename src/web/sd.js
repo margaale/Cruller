@@ -168,7 +168,7 @@
       '<thead><tr><th data-k=name>Name</th><th data-k=size class="num cs">Size</th><th data-k=mtime class="num cw when">Modified</th><th class=ca></th></tr></thead>' +
       '<tbody id=sdt></tbody></table><div id=sde class=empty hidden>This folder is empty</div>' +
       '<div class=small>The RT4K has to be on to read its SD card. Downloads come at about 100 KB/s (a 4 MB .rbf takes ' +
-      'some 45 s), one at a time: meanwhile Cruller doesn\'t answer the page, so folders open once it\'s done.</div></div>';
+      'some 45 s); several go one after another.</div></div>';
     q('sdr').onclick = () => list(dir || '');
     box.querySelectorAll('th[data-k]').forEach((th) => {
       th.tabIndex = 0;

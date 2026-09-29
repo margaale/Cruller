@@ -63,6 +63,10 @@ bool console_core_waiting_reply(void) {
     return w.open && !w.any_line;
 }
 
+bool console_core_reply_coming(void) {
+    return w.open && w.any_line && w.done_when[0] && !w.done;
+}
+
 bool console_core_poll(uint32_t now_ms) {
     if (!w.open) return true;
     if (w.done) {

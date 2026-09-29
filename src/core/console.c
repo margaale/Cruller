@@ -84,6 +84,13 @@ bool console_reply_pending(void) {
     return waiting;
 }
 
+bool console_reply_coming(void) {
+    plat_lock_enter(&lock);
+    const bool coming = console_core_reply_coming();
+    plat_lock_exit(&lock);
+    return coming;
+}
+
 uint32_t console_head(void) {
     plat_lock_enter(&lock);
     const uint32_t h = head;

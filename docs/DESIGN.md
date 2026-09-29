@@ -55,7 +55,8 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 | async_context_t | 4 | 0 | CYW43 driver (SDK) |
 | console | 3 | any | the RT4K console queue: one command at a time, reply windows (see "RT4K console") |
 | net | 3 | any | Wi-Fi: join, fallback to the provisioning portal, mDNS |
-| http | 2 | any | HTTP server (page, API, OTA upload), hands WebSockets over to ws |
+| http | 2 | any | HTTP server (page, API, OTA upload), hands WebSockets over to ws and SD card transfers to xfer |
+| xfer | 2 | any | SD card downloads and uploads (`/rt4k/get`, `/rt4k/put`), one at a time, 3 more waiting |
 | ws | 2 | any | WebSocket clients: terminal, mirror planes, log, status |
 | mirror | 2 | any | polls the RT4K's OSD planes for the page's screen mirror |
 | rfc2217 | 2 | any | RFC 2217 server on port 2217 |
@@ -90,7 +91,7 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 - **RFC 2217** on TCP port 2217 (pyserial's `rfc2217://`, e.g. Home Assistant's hass-RT4K): each client sees only its own replies; TCP keepalive drops clients that vanished.
 - **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/core/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
 - **`POST /rt4k/put`, `POST /rt4k/ask`**: file uploads to the RT4K's SD card and single queries, used by the firmware updater.
-- **`GET /rt4k/ls`, `GET /rt4k/get`**: a folder of the SD card and a file from it, for the page's SD card view. A listing is collected whole before it goes out (`ls` can't be paged, and the console keeps only its last 64 lines), and read again if lines went missing; its lines stay out of the terminal (console owner "files"). Files come in 16 KB `get -o/-l` pieces, each verified before it's sent.
+- **`GET /rt4k/ls`, `GET /rt4k/get`**: a folder of the SD card and a file from it, for the page's SD card view. A listing is collected whole before it goes out (`ls` can't be paged, and the console keeps only its last 64 lines), and read again if lines went missing; its lines stay out of the terminal (console owner "files"). Files come in 16 KB `get -o/-l` pieces, each verified before it's sent. Downloads and uploads run on their own task (xfer), so the page keeps answering meanwhile; console commands and the mirror's polls fit between a download's pieces, but not into an upload (put holds the link: they give up after 2 s, as before).
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
 - **Status**: `GET /status` (JSON, also pushed over the WebSocket).
 - **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/console`, `/debug/usbtrace`, `/debug/freeze`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`.
