@@ -13,8 +13,10 @@ on:
   workflow_dispatch:
 
 env:
-  PICO_SDK_VERSION: "2.3.0"
-  PICOTOOL_VERSION: "2.3.0"
+  # The same versions as local builds (scripts/build.sh's tools): a CI image and a local build of the
+  # same commit are then built alike. Update both together.
+  PICO_SDK_VERSION: "2.3.1"
+  PICOTOOL_VERSION: "2.3.1"
   TINYUSB_VERSION: "0.21.0"
   FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
   ARM_GCC_RELEASE: "14.2.Rel1"
