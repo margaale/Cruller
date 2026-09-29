@@ -11,6 +11,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// The longest SD card path taken, in bytes: it goes on one console line with the command
+// ("get -o <off> -l <len> -- <path>", "put <size> <sha256> <path>", "mv <path>|<path>").
+#define RTL1_PATH_MAX 160
+
 typedef enum {
     RTL1_OK,
     RTL1_ERR_NO_LINK,   // RT4K not connected, or the link is busy

@@ -23,7 +23,7 @@
 #define RT4K_TASK_CORE      1          // TinyUSB's host IRQ is registered on the core that initializes it
 #define TX_QUEUE_SIZE       2048
 #define RX_RING_SIZE        8192u      // power of two
-#define CMD_MAX             240
+#define CMD_MAX             344        // console.c's longest command, and some
 
 static StreamBufferHandle_t tx_queue;
 static SemaphoreHandle_t tx_lock;      // stream buffers allow one writer at a time

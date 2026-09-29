@@ -81,6 +81,8 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .svs-grid div.empty>span{font-weight:500}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
+dialog#ask p:empty{display:none}
+dialog#ask input{margin:0 0 18px}
 button:disabled{opacity:.5;cursor:default}
 input,select{font:14px var(--sans);color:var(--text);background:var(--well);border:1px solid var(--line);border-radius:8px;height:38px;padding:0 10px;width:100%}
 pre{margin:0;background:var(--well);border-radius:8px;padding:10px 12px;font:12px/1.55 var(--mono);color:#C9CCD1;overflow:auto;white-space:pre-wrap}
@@ -141,8 +143,11 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .crumbs a{color:var(--muted);text-decoration:none;padding:2px 6px;border-radius:6px}.crumbs a:hover{color:var(--text);background:var(--raised)}
 .crumbs span{color:#6B6F76}.crumbs b{padding:2px 6px;font-weight:700;overflow-wrap:anywhere}
 #sds.bad{color:#F07A74}
+.sdh{flex-wrap:wrap}
+.sdp{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--raised);border-radius:10px}
+#sdbox.drop{outline:2px dashed var(--accent);outline-offset:-2px}
 .files{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
-.files .cs{width:96px}.files .cw{width:150px}.files .ca{width:48px}
+.files .cs{width:96px}.files .cw{width:150px}.files .ca{width:116px}
 .files th{font-weight:500;font-size:12px;color:var(--faint);text-align:left;padding:0 8px 8px;cursor:pointer;user-select:none}
 .files th[aria-sort=ascending]::after{content:' ▲';font-size:9px}.files th[aria-sort=descending]::after{content:' ▼';font-size:9px}
 .files th[aria-sort=ascending],.files th[aria-sort=descending]{color:var(--text)}
@@ -150,15 +155,19 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .files tbody tr:hover td{background:var(--raised)}
 .files .num{text-align:right;font:13px var(--mono);color:var(--soft)}
 .files td.n a,.files td.n{color:var(--text);text-decoration:none}
-.files td.n a{display:flex;align-items:center;min-width:0;height:40px}
-.files td.n>.ico,.files td.n>.nm{vertical-align:middle}
-.files .nm{overflow:hidden;text-overflow:ellipsis}
+.files td.n a,.files .fn{display:flex;align-items:center;min-width:0;height:40px}
+.files .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .files .ico{display:inline-flex;margin-right:10px;color:var(--warn);flex:none}.files .ico.f{color:var(--faint)}
 .files tr.up a{display:flex;align-items:center;color:var(--muted);text-decoration:none;height:40px;font-family:var(--mono)}
 #sde{color:var(--faint);text-align:center;padding:20px 0;border-top:1px solid var(--rule);margin-top:-12px}
 .files td.act{text-align:right;padding-right:4px;text-overflow:clip}
-.btn.ib{width:34px;height:34px;padding:0;border-color:transparent;color:var(--soft)}.btn.ib:hover{border-color:var(--line);color:var(--text)}
-@media (max-width:640px){.files .when{display:none}.files .cs{width:76px}.files .ca{width:42px}.files td{padding:0 4px}.sub a{white-space:nowrap}.sub span.soon{display:none}}
+.files .ib{width:34px;height:34px;padding:0;border-color:transparent;color:var(--soft)}.files .ib:hover:not(:disabled){border-color:var(--line);color:var(--text)}
+.files .ib.del:hover:not(:disabled){border-color:#5A2A28;color:#F07A74}
+.files .msz{display:none}
+/* Narrow screens: no date, the size under the name, names wrap instead of being cut. */
+@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:98px}.files td{padding:0 4px}.files .ib{width:30px}.sub a{white-space:nowrap}.sub span.soon{display:none}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
+.files td.n{white-space:normal;overflow-wrap:break-word;height:auto;padding-top:6px;padding-bottom:6px}.files td.n a,.files .fn{height:auto;min-height:28px}
+.files .msz{display:block;font:12px var(--mono);color:var(--faint)}}
 /* setup wizard (portal) */
 body.setup header nav,body.setup header .chip{display:none}
 .wiz{max-width:430px;margin:auto;display:flex;flex-direction:column;gap:16px;min-height:calc(100vh - 110px)}
@@ -456,9 +465,11 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <form method="dialog">
 <h3 id="ask-title"></h3>
 <p id="ask-text"></p>
+<input id="ask-input" autocomplete="off" autocapitalize="none" spellcheck="false" hidden>
 <div class="row" style="justify-content:flex-end"><button value="no" id="ask-no">Cancel</button><button value="yes" id="ask-yes" class="primary">OK</button></div>
 </form>
 </dialog>
+<script src="/sha256.js" defer></script>
 <script src="/fw.js" defer></script>
 <script src="/sd.js" defer></script>
 <script src="/app.js" defer></script>

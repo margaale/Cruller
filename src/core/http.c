@@ -36,6 +36,7 @@
 #define HTTP_BACKLOG        4    // connections waiting while one request is served
 #define XFER_TASK_STACK     2048
 #define XFER_QUEUE          3    // SD card transfers waiting for the one running
+#define SD_PATH_MAX         RTL1_PATH_MAX
 #define RECV_TIMEOUT_MS     15000
 #define HEADER_MAX          1536
 #define BODY_CHUNK          1024
@@ -87,6 +88,8 @@ static void respond_bytes(int fd, const char *extra_headers, const uint8_t *body
 }
 
 // Web assets embedded from src/web at build time (src/web/embed.cmake).
+extern const unsigned char web_sha256_js[];
+extern const size_t web_sha256_js_len;
 extern const unsigned char web_fw_js[];
 extern const size_t web_fw_js_len;
 extern const unsigned char web_sd_js[];
@@ -397,7 +400,7 @@ void http_status_json(char *body, size_t size) {
         rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(NULL), rfc2217_count(NULL), CLIENTS_MAX,
         rfc2217_ips);
     // An upload to the RT4K's SD card: "put":{"path","sent","size"} (the page's progress bar).
-    char path[96], path_esc[200];
+    char path[SD_PATH_MAX + 1], path_esc[2 * SD_PATH_MAX + 2];
     uint32_t sent, total;
     size_t n = strlen(body);
     if (n && n < size && rtl1_put_progress(path, sizeof(path), &sent, &total)) {
@@ -502,7 +505,7 @@ static void handle_update(request_t *r) {
 }
 
 typedef struct {
-    char buf[256];
+    char buf[384]; // /rt4k/ask's "mv <path>|<path>"
     size_t len;
 } form_t;
 
@@ -628,19 +631,21 @@ static size_t body_read(void *ctx, uint8_t *buf, size_t max) {
     return (size_t)n;
 }
 
-// A path on the RT4K's SD card, relative to its root: printable ASCII (spaces and brackets are fine:
-// firmware zips have "lumacode/NES/PVM Style D93 (FBX).lmc"), no "..", no backslash, no leading '/'.
+// A path on the RT4K's SD card, relative to its root: no control characters, so it stays one console
+// line (spaces and brackets are fine: firmware zips have "lumacode/NES/PVM Style D93 (FBX).lmc", and
+// so are UTF-8 names), no "..", no backslash, no leading '/'.
 static bool sd_path_ok(const char *p) {
     if (!*p || *p == '/' || strstr(p, "..")) return false;
     for (; *p; p++) {
-        if (*p < 0x20 || *p > 0x7e || *p == '\\') return false;
+        const unsigned char c = (unsigned char)*p;
+        if (c < 0x20 || c == 0x7f || c == '\\') return false;
     }
     return true;
 }
 
 // POST /rt4k/put?path=<sd path>&sha=<sha256 hex>: writes the body to the RT4K's SD card.
 static void handle_rt4k_put(request_t *r, const char *query) {
-    char path[96], sha[72];
+    char path[SD_PATH_MAX + 1], sha[72];
     if (!query || !form_field(query, "path", path, sizeof(path)) || !sd_path_ok(path) ||
         !form_field(query, "sha", sha, sizeof(sha)) || strlen(sha) != 64 || strspn(sha, "0123456789abcdefABCDEF") != 64 ||
         r->content_length <= 0) {
@@ -673,8 +678,7 @@ static void handle_rt4k_put(request_t *r, const char *query) {
 
 // --- the RT4K's SD card, for the page's file browser -------------------------------------------------
 
-#define SD_PATH_MAX 160    // on one console line with the command ("get -o <off> -l <len> -- <path>")
-#define LS_BUF      24576  // a listing, as sent (~50 bytes an entry)
+#define LS_BUF     24576  // a listing, as sent (~50 bytes an entry)
 #define GET_CHUNK   16384  // bytes per RTL1 get; each piece is verified before it goes out
 
 // A folder listing being collected: console_run() hands over each reply line of "ls <dir>".
@@ -831,17 +835,23 @@ static void handle_rt4k_get(request_t *r, const char *query) {
         }
         if (!started) {
             total = empty ? 0 : r_total;
-            // The name the browser saves it as (sd_path_ok: printable ASCII already).
+            // The name the browser saves it as: an ASCII stand-in, and the real one (UTF-8, escaped).
             const char *base = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
-            char name[SD_PATH_MAX + 1];
-            size_t n = 0;
-            for (; base[n] && n < sizeof(name) - 1; n++) name[n] = base[n] == '"' ? '_' : base[n];
+            char name[SD_PATH_MAX + 1], utf8[3 * SD_PATH_MAX + 1];
+            size_t n = 0, u = 0;
+            for (; base[n] && n < sizeof(name) - 1; n++) {
+                const unsigned char c = (unsigned char)base[n];
+                name[n] = c == '"' || c >= 0x80 ? '_' : (char)c;
+                if (isalnum(c) || strchr("-._~", c)) utf8[u++] = (char)c;
+                else u += (size_t)snprintf(utf8 + u, sizeof(utf8) - u, "%%%02X", c);
+            }
             name[n] = 0;
-            char hdr[SD_PATH_MAX + 240];
+            utf8[u] = 0;
+            char hdr[4 * SD_PATH_MAX + 240];
             const int h = snprintf(hdr, sizeof(hdr),
                 "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %lu\r\n"
-                "Content-Disposition: attachment; filename=\"%s\"\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-                total, name);
+                "Content-Disposition: attachment; filename=\"%s\"; filename*=UTF-8''%s\r\nCache-Control: no-store\r\n"
+                "Connection: close\r\n\r\n", total, name, utf8);
             if (!send_all(r->fd, hdr, (size_t)h)) break;
             started = true;
         }
@@ -1230,6 +1240,7 @@ static void handle(request_t *r) {
     char *query = strchr(r->path, '?');
     if (query) *query++ = 0;
     if (get && !strcmp(r->path, "/")) respond_asset(r->fd, "text/html; charset=utf-8", web_index_html, web_index_html_len);
+    else if (get && !strcmp(r->path, "/sha256.js")) respond_asset(r->fd, "application/javascript", web_sha256_js, web_sha256_js_len);
     else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
     else if (get && !strcmp(r->path, "/sd.js")) respond_asset(r->fd, "application/javascript", web_sd_js, web_sd_js_len);
     else if (get && !strcmp(r->path, "/app.js")) respond_asset(r->fd, "application/javascript", web_app_js, web_app_js_len);

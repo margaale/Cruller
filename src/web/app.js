@@ -36,7 +36,22 @@ function askUser(title, body, ok, danger) {
   $('ask-no').focus();
   return new Promise((resolve) => d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true }));
 }
-window.askUser = askUser; // fw.js
+window.askUser = askUser; // fw.js, sd.js
+
+// The same, asking for a line of text: resolves it on OK, null on Cancel. select: how much of value
+// starts selected (a file's name without its extension), all of it by default.
+function askText(title, body, value, ok, select) {
+  const input = $('ask-input');
+  input.hidden = false;
+  input.value = value || '';
+  const answer = askUser(title, body, ok);
+  input.focus();
+  input.setSelectionRange(0, select === undefined ? input.value.length : select);
+  // Enter here would submit with the form's first button (Cancel).
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('ask').close('yes'); } };
+  return answer.then((yes) => { input.hidden = true; return yes ? input.value : null; });
+}
+window.askText = askText; // sd.js
 
 // --- tabs -------------------------------------------------------------------------------------------
 
