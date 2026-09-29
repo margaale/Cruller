@@ -37,6 +37,35 @@ static uint8_t __attribute__((aligned(4))) sector_buf[FLASH_SECTOR_SIZE_B];
 
 static uint8_t __attribute__((aligned(4))) rom_workarea[4 * 1024];
 
+// The boot ROM's functions check, on the way out, a canary taken on the way in with the calling core's
+// own RCP salt. A task that FreeRTOS moves to the other core in between fails that check, and the RCP
+// halts the chip until the watchdog resets it: the freezes right after an SVS input change or the RT4K
+// powering off, when the status pushed to the page asked the ROM for the boot partition while USB
+// bursts had the rt4k task (pinned to core 1) pushing the web tasks over to core 0. So a ROM call made
+// while the scheduler runs holds its task on one core, and the boot info, which never changes, is read
+// before the scheduler starts.
+static UBaseType_t rom_pin(void) {
+    const UBaseType_t affinity = vTaskCoreAffinityGet(NULL);
+    vTaskCoreAffinitySet(NULL, 1u << get_core_num()); // moved meanwhile: it goes back to that core first
+    return affinity;
+}
+
+static void rom_unpin(UBaseType_t affinity) {
+    vTaskCoreAffinitySet(NULL, affinity);
+}
+
+static struct {
+    int partition; // -1: unknown
+    int type;      // BOOT_TYPE_*, or an error (< 0)
+} boot;
+
+// Before main(), like the SDK's unique board ID: no scheduler, no task to move.
+static void __attribute__((constructor)) read_boot_info(void) {
+    boot_info_t info = {0};
+    boot.partition = rom_get_boot_info(&info) ? info.partition : -1;
+    boot.type = rom_get_last_boot_type();
+}
+
 static bool fail(const char *why) {
     ota.failed = true;
     ota.error = why;
@@ -70,10 +99,11 @@ static bool start(const struct uf2_block *b) {
         return fail("not an RP2350 Arm image (UF2 family)");
     }
     resident_partition_t part;
+    const UBaseType_t affinity = rom_pin();
     rom_flash_flush_cache();
-    if (rom_get_uf2_target_partition(rom_workarea, sizeof(rom_workarea), RP2350_ARM_S_FAMILY_ID, &part) < 0) {
-        return fail("no partition to update (is the partition table installed?)");
-    }
+    const int rc = rom_get_uf2_target_partition(rom_workarea, sizeof(rom_workarea), RP2350_ARM_S_FAMILY_ID, &part);
+    rom_unpin(affinity);
+    if (rc < 0) return fail("no partition to update (is the partition table installed?)");
     const uint32_t first = (part.permissions_and_location & PICOBIN_PARTITION_LOCATION_FIRST_SECTOR_BITS) >> PICOBIN_PARTITION_LOCATION_FIRST_SECTOR_LSB;
     const uint32_t last = (part.permissions_and_location & PICOBIN_PARTITION_LOCATION_LAST_SECTOR_BITS) >> PICOBIN_PARTITION_LOCATION_LAST_SECTOR_LSB;
     ota.part_start = first * FLASH_SECTOR_SIZE_B;
@@ -157,29 +187,30 @@ void ota_reboot_into_update(void) {
     // Schedule the reboot first (the boot ROM runs it on the watchdog), then tidy up: if the tidying
     // blocks, the board reboots anyway.
     health_stop_feeding();
+    rom_pin(); // for good: the reboot is coming
     rom_reboot(REBOOT2_FLAG_REBOOT_TYPE_FLASH_UPDATE, PLATFORM_REBOOT_DELAY_MS, update_base, 0);
     platform_prepare_reboot();
     for (;;) tight_loop_contents();
 }
 
 bool ota_is_trial_boot(void) {
-    return rom_get_last_boot_type() == BOOT_TYPE_FLASH_UPDATE;
+    return boot.type == BOOT_TYPE_FLASH_UPDATE;
 }
 
 void ota_confirm_if_trial(void) {
-    if (rom_get_last_boot_type() != BOOT_TYPE_FLASH_UPDATE) return;
+    if (boot.type != BOOT_TYPE_FLASH_UPDATE) return;
+    const UBaseType_t affinity = rom_pin();
     const int ret = rom_explicit_buy(rom_workarea, sizeof(rom_workarea));
+    rom_unpin(affinity);
     printf("ota: update confirmed (explicit buy %d)\n", ret);
 }
 
 int ota_boot_partition(void) {
-    boot_info_t info = {0};
-    if (rom_get_boot_info(&info) < 0) return -1;
-    return info.partition;
+    return boot.partition;
 }
 
 const char *ota_last_boot_type(void) {
-    switch (rom_get_last_boot_type()) {
+    switch (boot.type) {
         case BOOT_TYPE_NORMAL: return "normal";
         case BOOT_TYPE_BOOTSEL: return "bootsel";
         case BOOT_TYPE_RAM_IMAGE: return "ram image";

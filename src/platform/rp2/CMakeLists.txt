@@ -112,8 +112,10 @@ target_link_libraries(cruller_app INTERFACE
     pico_bootrom
     pico_sha256
     pico_mbedtls # tls.c (mbedtls_config.h)
+    pico_rand # main.c: seeded before the scheduler
     pico_unique_id
     boot_uf2_headers
+    hardware_exception # freeze.c: the sampler's NMI handler
     hardware_flash
     littlefs
     FreeRTOS-Kernel-Heap4
