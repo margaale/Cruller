@@ -3,9 +3,9 @@
 // rp2 (Raspberry Pi Pico 2 W, Pico SDK) and esp32 (ESP32-S3, ESP-IDF).
 //
 // The larger pieces have their own interfaces in src/core, implemented per target too: rt4k.h (the
-// serial link to the RT4K), net.h (Wi-Fi, setup portal, mDNS), ota.h (firmware updates), store.h
-// (settings kept across restarts), health.h (watchdog), freeze.h (freeze recorder), log.h (the
-// in-memory log), status_led.h.
+// serial link to the RT4K), net.h (Wi-Fi, setup portal, mDNS), ota.h (firmware updates), tls.h (HTTPS
+// client, for the updates from GitHub), store.h (settings kept across restarts), health.h (watchdog),
+// freeze.h (freeze recorder), log.h (the in-memory log), status_led.h.
 
 #pragma once
 

@@ -14,6 +14,11 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
+# HTTPS for Cruller's own firmware downloads from GitHub (tls.c, src/core/ota_fetch.c): ESP-IDF's
+# certificate bundle. No clock: certificates' dates aren't checked.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+# CONFIG_MBEDTLS_HAVE_TIME_DATE is not set
+
 # Watchdog (health.c): 8 s, then reset (and roll back an image on trial).
 CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_INIT=y

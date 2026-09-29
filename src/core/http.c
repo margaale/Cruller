@@ -28,6 +28,7 @@
 #include "ws_proto.h"
 #include "net.h"
 #include "ota.h"
+#include "ota_fetch.h"
 #include "platform.h"
 
 #define HTTP_TASK_STACK     3072
@@ -408,11 +409,15 @@ void http_status_json(char *body, size_t size) {
         snprintf(body + n - 1, size - (n - 1), ",\"put\":{\"path\":\"%s\",\"sent\":%lu,\"size\":%lu}}", path_esc,
             (unsigned long)sent, (unsigned long)total);
     }
-    // A firmware upload: "update":{"got","size"}.
+    // A firmware update: "update":{"got","size"} while one is uploaded, or Cruller's own download
+    // from GitHub (ota_fetch.h): the same with "from":"github" (and "done"), or its "failed".
     uint32_t got, want;
+    char fetch[200];
     n = strlen(body);
     if (n && n < size && http_update_progress(&got, &want)) {
         snprintf(body + n - 1, size - (n - 1), ",\"update\":{\"got\":%lu,\"size\":%lu}}", (unsigned long)got, (unsigned long)want);
+    } else if (n && n < size && ota_fetch_json(fetch, sizeof(fetch))) {
+        snprintf(body + n - 1, size - (n - 1), ",\"update\":%s}", fetch);
     }
     // The platform: which image the firmware index has for it ("rp2": a .uf2).
     n = strlen(body);
@@ -474,6 +479,10 @@ static bool ota_sink(const uint8_t *data, size_t len, void *ctx) {
 }
 
 static void handle_update(request_t *r) {
+    if (ota_fetch_running()) {
+        respond(r->fd, 409, "Conflict", "text/plain", "Cruller is downloading an update from GitHub\n");
+        return;
+    }
     if (r->content_length <= 0) {
         respond(r->fd, 411, "Length Required", "text/plain", "Send the .uf2 file as the request body\n");
         return;
@@ -502,6 +511,24 @@ static void handle_update(request_t *r) {
     respond(r->fd, 200, "OK", "text/plain", "Update written, rebooting into it\n");
     vTaskDelay(pdMS_TO_TICKS(500)); // let the response leave
     ota_reboot_into_update();
+}
+
+static bool form_field(const char *body, const char *name, char *out, size_t size);
+
+// POST /update/fetch?url=<release asset>&sha=<SHA-256 hex>&size=<bytes>: Cruller downloads the image
+// from GitHub itself and restarts into it (ota_fetch.h). Answers at once; the status has the progress.
+static void handle_update_fetch(request_t *r, const char *query) {
+    char url[384], sha[72], size[16];
+    const char *why = "need ?url=, sha= and size=";
+    if (query && form_field(query, "url", url, sizeof(url)) && form_field(query, "sha", sha, sizeof(sha)) &&
+        form_field(query, "size", size, sizeof(size)) && ota_fetch_start(url, sha, (uint32_t)strtoul(size, NULL, 10), &why)) {
+        respond(r->fd, 202, "Accepted", "text/plain", "Downloading\n");
+        return;
+    }
+    char msg[160];
+    snprintf(msg, sizeof(msg), "%s\n", why);
+    if (ota_fetch_running()) respond(r->fd, 409, "Conflict", "text/plain", msg);
+    else respond(r->fd, 400, "Bad Request", "text/plain", msg);
 }
 
 typedef struct {
@@ -1334,6 +1361,7 @@ static void handle(request_t *r) {
         respond(r->fd, 200, "OK", "text/plain", freeze_text);
     }
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
+    else if (post && !strcmp(r->path, "/update/fetch")) handle_update_fetch(r, query);
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
     else if ((get || post) && !strcmp(r->path, "/api/svs")) handle_svs(r, post);
     else if (post && !strcmp(r->path, "/api/svs/unpair")) handle_svs_unpair(r);

@@ -8,6 +8,8 @@ idf_component_register(
         ${CORE}/console_core.c
         ${CORE}/creds.c
         ${CORE}/http.c
+        ${CORE}/ota_fetch.c
+        ${CORE}/ota_fetch_proto.c
         ${CORE}/power.c
         ${CORE}/power_core.c
         ${CORE}/rfc2217.c
@@ -25,6 +27,7 @@ idf_component_register(
         platform.c
         store_nvs.c
         ota.c
+        tls.c
         net.c
         health.c
         freeze.c
@@ -32,7 +35,7 @@ idf_component_register(
         status_led.c
     INCLUDE_DIRS . ${CORE} ${CRULLER_ROOT}/src/platform ${CRULLER_ROOT}/third_party/picow_ap
     REQUIRES
-        app_update esp_driver_gpio esp_event esp_netif esp_system esp_timer esp_wifi freertos
+        app_update esp-tls esp_driver_gpio esp_event esp_netif esp_system esp_timer esp_wifi freertos
         lwip mbedtls nvs_flash vfs
 )
 
