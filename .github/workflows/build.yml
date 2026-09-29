@@ -1,5 +1,7 @@
 # Builds Cruller for every board and runs the host tests. One job per platform (its toolchain), with
 # a matrix of that platform's boards; the images are kept as artifacts, one file each (not zipped).
+# Each board publishes two: the factory image, to install on a new board over USB, and the OTA image,
+# which the board's Cruller tab downloads to update itself.
 # GitVersion (GitVersion.yml) gives the version. A push to master is a release (vX.Y.Z), a push to develop
 # a pre-release (vX.Y.Z-alpha.N), both with every board's images; pull requests only build.
 name: build
@@ -120,31 +122,27 @@ jobs:
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
         run: |
           bash scripts/build.sh rp2 Release
-          ninja -C build/rp2 cruller_bench
+          ninja -C build/rp2 cruller_bench # built so it keeps building; not published
 
-      # Named as released: cruller-<version>-<board>-<file>.
+      # Named as released: cruller-<version>-<board>-<file>. cruller-factory.uf2 installs a new board
+      # (BOOTSEL, then drop it on the drive); cruller.uf2 is the OTA image the Cruller tab looks for.
       - name: Name the images
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           mkdir dist
-          for f in build/rp2/cruller.uf2 build/rp2/cruller_bench.uf2 build/rp2/cruller_migration.bin; do
+          for f in build/rp2/cruller-factory.uf2 build/rp2/cruller.uf2; do
             cp "$f" "dist/cruller-${VERSION}-${{ matrix.board }}-$(basename "$f")"
           done
 
       - uses: actions/upload-artifact@v7
         with:
+          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller-factory.uf2
+          archive: false # the image itself, not a zip: the artifact takes the file's name
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
           path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller.uf2
-          archive: false # the image itself, not a zip: the artifact takes the file's name
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller_bench.uf2
-          archive: false # the image itself, not a zip: the artifact takes the file's name
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller_migration.bin
           archive: false # the image itself, not a zip: the artifact takes the file's name
           if-no-files-found: error
 
@@ -181,22 +179,17 @@ jobs:
             -e CRULLER_VERSION=${{ needs.version.outputs.version }}
           command: bash scripts/build.sh esp32 && ccache -s
 
-      # Named as released: cruller-<version>-<board>-<file>.
+      # Named as released: cruller-<version>-<board>-<file>. cruller-factory.bin installs a new board
+      # over USB at 0x0 (bootloader, partition table, OTA data and app in one); cruller.bin is the OTA image.
       - name: Name the images
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           mkdir dist
-          for f in build/esp32/cruller.bin build/esp32/cruller-factory.bin build/esp32/bootloader/bootloader.bin \
-                   build/esp32/partition_table/partition-table.bin build/esp32/ota_data_initial.bin; do
+          for f in build/esp32/cruller-factory.bin build/esp32/cruller.bin; do
             cp "$f" "dist/cruller-${VERSION}-${{ matrix.board }}-$(basename "$f")"
           done
 
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller.bin
-          archive: false # the image itself, not a zip: the artifact takes the file's name
-          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller-factory.bin
@@ -204,17 +197,7 @@ jobs:
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
-          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-bootloader.bin
-          archive: false # the image itself, not a zip: the artifact takes the file's name
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-partition-table.bin
-          archive: false # the image itself, not a zip: the artifact takes the file's name
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-ota_data_initial.bin
+          path: dist/cruller-${{ needs.version.outputs.version }}-${{ matrix.board }}-cruller.bin
           archive: false # the image itself, not a zip: the artifact takes the file's name
           if-no-files-found: error
 

@@ -53,4 +53,4 @@ cmake -S "$src" -B "$out" -G Ninja \
     -Dpicotool_DIR="$PICOTOOL_DIR" \
     -Dpioasm_DIR="$PIOASM_DIR"
 ninja -C "$out"
-ls -l "$out/cruller.uf2" "$out/cruller_migration.bin"
+ls -l "$out/cruller.uf2" "$out/cruller-factory.uf2" "$out/cruller_migration.bin"

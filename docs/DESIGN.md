@@ -119,11 +119,15 @@ Cruller layout (`src/platform/rp2/pt.json`). The RP2350 boot ROM reads the parti
 | `0x1D2000` | 1856 KB | slot B |
 | after B | rest | data (littlefs: configuration) |
 
+## First install on a new board
+
+`cruller-factory.uf2` (in every release) is the migration image below as a UF2 of the family "absolute": the partition table and slot A, each block at its own address. Dropped on the RP2350's drive in BOOTSEL mode, it gives the board the partition table, which OTA needs (`cruller.uf2` alone would run, but leave OTA no partition to update), and Cruller in slot A, built without TBYB so a normal boot keeps it. With no Wi-Fi network saved, the first boot opens the setup portal.
+
 ## Migration from DonutShop (first install)
 
 DonutShop's `/update` stores the uploaded file as `firmware.bin` in its LittleFS. On reboot, its OTA stage-3 copies itself to RAM and writes the file to flash from `0x000000`. It doesn't check what the image contains; DonutShop only rejects ESP32 images (first byte `0xE9`).
 
-So the migration image is the Cruller flash image from offset 0: the partition table followed by slot A. It must stay below the old LittleFS while being copied out of it. It can be installed through the DonutShop web UI (manual firmware upload), or through DonutShop's GitHub updater (a release with the asset `DonutShop_v<version>_pico2w_update.bin` and a version above 0.6.3).
+So the migration image is the Cruller flash image from offset 0: the partition table followed by slot A. It must stay below the old LittleFS while being copied out of it. It can be installed through the DonutShop web UI (manual firmware upload), or through DonutShop's GitHub updater (a release with the asset `DonutShop_v<version>_pico2w_update.bin` and a version above 0.6.3). Cruller's releases don't carry it: it's `build/rp2/cruller_migration.bin` from a build.
 
 On its first boot, Cruller finds no data partition and runs the migration: it mounts the old LittleFS read-only, reads the configuration, formats the data partition and writes the converted configuration (credentials first).
 
