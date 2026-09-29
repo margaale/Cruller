@@ -6,6 +6,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
+#include "pico/rand.h"
 #include "hardware/watchdog.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -83,6 +84,9 @@ int main(void) {
     stdio_init_all();
     log_init(); // stdout -> ring buffer read by the web UI (/log)
     freeze_report(); // where the cores were, if the last run ended in a watchdog reset
+    // pico_rand seeds itself from the boot ROM on first use (lwIP's, mbedtls'): before the scheduler,
+    // so no task can move to the other core mid-call (see ota.c's rom_pin()).
+    (void)get_rand_32();
     flash_ops_init();
     rtl1_init();
     xTaskCreate(main_task, "main", MAIN_TASK_STACK, NULL, MAIN_TASK_PRIORITY, NULL);
