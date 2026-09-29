@@ -822,10 +822,12 @@ async function updLoad() {
   $('u-refresh').classList.add('spin');
   $('u-refresh').disabled = true;
   text('u-state', 'Checking GitHub…');
+  // Alphas (develop builds) are listed only to a board already running one: a release (master) sees releases.
+  const onAlpha = S.version.includes('-');
   try {
     const rels = await (await fetch(FW_RELEASES, { cache: 'no-store' })).json();
     const suffix = FW_ASSET[S.platform];
-    upd.list = rels.filter((r) => !r.draft).map((r) => {
+    upd.list = rels.filter((r) => !r.draft && (onAlpha || !r.prerelease)).map((r) => {
       const a = suffix && r.assets.find((x) => x.name.endsWith(suffix));
       return a && { version: r.tag_name.replace(/^v/, ''), alpha: r.prerelease, date: (r.published_at || '').slice(0, 10), notes: r.body || '',
         file: { url: a.browser_download_url, name: a.name, size: a.size, sha256: (a.digest || '').replace(/^sha256:/, '') } };
@@ -846,10 +848,11 @@ async function updLoad() {
     o.textContent = r.version + (r.date ? ' (' + r.date + ')' : '') + (r.alpha ? ' · alpha' : '') + (c === 0 ? ' · installed' : c < 0 ? ' · older' : '');
     sel.appendChild(o);
   });
-  // Alphas (develop builds) are suggested only to a board already running one; any can be picked.
-  const onAlpha = S.version.includes('-');
-  const newer = upd.list.filter((r) => (onAlpha || !r.alpha) && cmpVersion(r.version, S.version) > 0);
-  text('u-state', !upd.list.length ? 'No releases for this board yet' : newer.length ? newer[0].version + ' available' : 'Up to date (' + S.version + ')');
+  // The newest version above the installed one is picked, or else the installed one.
+  const newer = upd.list.findIndex((r) => cmpVersion(r.version, S.version) > 0);
+  const installed = upd.list.findIndex((r) => cmpVersion(r.version, S.version) === 0);
+  if (newer >= 0 || installed >= 0) sel.value = newer >= 0 ? newer : installed;
+  text('u-state', !upd.list.length ? 'No releases for this board yet' : newer >= 0 ? upd.list[newer].version + ' available' : 'Up to date (' + S.version + ')');
   updShow();
 }
 
