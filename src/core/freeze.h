@@ -1,9 +1,11 @@
 // Freeze recorder: where each core was before a watchdog reset.
 //
-// Every 250 ms a hardware timer interrupt on each core saves the interrupted PC and LR and the task
-// running there into RAM kept across resets. After a watchdog reset the boot log shows the last
-// samples of both cores. A core whose samples stop early had its interrupts disabled (spinning in
-// a critical section, say); the addresses resolve with arm-none-eabi-addr2line -e cruller.elf.
+// Every 250 ms a hardware timer interrupt on each core saves the interrupted PC and LR, the task
+// running there, and whether it was in an interrupt handler or had interrupts masked, into RAM kept
+// across resets. After a watchdog reset the boot log shows the last samples of both cores. On the
+// Pico 2 W the interrupt is an NMI, so a core spinning with its interrupts off is sampled too; its
+// samples stop early only if it hangs on a bus access or locks up. The addresses resolve with
+// arm-none-eabi-addr2line -e cruller.elf (the ELF of that very build).
 
 #pragma once
 
