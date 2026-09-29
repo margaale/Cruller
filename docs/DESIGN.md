@@ -31,7 +31,7 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 
 Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and the ESP32-S3-DevKitC-1 N16R8 (`esp32`, ESP-IDF 6.1; in progress: no RT4K link yet, nothing tried on a board).
 
-- `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
+- `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings, firmware downloads from GitHub) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `tls.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
 - `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
 - `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time.
 - `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
@@ -45,6 +45,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 - The CYW43 driver through `pico_cyw43_arch`, initialized from core 0 so its async context and IRQ stay there.
 - TinyUSB 0.21 in host mode on the native port (not the SDK's 0.18: its host runs bulk transfers once per frame, too slow for 2 Mbaud). Two patches in `src/platform/rp2/patches/tinyusb`: FTDI status bytes stripped per packet (so transfers can span several packets) and a callback with each packet's status bytes.
 - littlefs for configuration and lwIP's mDNS responder.
+- mbedTLS 3.6 (the SDK's), for Cruller's own firmware downloads from GitHub: a TLS 1.2 client only (`src/platform/rp2/mbedtls_config.h`).
 
 ## Tasks
 
@@ -57,6 +58,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 | net | 3 | any | Wi-Fi: join, fallback to the provisioning portal, mDNS |
 | http | 2 | any | HTTP server (page, API, OTA upload), hands WebSockets over to ws and SD card transfers to xfer |
 | xfer | 2 | any | SD card downloads and uploads (`/rt4k/get`, `/rt4k/put`), one at a time, 3 more waiting |
+| fetch | 2 | any | only while Cruller downloads an update of itself from GitHub (see "OTA") |
 | ws | 2 | any | WebSocket clients: terminal, mirror planes, log, status |
 | mirror | 2 | any | polls the RT4K's OSD planes for the page's screen mirror |
 | rfc2217 | 2 | any | RFC 2217 server on port 2217 |
@@ -86,13 +88,14 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 
 ## Interfaces
 
-- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, the RT4K's SD card (browse, download, upload, new folders, rename, delete), Cruller OTA upload. Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
+- **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, the RT4K's SD card (browse, download, upload, new folders, rename, delete), Cruller updates (from its GitHub releases, or a file). Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
 - **`POST /api/command`**: console commands in (`{"command"}`, `{"commands": []}`, `{"button"}` with hass-RT4K's names, or plain text lines), their own replies out once each window closes.
 - **RFC 2217** on TCP port 2217 (pyserial's `rfc2217://`, e.g. Home Assistant's hass-RT4K): each client sees only its own replies; TCP keepalive drops clients that vanished.
 - **Client budget:** web pages and RFC 2217 clients share 8 slots, in any mix (`src/core/clients.h`). When full, a newcomer replaces one of its own kind (the quietest page, the oldest RFC 2217 client), or is turned away (a page gets 503) rather than taking a live client of the other kind. lwIP is sized for that plus HTTP: 20 sockets, 24 TCP connections, 32 KB heap. `GET /debug/memory` shows the use and peaks.
 - **`POST /rt4k/put`, `POST /rt4k/ask`**: file uploads to the RT4K's SD card and single queries, used by the firmware updater.
 - **`GET /rt4k/ls`, `GET /rt4k/get`**: a folder of the SD card and a file from it, for the page's SD card view. A listing is collected whole before it goes out (`ls` can't be paged, and the console keeps only its last 64 lines), and read again if lines went missing; its lines stay out of the terminal (console owner "files"). Files come in 16 KB `get -o/-l` pieces, each verified before it's sent. Downloads and uploads run on their own task (xfer), so the page keeps answering meanwhile; console commands and the mirror's polls fit between a download's pieces, but not into an upload (put holds the link: they give up after 2 s, as before). The page uploads through `/rt4k/put` (SHA-256 in the browser, `src/web/sha256.js`) and makes folders, renames and deletes with the RT4K's `mkdir`, `mv` and `rm` through `/rt4k/ask`; a folder is deleted from the bottom up, since `rm` takes only empty ones. SD paths go up to 160 bytes (`RTL1_PATH_MAX`), UTF-8 included.
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
+- **`POST /update`, `POST /update/fetch`**: a Cruller image uploaded as the request body, or downloaded by Cruller itself from its GitHub releases (see "OTA").
 - **Status**: `GET /status` (JSON, also pushed over the WebSocket).
 - **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/console`, `/debug/usbtrace`, `/debug/freeze`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`.
 
@@ -129,6 +132,9 @@ Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (millis
 ## OTA (Cruller to Cruller)
 
 - **Upload** from the web page or `curl --data-binary @build/rp2/cruller.uf2 http://<board>/update`; images over 1 MiB make curl send `Expect: 100-continue`, which Cruller answers.
+- **From GitHub:** the page lists the releases (GitHub's API allows cross-origin reads; a release's assets don't, so the page can't download them) and hands this board's image to `POST /update/fetch?url=&sha=&size=`, with the asset's URL, SHA-256 and size from the API. Cruller downloads it on its own task (`src/core/ota_fetch.c`) over HTTPS (`src/core/tls.h`), following github.com's redirect to its asset host. It takes only this project's release assets, and redirects only to github.com or `*.githubusercontent.com`. The image goes into the inactive slot as it arrives, hashed on the way; Cruller restarts into it only if its size and SHA-256 match, and otherwise leaves it as an upload cut short does. The status has the progress or why it failed (`"update":{"from":"github",...}`); the page follows it, and can be closed meanwhile.
+- **Certificates:** the chain and the host name are checked, against a few roots on the Pico (`src/platform/rp2/tls_roots.c`, written by `scripts/tls_roots.sh`) and ESP-IDF's bundle on the ESP32; not their dates (no clock). What vouches for the image is its SHA-256, which the page got from GitHub's API over the browser's own HTTPS.
+- **Memory:** TLS takes ~50 KB of the FreeRTOS heap while a download runs, plus the task's 12 KB stack. The same code on a PC against GitHub (the Pico's mbedTLS configuration and roots) peaked at 58 KB with the download's buffers.
 - **Write:** straight into the inactive slot, a sector at a time, with the RT4K's USB host quiet meanwhile (`flash_quiet_begin`).
 - **Switch:** the boot ROM's "try before you buy" flow. After a reboot into the new slot, the image is confirmed once healthy; otherwise the boot ROM's watchdog returns to the previous slot. Cruller's own watchdog stays off during the trial and takes over after the confirmation.
 - **Reboots:** power the CYW43 down (`WL_REG_ON` low) and stop feeding the watchdog before every software reboot (feeding it postpones a scheduled reboot).
@@ -160,7 +166,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 
 ## Testing
 
-- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, RFC 2217 parsing, console reply windows, the page's JavaScript (syntax), the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses, which names it takes).
+- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, RFC 2217 parsing, console reply windows, the GitHub download's URLs and reply heads, the page's JavaScript (syntax), the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses, which names it takes).
 - **On the bench:** `cruller_bench` (not built by default) has the USB port as a serial console and no RT4K link.
 - **On the board behind the RT4K:** OTA only. `/debug/tasks` has the link counters (FT232R overruns, key -> screen times), `/debug/console` the last commands' reply times, and `/debug/freeze` where both cores were before a watchdog reset (kept across it).
 

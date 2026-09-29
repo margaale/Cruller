@@ -798,9 +798,9 @@ document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
 
 // --- Cruller firmware updates ----------------------------------------------------------------------------
 //
-// The CI publishes each release's images and an index to the repository's "firmware" branch (see
-// .github/workflows/release.yml): the page reads them from raw.githubusercontent.com, which allows
-// cross-origin reads (a release's own assets don't). Each platform takes its own file.
+// The page lists the releases (GitHub's API allows cross-origin reads) and picks this platform's image
+// among each one's assets; Cruller downloads it itself (POST /update/fetch, src/core/ota_fetch.h),
+// since GitHub doesn't let pages read a release's assets. The status carries the download's progress.
 
 const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases?per_page=100'; // alphas add up
 const FW_ASSET = { rp2: '-pico2_w-cruller.uf2', esp32: '-esp32s3_devkitc1_n16r8-cruller.bin' }; // each platform's image among a release's assets
@@ -866,40 +866,67 @@ function updShow() {
 
 async function updInstall() {
   const r = upd.list[+$('u-ver').value], f = r && r.file;
-  if (!f || !(await askUser('Install Cruller ' + r.version + '?', 'It downloads from GitHub, checks it, and Cruller restarts into it (about 20 s).', 'Install'))) return;
-  let data;
-  try {
-    busy({ mode: 'progress', frac: 0, title: 'Downloading ' + r.version, text: 'From GitHub.' });
-    let resp;
-    try {
-      resp = await fetch(f.url, { cache: 'no-store' });
-    } catch (e) {
-      // GitHub serves release assets without CORS headers: the browser may refuse to hand them over.
-      busy({ mode: 'bad', title: 'GitHub won\'t let the page download it', text: 'Download ' + f.name + ' yourself, then install it with "Install from a file…".',
-        actions: [{ label: 'Download ' + r.version, primary: true, href: f.url }, { label: 'Install from a file…', onclick: () => { busyHide(); $('u-file').click(); } }] });
-      return;
-    }
-    if (!resp.ok) throw new Error('GitHub answered ' + resp.status);
-    const reader = resp.body.getReader(), parts = [];
-    let got = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      parts.push(value);
-      got += value.length;
-      busy({ mode: 'progress', frac: f.size ? got / f.size : 0, title: 'Downloading ' + r.version, text: (got / 1048576).toFixed(2) + ' of ' + (f.size / 1048576).toFixed(2) + ' MB' });
-    }
-    data = new Uint8Array(got);
-    let o = 0;
-    for (const p of parts) { data.set(p, o); o += p.length; }
-    busy({ mode: 'spin', title: 'Checking the download…', text: 'SHA-256' });
-    await sleep(30);
-    if (f.sha256 && window.fwInternals.sha256(data) !== f.sha256) throw new Error('The download doesn\'t match the SHA-256 GitHub lists for it.');
-  } catch (e) {
-    busy({ mode: 'bad', title: 'Download failed', text: e.message, actions: [{ label: 'Close', onclick: busyHide }] });
+  if (!f || !(await askUser('Install Cruller ' + r.version + '?', 'Cruller downloads it from GitHub, checks it, and restarts into it (about 30 s).', 'Install'))) return;
+  // When Cruller can't: the file by hand from GitHub, then "Install from a file…".
+  const failed = (title, why) => busy({ mode: 'bad', title, text: why + ' You can download ' + f.name + ' yourself and install it with "Install from a file…".',
+    actions: [{ label: 'Download ' + r.version, primary: true, href: f.url }, { label: 'Install from a file…', onclick: () => { busyHide(); $('u-file').click(); } },
+      { label: 'Close', onclick: busyHide }] });
+  if (!f.sha256) {
+    failed('GitHub lists no SHA-256 for it', 'Cruller installs only a download it can check.');
     return;
   }
-  updSend(data, r.version);
+  const mb = (n) => (n / 1048576).toFixed(2);
+  const connecting = () => busy({ mode: 'progress', frac: 0, title: 'Installing ' + r.version, text: 'Cruller is connecting to GitHub…' });
+  connecting();
+  try {
+    const resp = await fetch('/update/fetch?url=' + encodeURIComponent(f.url) + '&sha=' + f.sha256 + '&size=' + f.size, { method: 'POST' });
+    if (!resp.ok) {
+      failed('Cruller didn\'t start the download', (await resp.text()).trim() + '.');
+      return;
+    }
+  } catch (e) {
+    failed('Cruller didn\'t answer', 'The connection to Cruller dropped.');
+    return;
+  }
+  const why = (m) => (m.split(' ')[0].includes('.') ? m : m.charAt(0).toUpperCase() + m.slice(1)) + '.'; // "github.com answered 404" stays
+  upd.onProgress = (u) => {
+    if (u.from !== 'github') return;
+    if (u.failed) {
+      upd.onProgress = null;
+      failed('The download failed', why(u.failed));
+    } else if (u.done || (u.size && u.got === u.size)) {
+      upd.onProgress = null;
+      updRestart(r.version, (m) => failed('The download failed', why(m)));
+    } else if (!u.got) {
+      connecting();
+    } else {
+      busy({ mode: 'progress', frac: u.got / u.size, title: 'Installing ' + r.version,
+        text: 'Cruller downloads it from GitHub and writes it: ' + mb(u.got) + ' of ' + mb(u.size) + ' MB' });
+    }
+  };
+}
+
+// Once an image is written, Cruller restarts into it: the page reloads when it's back. A download that
+// didn't check out shows up in the status instead (Cruller keeps running): onFailed(why).
+async function updRestart(label, onFailed) {
+  busy({ mode: 'spin', title: 'Restarting into ' + label + '…', text: 'Cruller checks the new firmware and keeps it once it runs.' });
+  await sleep(4000);
+  let version = '', failure = '';
+  const back = await waitFor(async () => {
+    const s = await (await fetch('/status', { cache: 'no-store' })).json();
+    version = s.version;
+    failure = (onFailed && s.update && s.update.failed) || '';
+    return failure || s.uptime_s < 120;
+  }, 90000);
+  if (failure) {
+    onFailed(failure);
+  } else if (back) {
+    busy({ mode: 'ok', title: 'Cruller ' + version + ' is running', text: 'Reloading the page…' });
+    await sleep(1500);
+    location.reload();
+  } else {
+    busy({ mode: 'bad', title: 'Taking longer than expected', text: 'Cruller hasn\'t answered for a minute and a half. If it doesn\'t come back, it returns to the previous firmware by itself.', actions: [{ label: 'Reload', primary: true, onclick: () => location.reload() }] });
+  }
 }
 
 async function updFile(file) {
@@ -913,26 +940,16 @@ async function updFile(file) {
 function updSend(data, label) {
   const show = (got) => busy({ mode: 'progress', frac: got / data.length, title: 'Installing ' + label, text: 'Sending it to Cruller: ' + (got / 1048576).toFixed(2) + ' of ' + (data.length / 1048576).toFixed(2) + ' MB' });
   show(0);
-  upd.onProgress = (u) => show(u.got);
+  upd.onProgress = (u) => { if (!u.from) show(u.got); };
   const x = new XMLHttpRequest();
   x.open('POST', '/update');
-  x.onload = async () => {
+  x.onload = () => {
     upd.onProgress = null;
     if (x.status !== 200) {
       busy({ mode: 'bad', title: 'The update failed', text: x.responseText.trim(), actions: [{ label: 'Close', onclick: busyHide }] });
       return;
     }
-    busy({ mode: 'spin', title: 'Restarting into ' + label + '…', text: 'Cruller checks the new firmware and keeps it once it runs.' });
-    await sleep(4000);
-    let version = '';
-    const back = await waitFor(async () => { const s = await (await fetch('/status', { cache: 'no-store' })).json(); version = s.version; return s.uptime_s < 120; }, 90000);
-    if (back) {
-      busy({ mode: 'ok', title: 'Cruller ' + version + ' is running', text: 'Reloading the page…' });
-      await sleep(1500);
-      location.reload();
-    } else {
-      busy({ mode: 'bad', title: 'Taking longer than expected', text: 'Cruller hasn\'t answered for a minute and a half. If it doesn\'t come back, it returns to the previous firmware by itself.', actions: [{ label: 'Reload', primary: true, onclick: () => location.reload() }] });
-    }
+    updRestart(label);
   };
   x.onerror = () => {
     upd.onProgress = null;

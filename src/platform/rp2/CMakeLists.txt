@@ -51,6 +51,8 @@ target_sources(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core/console_core.c
     ${CRULLER_ROOT}/src/core/creds.c
     ${CRULLER_ROOT}/src/core/http.c
+    ${CRULLER_ROOT}/src/core/ota_fetch.c
+    ${CRULLER_ROOT}/src/core/ota_fetch_proto.c
     ${CRULLER_ROOT}/src/core/power.c
     ${CRULLER_ROOT}/src/core/power_core.c
     ${CRULLER_ROOT}/src/core/rfc2217.c
@@ -71,6 +73,8 @@ target_sources(cruller_app INTERFACE
     store_flash.c
     donutshop.c
     ota.c
+    tls.c
+    tls_roots.c
     net.c
     health.c
     freeze.c
@@ -107,6 +111,7 @@ target_link_libraries(cruller_app INTERFACE
     pico_flash
     pico_bootrom
     pico_sha256
+    pico_mbedtls # tls.c (mbedtls_config.h)
     pico_unique_id
     boot_uf2_headers
     hardware_flash
