@@ -35,8 +35,9 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
   screen and the console on each input.
-- **Home Assistant and scripts**: a JSON API for commands, and the RT4K's serial port on the
-  network (RFC 2217), where each client gets only the replies to its own commands.
+- **Home Assistant and scripts**: a [Home Assistant integration](https://github.com/margaale/cruller-hacs)
+  that finds Cruller by itself, a versioned JSON API, and the RT4K's serial port on the network
+  (RFC 2217), where each client gets only the replies to its own commands.
 - **Updates itself safely**: over the air from GitHub or from a file. The Pico 2 W keeps two
   copies, and a new version is kept only once it runs. Otherwise the board goes back to the one
   before.
@@ -48,8 +49,8 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 ```mermaid
 flowchart LR
     browser["Web browser"] <-- "HTTP + WebSocket" --> cruller
-    ha["Home Assistant<br/>or pyserial"] <-- "RFC 2217" --> cruller
-    scripts["Scripts"] -- "POST /api/command" --> cruller
+    ha["Home Assistant<br/>or scripts"] -- "/api/v1" --> cruller
+    pyserial["pyserial"] <-- "RFC 2217" --> cruller
     bridge["SVS Bridge"] -- "active input" --> cruller
     cruller["Cruller<br/>(Pico 2 W)"] <-- "USB, 2 Mbaud" --> rt4k["RetroTINK 4K"]
 ```
@@ -183,18 +184,34 @@ mirror, tasks), and the logs.
 
 ### Home Assistant and scripts
 
+**Home Assistant.** Install the [Cruller integration](https://github.com/margaale/cruller-hacs)
+through HACS (as a custom repository). Home Assistant finds Cruller on your network by itself, as
+"Cruller" or by its name. You get the RT4K as a remote (power it on and off, press its keys, send
+console commands), its power state, whether it's plugged in, and the SVS's active input once an SVS
+Bridge reports it, for your automations. To load an SVS profile (`/profile/SVS/S3_….rt4`, with
+"Auto Load SVS" on), send the RT4K the same line the switch does:
+
+```yaml
+action: remote.send_command
+target:
+  entity_id: remote.cruller_retrotink_4k
+data:
+  command: SVS NEW INPUT=3
+```
+
 **RFC 2217.** The RT4K's serial port is also on the network, at `rfc2217://cruller.local:2217`,
 for pyserial and anything built on it. Several clients can share it with the page, and each one
 sees only the replies to its own commands. [hass-RT4K](https://github.com/sjftech/hass-RT4K)
 drives an RT4K through it once it takes network serial ports
 ([sjftech/hass-RT4K#1](https://github.com/sjftech/hass-RT4K/pull/1)).
 
-**HTTP API.** `POST /api/command` sends commands to the RT4K and returns their replies. The body can
-be `{"command": "…"}`, `{"commands": ["…", "…"]}` (up to 8), `{"button": "menu"}` with hass-RT4K's
-button names (`power_on`, `power_off`, `menu`, `up`…), or plain text, one command per line:
+**HTTP API.** `POST /api/v1/command` sends commands to the RT4K and returns their replies. The body
+can be `{"command": "…"}`, `{"commands": ["…", "…"]}` (up to 8), `{"button": "menu"}` with
+hass-RT4K's button names (`power_on`, `power_off`, `menu`, `up`…), or plain text, one command per
+line:
 
 ```bash
-curl -X POST http://cruller.local/api/command -d '{"command": "ver"}'
+curl -X POST http://cruller.local/api/v1/command -d '{"command": "ver"}'
 ```
 
 ```json
@@ -208,10 +225,12 @@ curl -X POST http://cruller.local/api/command -d '{"command": "ver"}'
 ```
 
 If a command couldn't be sent (the RT4K isn't connected), `ok` is `false` and the answer is a
-`503`. `GET /status` returns Cruller's state as JSON, the RT4K's power state included.
+`503`. `GET /api/v1/state` returns the RT4K's power state, the switch's active input and Cruller's
+own, and `GET /api/v1/info` who this Cruller is. The API is versioned: a script written for
+`/api/v1` keeps working as Cruller changes. All of it is in [docs/API.md](docs/API.md).
 
-**Discovery.** Cruller announces itself over mDNS as `_rt4k._tcp` (TXT `id`, `ver`, `api`, and
-`name` once named), `_rfc2217._tcp` and `_http._tcp`.
+**Discovery.** Cruller announces itself over mDNS as `_rt4k._tcp` (TXT `id`, `ver`, `api`: the API's
+version, and `name` once named), `_rfc2217._tcp` and `_http._tcp`.
 
 ## Security
 
@@ -358,8 +377,8 @@ needs a higher version than the last: the version's minor number carries CI's ru
 <details>
 <summary><b>SVS Bridge reports</b></summary>
 
-The bridge reports the active input and the switch's layout with `POST /api/svs` on every change
-and every 60 s. `GET /api/svs` returns what Cruller last heard. The format, discovery and pairing
+The bridge reports the active input and the switch's layout with `POST /api/v1/svs` on every change
+and every 60 s. `GET /api/v1/svs` returns what Cruller last heard. The format, discovery and pairing
 are in [docs/SVS.md](docs/SVS.md).
 
 </details>
@@ -368,7 +387,10 @@ are in [docs/SVS.md](docs/SVS.md).
 
 - [SVS Bridge](https://github.com/margaale/svs-bridge): puts an SVS switch on the network and tells
   Cruller which input is on screen.
-- [hass-RT4K](https://github.com/sjftech/hass-RT4K): the RetroTINK 4K in Home Assistant.
+- [Cruller for Home Assistant](https://github.com/margaale/cruller-hacs): the integration (HACS)
+  for Cruller, over its API.
+- [hass-RT4K](https://github.com/sjftech/hass-RT4K): the RetroTINK 4K in Home Assistant, over a
+  serial port (Cruller's RFC 2217 one included, once it takes network ports).
 - [RetroTINK firmware](https://github.com/RetroTINK-LLC/firmware): the RT4K's official firmware,
   which the updater installs from.
 

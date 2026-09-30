@@ -15,6 +15,7 @@
 #include "dhcpserver.h"
 #include "donutshop.h"
 #include "dnsserver.h"
+#include "http.h"
 #include "platform.h"
 #include "settings.h"
 #include "status_led.h"
@@ -149,7 +150,8 @@ size_t net_scan_json(char *out, size_t size) {
 }
 
 // DNS-SD services (docs/SVS.md): the web page, "_rt4k._tcp" for other boards and Home Assistant to
-// find the RT4K bridge (TXT: id, ver, api), and "_rfc2217._tcp" for serial over the network.
+// find the RT4K bridge (TXT: id, ver, api: the API's version), and "_rfc2217._tcp" for serial over the
+// network.
 static void txt_add(struct mdns_service *service, const char *item) {
     mdns_resp_add_service_txtitem(service, item, (u8_t)strlen(item));
 }
@@ -165,7 +167,7 @@ static void rt4k_txt(struct mdns_service *service, void *userdata) {
     (void)userdata;
     txt_id(service);
     txt_add(service, "ver=" CRULLER_VERSION);
-    txt_add(service, "api=/api");
+    txt_add(service, "api=" HTTP_API_VERSION);
     settings_t s;
     settings_get(&s);
     if (s.name[0]) {

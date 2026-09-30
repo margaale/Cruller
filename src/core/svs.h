@@ -1,5 +1,5 @@
 // The Scalable Video Switch's active input, and the switch itself, as its bridge reports them (POST
-// /api/svs; see docs/SVS.md). gameID uses them to know which console is on screen; the page's SVS tab
+// /api/v1/svs; see docs/SVS.md). gameID uses them to know which console is on screen; the page's SVS tab
 // shows them.
 
 #pragma once

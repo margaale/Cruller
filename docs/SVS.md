@@ -12,7 +12,7 @@ type in.
 
 | Board | Service | Port | TXT |
 |---|---|---|---|
-| Cruller | `_rt4k._tcp` | 80 | `id=<Pico id>`, `ver=<Cruller version>`, `api=/api`, `name=<name>` (once named) |
+| Cruller | `_rt4k._tcp` | 80 | `id=<Pico id>`, `ver=<Cruller version>`, `api=1` (API version, [API.md](API.md)), `name=<name>` (once named) |
 | Cruller | `_rfc2217._tcp` | 2217 | `id=<Pico id>` |
 | Cruller | `_http._tcp` | 80 | (the web page) |
 | SVS Bridge | `_svsbridge._tcp` | 443 | `id=svs-bridge-<mac>`, `version=1` (API version) |
@@ -25,7 +25,7 @@ type in.
 The bridge browses `_rt4k._tcp`. To each Cruller it finds it sends, over plain HTTP:
 
 ```
-POST http://<host>:<port>/api/svs
+POST http://<host>:<port>/api/v1/svs
 Content-Type: application/json
 
 {"id": "svs-bridge-aabbccddeeff", "current_input": 3, "total_inputs": 8, "live": true,
@@ -33,6 +33,8 @@ Content-Type: application/json
  "output": {"kind": "component", "name": "RetroTINK 4K", "device": "rt4k"}}
 ```
 
+- **Where:** `/api/v1/svs`, part of Cruller's versioned API ([API.md](API.md)). Bridges from before
+  it send to `/api/svs`, which Cruller still takes the same way.
 - **When:** on every input change, whenever the switch's description changes (its layout is edited),
   as soon as it finds a Cruller (including one that just restarted and announced itself again), and
   every 60 s otherwise, in case a report was lost.
@@ -68,20 +70,20 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
   chooses one; the bridge stores that Cruller's `id` (not its address) and reports only to it.
 - **Cruller keeps the first bridge that reports** (with an `id`) in its settings. Reports from another
   bridge get `409 {"ok": false, "error": "paired with another SVS Bridge", "paired": "<id>"}`, so a
-  bridge set up for another RT4K can't change this one's profiles. `POST /api/svs/unpair` (the Unpair
+  bridge set up for another RT4K can't change this one's profiles. `POST /api/v1/svs/unpair` (the Unpair
   button in the Cruller tab) frees it; a factory reset does too.
 
 ## What Cruller does with it
 
-- `GET /api/svs`: what Cruller last heard:
+- `GET /api/v1/svs`: what Cruller last heard:
   `{"known": true, "input": 3, "total": 8, "name": "PS2", "id": "svs-bridge-…", "paired": "svs-bridge-…",
   "heard_s": 12, "since_s": 340, "switch_seq": 2, "history": [[3, 340], [1, 900]],
   "switch": {"inputs": [{"kind", "name"}, ...], "output": {"kind", "name"} | null}}` (`heard_s`: seconds since the last report; `since_s`:
   since the input last changed; `history`: the last input changes, `[input, seconds ago]`, newest
   first; `switch`: the description, as the bridge sent it, once one has come in).
-- The `/status` JSON (and the page's status over the WebSocket) gets the same object as `"svs"` once a
-  report has come in, without `switch`: `switch_seq` changes with each new description, and the page
-  fetches `GET /api/svs` then. Cruller keeps it in RAM: after a restart, the bridge's next report
+- `GET /api/v1/state` has the same object as `"svs"`, without `switch`. So does the page's `/status`
+  JSON (and its status over the WebSocket) once a report has come in: `switch_seq` changes with each
+  new description, and the page fetches `GET /api/v1/svs` then. Cruller keeps it in RAM: after a restart, the bridge's next report
   (it reports as soon as Cruller announces itself) brings it back.
 - The SVS tab shows each input's console as an icon (by its `device`: its controller or the machine,
   with the buttons in their own colours; a plain pad and its name when Cruller has no drawing of
@@ -96,6 +98,6 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
 1. Browse `_rt4k._tcp` (ESP-IDF `mdns_query_ptr("_rt4k", "_tcp", …)`, repeated now and then, or on
    the mDNS announcements it sees).
 2. In its web UI, list the Crullers found (TXT `name`, `id`) and let the user pick one; store its `id`.
-3. `POST /api/svs` to the picked one (found by `id` each time) with the body above: on start, on each
+3. `POST /api/v1/svs` to the picked one (found by `id` each time) with the body above: on start, on each
    input change, when the layout changes, every 60 s. Show whether the last report
    went through, and a `409` as "this Cruller is paired with another bridge".
