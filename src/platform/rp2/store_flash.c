@@ -23,6 +23,7 @@ static const struct {
 } slots[STORE_KEYS] = {
     [STORE_CREDS] = {0x46575243u /* "CRWF" */, {CREDS_SECTOR0_OFFSET, CREDS_SECTOR1_OFFSET}},
     [STORE_SETTINGS] = {0x54535243u /* "CRST" */, {SETTINGS_SECTOR0_OFFSET, SETTINGS_SECTOR1_OFFSET}},
+    [STORE_RT4K] = {0x4b525243u /* "CRRK" */, {RT4K_INFO_SECTOR0_OFFSET, RT4K_INFO_SECTOR1_OFFSET}},
 };
 
 _Static_assert(sizeof(header_t) + STORE_RECORD_MAX + 4 <= FLASH_PAGE_SIZE_B, "a record must fit one page");

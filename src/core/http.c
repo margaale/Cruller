@@ -24,6 +24,7 @@
 #include "power.h"
 #include "rfc2217.h"
 #include "rt4k.h"
+#include "rt4k_info.h"
 #include "rtl1.h"
 #include "settings.h"
 #include "svs.h"
@@ -521,6 +522,18 @@ void http_status_json(char *body, size_t size) {
     // The platform: which image the firmware index has for it ("rp2": a .uf2).
     n = strlen(body);
     if (n && n < size) snprintf(body + n - 1, size - (n - 1), ",\"platform\":\"%s\"}", PLAT_NAME);
+    // The RT4K's firmware and model as it last said them (rt4k_info.h), and whether it said them since
+    // it last came on (else they're from before: it sleeps, or hasn't answered yet).
+    rt4k_info_t info;
+    const bool fresh = rt4k_info_get(&info);
+    char fw[2 * RT4K_INFO_VERSION_MAX + 2], model[2 * RT4K_INFO_MODEL_MAX + 2];
+    json_escape(fw, sizeof(fw), info.version);
+    json_escape(model, sizeof(model), info.model);
+    n = strlen(body);
+    if (n && n < size) {
+        snprintf(body + n - 1, size - (n - 1), ",\"rt4k_fw\":\"%s\",\"rt4k_model\":\"%s\",\"rt4k_fw_fresh\":%s}", fw, model,
+            fresh ? "true" : "false");
+    }
     // The switch's active input once its bridge has reported one, or the paired bridge:
     // "svs":{"input","name","paired",...}.
     svs_state_t s;
@@ -1044,9 +1057,21 @@ void http_api_state_json(char *body, size_t size) {
     rt4k_get_status(&rt);
     size_t n = 0;
 #define ADD(...) n += (size_t)snprintf(body + n, n < size ? size - n : 0, __VA_ARGS__)
-    ADD("{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"},"
-        "\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d",
-        rt.mounted ? "true" : "false", rt.mounted ? power_state_name(power_state()) : "unknown",
+    ADD("{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"",
+        rt.mounted ? "true" : "false", rt.mounted ? power_state_name(power_state()) : "unknown");
+    // Its firmware and model as it last said them (rt4k_info.h), kept while it sleeps; each only once known.
+    rt4k_info_t info;
+    rt4k_info_get(&info);
+    char esc[2 * RT4K_INFO_MODEL_MAX + 2];
+    if (info.version[0]) {
+        json_escape(esc, sizeof(esc), info.version);
+        ADD(",\"firmware\":\"%s\"", esc);
+    }
+    if (info.model[0]) {
+        json_escape(esc, sizeof(esc), info.model);
+        ADD(",\"model\":\"%s\"", esc);
+    }
+    ADD("},\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d",
         CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), net_rssi());
     // The board's own sensors (health.h), each only where it has it.
     health_sensors_t hs;

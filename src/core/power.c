@@ -8,6 +8,7 @@
 #include "platform.h"
 #include "console.h"
 #include "rt4k.h"
+#include "rt4k_info.h"
 
 #define POWER_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define POWER_TICK_MS       200
@@ -60,11 +61,13 @@ static void power_task(void *param) {
             logged = s;
         }
         if (probe) console_send(CON_POWER, "ver"); // answered when on, ignored in standby; nobody sees it
+        rt4k_info_tick(now_connected && s == PWR_ON);
     }
 }
 
 void power_start(void) {
     plat_lock_init(&lock);
     power_core_init(now_ms());
-    xTaskCreate(power_task, "power", PLAT_STACK(512), NULL, POWER_TASK_PRIORITY, NULL);
+    rt4k_info_start();
+    xTaskCreate(power_task, "power", PLAT_STACK(768), NULL, POWER_TASK_PRIORITY, NULL);
 }
