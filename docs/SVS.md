@@ -81,9 +81,10 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
   "switch": {"inputs": [{"kind", "name"}, ...], "output": {"kind", "name"} | null}}` (`heard_s`: seconds since the last report; `since_s`:
   since the input last changed; `history`: the last input changes, `[input, seconds ago]`, newest
   first; `switch`: the description, as the bridge sent it, once one has come in).
-- `GET /api/v1/state` has the same object as `"svs"`, without `switch`. So does the page's `/status`
-  JSON (and its status over the WebSocket) once a report has come in: `switch_seq` changes with each
-  new description, and the page fetches `GET /api/v1/svs` then. Cruller keeps it in RAM: after a restart, the bridge's next report
+- The page's `/status` JSON (and its status over the WebSocket) has the same object as `"svs"`,
+  without `switch`, once a report has come in: `switch_seq` changes with each new description, and
+  the page fetches `GET /api/v1/svs` then. `GET /api/v1/state` doesn't have it: Home Assistant and
+  scripts get the switch's state from the SVS Bridge itself, not through Cruller. Cruller keeps it in RAM: after a restart, the bridge's next report
   (it reports as soon as Cruller announces itself) brings it back.
 - The SVS tab shows each input's console as an icon (by its `device`: its controller or the machine,
   with the buttons in their own colours; a plain pad and its name when Cruller has no drawing of

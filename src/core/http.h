@@ -18,6 +18,8 @@ bool http_update_progress(uint32_t *got, uint32_t *size);
 
 // The /status JSON (also pushed over the WebSocket).
 void http_status_json(char *body, size_t size);
+// The GET /api/v1/state JSON (also pushed to /api/v1/events clients).
+void http_api_state_json(char *body, size_t size);
 // The /debug/memory report: clients, lwIP pools and heap, FreeRTOS heap, RAM (also pushed to Debug tabs).
 void http_debug_memory(char *out, size_t size);
 size_t http_debug_memory_json(char *out, size_t size); // the same as JSON; 0 if it didn't fit
