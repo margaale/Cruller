@@ -7,6 +7,7 @@
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "pico/rand.h"
+#include "hardware/structs/powman.h"
 #include "hardware/watchdog.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -33,9 +34,39 @@ static uint32_t ms_since_boot(void) {
     return to_ms_since_boot(get_absolute_time());
 }
 
+// The last chip-level reset (POWMAN CHIP_RESET). A supply dip shows as a brown-out, or as a power-on
+// when the supply went all the way down; the log (kept in RAM) survives neither. Watchdog resets
+// leave these flags as they were (0.4.4-pr.92 said "brown-out" after an OTA's reboot), so they tell
+// the last power event even then.
+static const char *chip_reset_cause(uint32_t r) {
+    if (r & POWMAN_CHIP_RESET_HAD_POR_BITS) return "power-on";
+    if (r & POWMAN_CHIP_RESET_HAD_BOR_BITS) return "brown-out";
+    if (r & POWMAN_CHIP_RESET_HAD_RUN_LOW_BITS) return "RUN pin";
+    if (r & POWMAN_CHIP_RESET_HAD_GLITCH_DETECT_BITS) return "power glitch";
+    if (r & (POWMAN_CHIP_RESET_HAD_WATCHDOG_RESET_PSM_BITS | POWMAN_CHIP_RESET_HAD_WATCHDOG_RESET_SWCORE_BITS |
+             POWMAN_CHIP_RESET_HAD_WATCHDOG_RESET_POWMAN_BITS | POWMAN_CHIP_RESET_HAD_WATCHDOG_RESET_POWMAN_ASYNC_BITS)) {
+        return "watchdog";
+    }
+    if (r & (POWMAN_CHIP_RESET_HAD_DP_RESET_REQ_BITS | POWMAN_CHIP_RESET_HAD_HZD_SYS_RESET_REQ_BITS |
+             POWMAN_CHIP_RESET_HAD_RESCUE_BITS)) {
+        return "debugger";
+    }
+    if (r & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS) return "core power-down";
+    return "unknown";
+}
+
 static void main_task(void *param) {
     (void)param;
-    printf("\nCruller %s, boot partition %d (%s boot)\n", CRULLER_VERSION, ota_boot_partition(), ota_last_boot_type());
+    // This reset: the watchdog's (its reason survives it; a chip-level reset clears it), else the chip's.
+    // A hang or a fault times out the watchdog that health_start() armed (watchdog_enable() marks its
+    // scratch register); a restart, an update or the boot ROM reboot through it on purpose. Read before
+    // health_start() arms it again.
+    const uint32_t chip = powman_hw->chip_reset;
+    const char *cause = watchdog_enable_caused_reboot() ? "watchdog timeout (a hang or a fault)"
+        : watchdog_hw->reason                          ? "reboot"
+                                                       : chip_reset_cause(chip);
+    printf("\nCruller %s, boot partition %d (%s boot), reset: %s, last power reset: %s (0x%08lx)\n", CRULLER_VERSION,
+        ota_boot_partition(), ota_last_boot_type(), cause, chip_reset_cause(chip), (unsigned long)chip);
 
     health_start(ota_is_trial_boot());
     freeze_start();

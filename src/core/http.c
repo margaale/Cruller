@@ -1507,6 +1507,18 @@ static void handle(request_t *r) {
         vTaskDelay(pdMS_TO_TICKS(300)); // let the response leave
         health_wedge_network(60);
     }
+    else if (post && !strcmp(r->path, "/debug/fault")) {
+        // POST /debug/fault?kind=task|flash: self-test of the fault reports (health_fault_test). The
+        // board resets within ~10 s; the log then has the HardFault lines and the freeze record.
+        char kind[8] = "";
+        const char *k = query ? strstr(query, "kind=") : NULL;
+        if (k) snprintf(kind, sizeof(kind), "%.*s", (int)strcspn(k + 5, "&"), k + 5);
+        if (health_fault_test(kind)) { // it faults in a moment: the response leaves first
+            respond(r->fd, 200, "OK", "text/plain", "Faulting; the board resets within ~10 s\n");
+        } else {
+            respond(r->fd, 400, "Bad Request", "text/plain", "kind=task, or kind=flash on the Pico 2 W\n");
+        }
+    }
     else if (net_state() == NET_PORTAL || via_portal(r->fd)) redirect(r->fd, "http://192.168.4.1/"); // captive portal probes
     else respond(r->fd, 404, "Not Found", "text/plain", "Not found\n");
 }
