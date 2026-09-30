@@ -3,7 +3,8 @@
 For Home Assistant, scripts and the SVS Bridge: routes under `/api/v1`, which keep working for a
 client written for them as Cruller changes. Plain HTTP on port 80, JSON in and out, no
 authentication (Cruller is a LAN device: see the README's Security). Cruller serves one request at a
-time, with 4 more waiting, so poll gently: every 30 s or so is plenty.
+time, with 4 more waiting, so poll gently (every 30 s or so is plenty), or listen to
+`/api/v1/events`, which tells a change at once.
 
 ## Finding Cruller
 
@@ -43,6 +44,7 @@ The API's version is a whole number: `api` in the TXT, `api_version` in `/api/v1
 |---|---|
 | `GET /api/v1/info` | Who this Cruller is. |
 | `GET /api/v1/state` | The RT4K's power, and Cruller's own. |
+| `GET /api/v1/events` | The same state as it changes, over a WebSocket. |
 | `POST /api/v1/command` | Console commands to the RT4K, and their replies. |
 | `GET /api/v1/svs` | The switch's active input, and the switch as its bridge describes it. |
 | `POST /api/v1/svs` | The SVS Bridge's report. |
@@ -78,6 +80,45 @@ What changes: the RT4K's and Cruller's own.
   Assistant integration), not through Cruller. Cruller 0.4.2 also had an `svs` key here.
 - `cruller.sw_version`: Cruller's version, the running one (it changes with an update).
   `cruller.uptime_s`: seconds since it started. `cruller.rssi`: the Wi-Fi signal, in dBm.
+
+### GET /api/v1/events
+
+A WebSocket that pushes events instead of waiting to be polled, for clients that want a change at
+once (Home Assistant's automations). `?types=` picks the event types, comma-separated; without it,
+the socket gets `state`:
+
+```bash
+websocat 'ws://cruller.local/api/v1/events?types=state'
+```
+
+```json
+{"type": "hello", "api_version": 1, "types": ["state"], "subscribed": ["state"]}
+{"type": "state", "state": {"rt4k": {"connected": true, "power": "standby"},
+ "cruller": {"sw_version": "0.4.3", "uptime_s": 3600, "rssi": -52}}}
+```
+
+- **Messages:** text, each a JSON object with a `type`. The first is `hello`: the API's version,
+  `types` (every type this Cruller can send) and `subscribed` (the ones this socket gets). Then only
+  events of the subscribed types.
+- **`state`:** the same object as `GET /api/v1/state`. It comes at once, as soon as something in it
+  changes (today: the RT4K plugged in or out, its power), and at least every 60 s (for `uptime_s` and
+  `rssi`).
+- **Types:** names Cruller doesn't have are left out of `subscribed`, so a client can ask for a type
+  a later Cruller adds and see in `hello` whether this one sends it.
+- **The client's messages:** reserved. Today they're ignored (commands go through
+  `POST /api/v1/command`). Messages a later v1 takes will be JSON objects with a `type`, announced in
+  `hello`.
+- **Keepalive:** Cruller pings every 10 s and drops a client it hasn't heard from in 25 s; WebSocket
+  libraries answer pings on their own.
+- **Room:** it takes one of Cruller's 8 client slots, shared with pages and RFC 2217 clients, with at
+  most 2 events sockets at once. A new one replaces the one heard from least recently (a client
+  reconnecting after a dropped connection). A page never replaces one, nor one a page; with no slot
+  free and none of its kind to replace, the upgrade gets `503`.
+- **Older firmware:** a Cruller from before it (0.4.2) answers `404`: poll `GET /api/v1/state` there.
+
+How it grows within v1: new event types (only sockets that ask for them get them, so an existing
+client's stream doesn't change), new keys in any message (`hello` included), and client messages
+announced in `hello`. Changing what an existing type means, or dropping one, would take a v2.
 
 ### POST /api/v1/command
 

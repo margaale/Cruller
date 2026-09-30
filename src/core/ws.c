@@ -43,6 +43,7 @@
 #define STATUS_EVERY_MS 5000
 #define PUT_STATUS_EVERY_MS 500 // while an upload to the RT4K runs: its progress is in the status
 #define DEBUG_EVERY_MS  2000
+#define EVENTS_EVERY_MS 60000     // /api/v1/events: an unchanged state again this often (uptime, signal)
 
 #define POLL_IDLE_MS     250      // OSD poll period
 #define POLL_ACTIVE_MS   60       // right after a key press
@@ -67,7 +68,18 @@ typedef struct {
     bool debug;                   // the page shows its Debug tab: gets MSG_DEBUG
     uint32_t last_debug_ms;       // 0 = send right away
     uint32_t con_seq;             // Debug's serial log: the next console line to send (console_read_line)
+    bool events;                  // an /api/v1/events client, not a page (ws.h)
+    uint32_t types;               // its event types (WS_EVENT_*, ws_proto.h)
+    bool greeted;                 // it got its "hello"
+    uint32_t events_seen;         // what the last state it got said (events_now): a change is pushed at once
 } client_t;
+
+// A connection handed over by the HTTP task: which kind of client it is, and an events client's types.
+typedef struct {
+    int fd;
+    bool events;
+    uint32_t types;
+} adoption_t;
 
 typedef struct {
     uint8_t data[4096];
@@ -77,7 +89,8 @@ typedef struct {
 } plane_t;
 
 static client_t clients[MAX_CLIENTS];
-static volatile int client_count;
+static volatile int client_count;  // pages and events clients
+static volatile int event_count;   // events clients among them
 static QueueHandle_t adopt_q;
 static TaskHandle_t mirror_task_h;
 
@@ -127,8 +140,9 @@ static void drop(client_t *c) {
     closesocket(c->fd);
     c->fd = -1;
     client_count--;
+    if (c->events) event_count--;
     clients_give();
-    printf("ws: client left (%d connected)\n", client_count);
+    printf("ws: %s left (%d connected)\n", c->events ? "events client" : "client", client_count);
 }
 
 // The page used to poll /log and /status: both come over the socket now.
@@ -154,6 +168,38 @@ static bool push_log_status(client_t *c) {
     tx[16] = MSG_STATUS;
     http_status_json((char *)tx + 17, 1536);
     return send_tx(c, WS_OP_BINARY, 1 + strlen((char *)tx + 17));
+}
+
+// What makes an events client's state worth pushing at once: the RT4K plugged in or out, its power.
+static uint32_t events_now(void) {
+    return (uint32_t)power_state() << 1 | (rt4k_connected() ? 1u : 0u);
+}
+
+// /api/v1/events: first {"type":"hello",...} (the API's version, every type this Cruller can send, the
+// ones this client gets); then, if it asked for "state", the /api/v1/state JSON as
+// {"type":"state","state":{...}}: at once, as soon as events_now() changes, and every EVENTS_EVERY_MS.
+static bool push_events(client_t *c) {
+    char *out = (char *)tx + 16;
+    const size_t room = sizeof(tx) - 16;
+    if (!c->greeted) {
+        c->greeted = true;
+        char all[96], mine[96];
+        ws_event_names(WS_EVENTS_ALL, all, sizeof(all));
+        ws_event_names(c->types, mine, sizeof(mine));
+        const int n = snprintf(out, room, "{\"type\":\"hello\",\"api_version\":" HTTP_API_VERSION ",\"types\":%s,\"subscribed\":%s}",
+            all, mine);
+        if (!send_tx(c, WS_OP_TEXT, (size_t)n)) return false;
+    }
+    if (!(c->types & WS_EVENT_STATE)) return true;
+    const uint32_t t = now_ms(), seen = events_now();
+    if (c->last_status_ms && t - c->last_status_ms < EVENTS_EVERY_MS && seen == c->events_seen) return true;
+    c->last_status_ms = t | 1;
+    c->events_seen = seen;
+    size_t n = (size_t)snprintf(out, room, "{\"type\":\"state\",\"state\":");
+    http_api_state_json(out + n, room - n - 1);
+    n += strlen(out + n);
+    out[n++] = '}';
+    return send_tx(c, WS_OP_TEXT, n);
 }
 
 static size_t mirror_json(char *out, size_t size);
@@ -247,6 +293,8 @@ static bool push_mirror(client_t *c) {
 // --- receiving (ws task) -----------------------------------------------------------------------
 
 static bool on_frame(client_t *c, const ws_frame_t *f) {
+    // An events client only listens: what it sends isn't a console command or a page's state.
+    if (c->events && (f->opcode == WS_OP_TEXT || f->opcode == WS_OP_BINARY)) return true;
     switch (f->opcode) {
         case WS_OP_TEXT: {
             char cmd[241];
@@ -319,21 +367,29 @@ static bool on_readable(client_t *c) {
 
 // --- tasks -------------------------------------------------------------------------------------
 
-static void add_client(int fd) {
-    if (!clients_take()) {
-        // The shared budget is full: the newcomer wins over the least recently heard-from page (often
-        // a reloaded page whose old connection never closed properly), but never over another kind.
-        client_t *quietest = NULL;
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i].fd >= 0 && (!quietest || clients[i].last_rx_ms < quietest->last_rx_ms)) quietest = &clients[i];
-        }
-        if (!quietest) {
-            printf("ws: no room: all %d client slots are taken by RFC 2217 clients\n", CLIENTS_MAX);
+// The least recently heard-from client of a kind (pages, or events clients), or NULL if none.
+static client_t *quietest(bool events) {
+    client_t *q = NULL;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        client_t *c = &clients[i];
+        if (c->fd >= 0 && c->events == events && (!q || c->last_rx_ms < q->last_rx_ms)) q = c;
+    }
+    return q;
+}
+
+static void add_client(int fd, bool events, uint32_t types) {
+    // Full (the shared budget, or the events clients' own WS_EVENTS_MAX): the newcomer wins over the
+    // least recently heard-from client of its own kind (often a reloaded page, or Home Assistant
+    // reconnecting, whose old connection never closed properly), but never over another kind.
+    if ((events && event_count >= WS_EVENTS_MAX) || !clients_take()) {
+        client_t *old = quietest(events);
+        if (!old) {
+            printf("ws: no room: all %d client slots are taken by other kinds of clients\n", CLIENTS_MAX);
             closesocket(fd);
             return;
         }
-        printf("ws: full, replacing the quietest page\n");
-        drop(quietest);
+        printf("ws: full, replacing the quietest %s\n", events ? "events client" : "page");
+        drop(old);
         clients_take(); // the slot it gave back
     }
     client_t *slot = NULL;
@@ -343,9 +399,13 @@ static void add_client(int fd) {
     memset(slot, 0, sizeof(*slot));
     slot->fd = fd;
     slot->last_rx_ms = slot->last_ping_ms = now_ms();
+    slot->events = events;
+    slot->types = types;
+    slot->hidden = events; // no screen to mirror for it
     client_count++;
-    printf("ws: client joined (%d connected)\n", client_count);
-    if (mirror_task_h) xTaskNotifyGive(mirror_task_h);
+    if (events) event_count++;
+    printf("ws: %s joined (%d connected)\n", events ? "events client" : "client", client_count);
+    if (!events && mirror_task_h) xTaskNotifyGive(mirror_task_h);
 }
 
 // Pings now and then; drops clients that stopped answering.
@@ -364,10 +424,10 @@ static void ws_task(void *param) {
     (void)param;
     for (int i = 0; i < MAX_CLIENTS; i++) clients[i].fd = -1;
     for (;;) {
-        int fd;
+        adoption_t a;
         ws_where = "queue";
-        while (xQueueReceive(adopt_q, &fd, client_count ? 0 : portMAX_DELAY) == pdTRUE) {
-            add_client(fd);
+        while (xQueueReceive(adopt_q, &a, client_count ? 0 : portMAX_DELAY) == pdTRUE) {
+            add_client(a.fd, a.events, a.types);
             if (client_count >= MAX_CLIENTS) break;
         }
 
@@ -391,10 +451,14 @@ static void ws_task(void *param) {
             bool ok = true;
             if (ready > 0 && FD_ISSET(c->fd, &rd)) ok = on_readable(c);
             ws_where = "push";
-            if (ok) ok = push_terminal(c);
-            if (ok) ok = push_mirror(c);
-            if (ok) ok = push_log_status(c);
-            if (ok) ok = push_debug(c);
+            if (c->events) {
+                if (ok) ok = push_events(c);
+            } else {
+                if (ok) ok = push_terminal(c);
+                if (ok) ok = push_mirror(c);
+                if (ok) ok = push_log_status(c);
+                if (ok) ok = push_debug(c);
+            }
             if (ok) ok = keepalive(c);
             if (!ok && c->fd >= 0) drop(c);
         }
@@ -450,7 +514,11 @@ static rtl1_result_t poll_plane(int p, uint8_t *buf) {
 
 int ws_clients(int *max) {
     if (max) *max = MAX_CLIENTS;
-    return client_count;
+    return client_count - event_count;
+}
+
+int ws_event_clients(void) {
+    return event_count;
 }
 
 void ws_debug_reset(void) {
@@ -545,23 +613,26 @@ static size_t mirror_json(char *out, size_t size) {
     return n > 0 && (size_t)n < size ? (size_t)n : 0;
 }
 
-bool ws_has_room(void) {
-    // A free slot in the shared budget, or a page to replace (see add_client); and handovers moving.
-    return (clients_used() < CLIENTS_MAX || client_count > 0) && uxQueueMessagesWaiting(adopt_q) < MAX_CLIENTS;
+bool ws_has_room(bool events) {
+    // A free slot in the shared budget, or a client of the same kind to replace (see add_client); and
+    // handovers moving.
+    const int same = events ? event_count : client_count - event_count;
+    return (clients_used() < CLIENTS_MAX || same > 0) && uxQueueMessagesWaiting(adopt_q) < MAX_CLIENTS;
 }
 
-bool ws_adopt(int fd) {
-    if (!ws_has_room()) return false;
+bool ws_adopt(int fd, bool events, uint32_t types) {
+    if (!ws_has_room(events)) return false;
     // Blocking sends with a bound, so one stalled browser can't hold the others up for long.
     const struct timeval snd = {.tv_sec = 0, .tv_usec = 500000};
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd, sizeof(snd));
     const struct timeval rcv = {.tv_sec = 0, .tv_usec = 0};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rcv, sizeof(rcv)); // select() says when to read
-    return xQueueSend(adopt_q, &fd, 0) == pdTRUE;
+    const adoption_t a = {fd, events, types};
+    return xQueueSend(adopt_q, &a, 0) == pdTRUE;
 }
 
 void ws_start(void) {
-    adopt_q = xQueueCreate(MAX_CLIENTS, sizeof(int));
+    adopt_q = xQueueCreate(MAX_CLIENTS, sizeof(adoption_t));
     snap_lock = xSemaphoreCreateMutex();
     xTaskCreate(ws_task, "ws", PLAT_STACK(WS_TASK_STACK), NULL, WS_TASK_PRIORITY, NULL);
     xTaskCreate(mirror_task, "mirror", PLAT_STACK(MIRROR_TASK_STACK), NULL, MIRROR_PRIORITY, &mirror_task_h);

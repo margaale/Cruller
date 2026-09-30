@@ -20,15 +20,25 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 void ws_start(void);
 
-// Takes over an HTTP connection after the 101 handshake (evicting the quietest client when full).
-// False (the caller closes it) only if handovers are backing up.
-bool ws_adopt(int fd);
+// /api/v1/events (docs/API.md), for Home Assistant and scripts: the same socket, but a client that
+// gets JSON text messages with a "type": first "hello" (the API's version, the types this Cruller
+// has, the ones it gets), then only the types it asked for (?types=, WS_EVENT_* in ws_proto.h; "state"
+// by default). "state" is the /api/v1/state JSON: at once, as soon as the RT4K is plugged in or out
+// or its power changes, and every minute. What it sends is ignored (reserved for messages a later v1
+// announces in "hello"), and it doesn't count as a page showing the screen.
+#define WS_EVENTS_MAX 2 // at most this many at once (a new one replaces the quietest)
 
-// Can a handover be queued?
-bool ws_has_room(void);
+// Takes over an HTTP connection after the 101 handshake, as a page or an events client with its event
+// types (evicting the quietest client of its kind when full). False (the caller closes it) only if
+// handovers are backing up.
+bool ws_adopt(int fd, bool events, uint32_t types);
+
+// Can a handover of this kind be queued?
+bool ws_has_room(bool events);
 
 // A remote key has gone out to the RT4K (console.c, from any sender): the mirror polls the menu soon
 // and times key -> screen (in ws_debug).
@@ -36,6 +46,9 @@ void ws_key_sent(void);
 
 // Connected clients (open pages), and the most allowed in *max.
 int ws_clients(int *max);
+
+// Connected /api/v1/events clients.
+int ws_event_clients(void);
 
 // Debug: zero the key -> screen and poll error counters (for a measurement run).
 void ws_debug_reset(void);

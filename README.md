@@ -226,7 +226,8 @@ curl -X POST http://cruller.local/api/v1/command -d '{"command": "ver"}'
 ```
 
 If a command couldn't be sent (the RT4K isn't connected), `ok` is `false` and the answer is a
-`503`. `GET /api/v1/state` returns the RT4K's power state and Cruller's own, and `GET /api/v1/info` who this Cruller is. The API is versioned: a script written for
+`503`. `GET /api/v1/state` returns the RT4K's power state and Cruller's own, `GET /api/v1/events`
+pushes it over a WebSocket as it changes, and `GET /api/v1/info` says who this Cruller is. The API is versioned: a script written for
 `/api/v1` keeps working as Cruller changes. All of it is in [docs/API.md](docs/API.md).
 
 **Discovery.** Cruller announces itself over mDNS as `_rt4k._tcp` (TXT `id`, `ver`, `api`: the API's

@@ -274,6 +274,8 @@ void http_debug_memory(char *out, size_t size) {
     const int ws_n = ws_clients(NULL), rfc_n = rfc2217_count(NULL);
     ADD("clients                 %d of %d, shared (see clients.h)\n", clients_used(), CLIENTS_MAX);
     ADD("  web pages (WebSocket)   %d (when full, a new one replaces the quietest page)\n", ws_n);
+    ADD("  API events (WebSocket)  %d of %d at most (a new one replaces the quietest)\n", ws_event_clients(),
+        WS_EVENTS_MAX);
     ADD("  RFC 2217 (port 2217)    %d (when full, a new one replaces the oldest RFC 2217 client)\n", rfc_n);
     ADD("  HTTP                    1 request at a time, %d more waiting\n", HTTP_BACKLOG);
     ADD("  SD card transfers       1 at a time on their own task, %d more waiting\n", XFER_QUEUE);
@@ -375,8 +377,8 @@ static void handle_debug_tcp(int fd) {
 size_t http_debug_memory_json(char *out, size_t size) {
     size_t o = 0;
 #define ADD(...) o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__)
-    ADD("{\"clients\":{\"used\":%d,\"max\":%d,\"web\":%d,\"rfc2217\":%d,\"http_waiting\":%d},\"pools\":[",
-        clients_used(), CLIENTS_MAX, ws_clients(NULL), rfc2217_count(NULL), HTTP_BACKLOG);
+    ADD("{\"clients\":{\"used\":%d,\"max\":%d,\"web\":%d,\"events\":%d,\"rfc2217\":%d,\"http_waiting\":%d},\"pools\":[",
+        clients_used(), CLIENTS_MAX, ws_clients(NULL), ws_event_clients(), rfc2217_count(NULL), HTTP_BACKLOG);
     for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
         const struct stats_mem m = pool_stats(pools[i].id);
         ADD("%s{\"name\":\"%s\",\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu}", i ? "," : "", pools[i].name,
@@ -394,7 +396,10 @@ size_t http_debug_memory_json(char *out, size_t size) {
 }
 
 // GET /ws: WebSocket upgrade; the connection then belongs to ws.c.
-static void handle_ws(request_t *r) {
+static bool form_field(const char *body, const char *name, char *out, size_t size);
+
+// GET /ws (the page) or GET /api/v1/events[?types=state,...] (events: Home Assistant, scripts; see ws.h).
+static void handle_ws(request_t *r, bool events, const char *query) {
     char upgrade[32], key[64], version[8];
     if (!get_header(r, "Upgrade", upgrade, sizeof(upgrade)) || strcasecmp(upgrade, "websocket") ||
         !get_header(r, "Sec-WebSocket-Key", key, sizeof(key)) ||
@@ -402,7 +407,7 @@ static void handle_ws(request_t *r) {
         respond(r->fd, 400, "Bad Request", "text/plain", "WebSocket upgrade expected\n");
         return;
     }
-    if (!ws_has_room()) {
+    if (!ws_has_room(events)) {
         respond(r->fd, 503, "Service Unavailable", "text/plain", "Too many WebSocket clients\n");
         return;
     }
@@ -412,7 +417,9 @@ static void handle_ws(request_t *r) {
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
         "Sec-WebSocket-Accept: %s\r\n\r\n", accept);
     send_all(r->fd, hdr, (size_t)n);
-    r->adopted = ws_adopt(r->fd);
+    char list[128];
+    const uint32_t types = query && form_field(query, "types", list, sizeof(list)) ? ws_event_types(list) : WS_EVENT_STATE;
+    r->adopted = ws_adopt(r->fd, events, types);
 }
 
 // GET /rt4k/xfer?cmd=osd|osd2|font: one RTL1 transfer, verified (CRC, sequence, SHA-256), as the
@@ -468,14 +475,14 @@ void http_status_json(char *body, size_t size) {
         "\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,"
         "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,\"rt4k_flow\":%s,"
         "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\","
-        "\"web_clients\":%d,\"rfc2217_count\":%d,\"clients_max\":%d,\"rfc2217_clients\":\"%s\"}",
+        "\"web_clients\":%d,\"event_clients\":%d,\"rfc2217_count\":%d,\"clients_max\":%d,\"rfc2217_clients\":\"%s\"}",
         CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), state_name(net_state()),
         ssid, net_ip(), net_rssi(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
         rt4k_flow_control() ? "true" : "false",
         (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
-        rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(NULL), rfc2217_count(NULL), CLIENTS_MAX,
-        rfc2217_ips);
+        rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(NULL), ws_event_clients(),
+        rfc2217_count(NULL), CLIENTS_MAX, rfc2217_ips);
     // An upload to the RT4K's SD card: "put":{"path","sent","size"} (the page's progress bar).
     char path[SD_PATH_MAX + 1], path_esc[2 * SD_PATH_MAX + 2];
     uint32_t sent, total;
@@ -1015,16 +1022,20 @@ static void handle_api_info(int fd) {
 }
 
 // GET /api/v1/state: the RT4K and Cruller, as they change, for polling (gently: requests are served one
-// at a time). Not the SVS: the SVS Bridge's own API tells it.
-static void handle_api_state(int fd) {
+// at a time) or pushed (/api/v1/events, ws.h). Not the SVS: the SVS Bridge's own API tells it.
+void http_api_state_json(char *body, size_t size) {
     rt4k_status_t rt;
     rt4k_get_status(&rt);
-    char body[256];
-    snprintf(body, sizeof(body),
+    snprintf(body, size,
         "{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"},"
         "\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d}}",
         rt.mounted ? "true" : "false", rt.mounted ? power_state_name(power_state()) : "unknown",
         CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), net_rssi());
+}
+
+static void handle_api_state(int fd) {
+    char body[256];
+    http_api_state_json(body, sizeof(body));
     respond(fd, 200, "OK", "application/json", body);
 }
 
@@ -1378,7 +1389,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read);
     else if (post && !strcmp(r->path, "/rt4k/cmd")) handle_rt4k_cmd(r);
     else if (get && !strcmp(r->path, "/rt4k/xfer")) handle_rt4k_xfer(r->fd, query);
-    else if (get && !strcmp(r->path, "/ws")) handle_ws(r);
+    else if (get && !strcmp(r->path, "/ws")) handle_ws(r, false, NULL);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
     else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
     else if (post && !strcmp(r->path, "/debug/baud")) {
@@ -1442,6 +1453,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/rt4k/get")) handle_rt4k_get(r, query);
     else if (get && !strcmp(r->path, "/api/v1/info")) handle_api_info(r->fd);
     else if (get && !strcmp(r->path, "/api/v1/state")) handle_api_state(r->fd);
+    else if (get && !strcmp(r->path, "/api/v1/events")) handle_ws(r, true, query);
     else if (post && (!strcmp(r->path, "/api/v1/command") || !strcmp(r->path, "/api/command"))) handle_api_command(r);
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;

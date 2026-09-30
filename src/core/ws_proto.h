@@ -30,6 +30,19 @@ typedef struct {
     size_t len;
 } ws_frame_t;
 
+// /api/v1/events' event types (docs/API.md, ws.h), as bits of a mask. A client gets only the types it
+// names in ?types=, so a type added later never reaches a client that didn't ask for it.
+#define WS_EVENT_STATE 0x1u  // "state": the /api/v1/state JSON
+#define WS_EVENTS_ALL  WS_EVENT_STATE
+
+// The types named in a comma-separated list ("state,later"; spaces around names allowed), names this
+// Cruller doesn't have left out.
+uint32_t ws_event_types(const char *list);
+
+// The names of the types in a mask, as a JSON array (["state"]; "[]" for none). Returns its length, or
+// 0 (and "") if it doesn't fit.
+size_t ws_event_names(uint32_t types, char *out, size_t size);
+
 // Parses one client frame at the start of buf. Returns the bytes it takes (> 0) and fills *f, 0 if
 // the frame isn't complete yet, or -1 if the stream is unusable (unmasked, fragmented, reserved
 // bits, or larger than max_payload): close the connection then.
