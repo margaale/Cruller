@@ -1086,6 +1086,7 @@ $('find').onclick = scan;
 
 // Cruller pushes the reports over the WebSocket (type 6) every 2 s while this page shows Debug.
 const samples = []; // {t, tx, rx}: from the status in each report, for the byte-rate charts
+const sensorSamples = []; // [average mV, lowest mV, °C × 10], 100 ms apart: the last 2 minutes
 const replyTimes = [];
 let toldDebug = null; // [socket, showing] last sent
 
@@ -1127,6 +1128,18 @@ function onDebug(kind, t) {
   samples.push({ t: Date.now(), tx: s.rt4k_tx, rx: s.rt4k_rx });
   if (samples.length > 61) samples.shift();
   st(s);
+
+  // The board's supply and temperature (the Pico 2 W; null on a board without them)
+  const sn = r.sensors;
+  $('p-sens').hidden = !sn;
+  if (sn) {
+    sensorSamples.push(...sn.samples);
+    if (sensorSamples.length > 1200) sensorSamples.splice(0, sensorSamples.length - 1200);
+    text('lg-sup', 'supply ' + (sn.supply_mv / 1000).toFixed(2) + ' V');
+    text('lg-temp', 'chip ' + (sn.temperature_dc / 10).toFixed(1) + ' °C');
+    text('sn-note', 'lowest since start ' + (sn.supply_min_mv / 1000).toFixed(2) + ' V · 5 V on USB: ' +
+      (sn.usb_power > 0 ? 'yes' : sn.usb_power === 0 ? 'no' : '?'));
+  }
 
   // Serial link
   const se = r.serial;
@@ -1235,40 +1248,65 @@ function copyJson() {
   navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => text('d-state', 'Copied'), () => text('d-state', 'Could not copy'));
 }
 
-// A line chart: series [{data, color}], y from 0 to a round maximum, labels on the left.
-function chart(id, series, unit) {
+// A line chart: series [{data, color, width, right}], y from 0 to a round maximum (or opts.range:
+// [low, high]), labels on the left. Series with `right` use a second axis, labelled on the right
+// (opts.right: {unit, range}).
+function chart(id, series, unit, opts = {}) {
   const c = $(id), r = c.getBoundingClientRect(), d = devicePixelRatio || 1;
   if (!r.width) return;
   c.width = Math.round(r.width * d);
   c.height = Math.round(r.height * d);
   const g = c.getContext('2d');
   g.scale(d, d);
-  const W = r.width, H = r.height, L = 40, T = 12, B = 20, R = 8;
-  let max = Math.max(1, ...series.flatMap((s) => s.data));
-  const step = Math.pow(10, Math.floor(Math.log10(max)));
-  max = Math.ceil(max / step) * step;
+  const W = r.width, H = r.height, L = 40, T = 12, B = 20, R = opts.right ? 44 : 8;
+  const axis = (list, range) => {
+    if (range) return range;
+    const max = Math.max(1, ...list.flatMap((s) => s.data));
+    const step = Math.pow(10, Math.floor(Math.log10(max)));
+    return [0, Math.ceil(max / step) * step];
+  };
+  const left = axis(series.filter((s) => !s.right), opts.range);
+  const right = opts.right && axis(series.filter((s) => s.right), opts.right.range);
+  const label = (v) => (Math.abs(v) >= 10 ? Math.round(v) : v.toFixed(1));
   g.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono');
   g.fillStyle = '#6B6F76';
   g.strokeStyle = '#23262B';
   for (let i = 0; i <= 3; i++) {
     const y = T + (H - T - B) * i / 3;
     g.beginPath(); g.moveTo(L, y); g.lineTo(W - R, y); g.stroke();
-    const v = max * (3 - i) / 3;
-    g.fillText(v >= 10 ? Math.round(v) : v.toFixed(1), 6, y + 3);
+    g.fillText(label(left[0] + (left[1] - left[0]) * (3 - i) / 3), 6, y + 3);
+    if (right) g.fillText(label(right[0] + (right[1] - right[0]) * (3 - i) / 3), W - R + 6, y + 3);
   }
   g.fillText(unit, 6, H - 5);
+  if (right) g.fillText(opts.right.unit, W - R + 6, H - 5);
   for (const s of series) {
     if (s.data.length < 2) continue;
+    const [lo, hi] = s.right ? right : left;
     g.strokeStyle = s.color;
-    g.lineWidth = 1.5;
+    g.lineWidth = s.width || 1.5;
     g.lineJoin = 'round';
     g.beginPath();
     s.data.forEach((v, i) => {
-      const x = L + (W - L - R) * i / (s.data.length - 1), y = T + (H - T - B) * (1 - v / max);
+      const x = L + (W - L - R) * i / (s.data.length - 1), y = T + (H - T - B) * (1 - (v - lo) / (hi - lo));
       if (i) g.lineTo(x, y); else g.moveTo(x, y);
     });
     g.stroke();
   }
+}
+
+// The supply (left, V) and the chip's temperature (right, °C): the last 2 minutes, 10 points a second.
+function drawSensors() {
+  if ($('p-sens').hidden || sensorSamples.length < 2) return;
+  const avgV = sensorSamples.map((s) => s[0] / 1000), lowV = sensorSamples.map((s) => s[1] / 1000);
+  const temp = sensorSamples.map((s) => s[2] / 10);
+  // 4.0-5.5 V (USB's 5 V less the input diode sits near 4.7-4.9), wider if the supply leaves it.
+  const vLo = Math.min(4, Math.floor(Math.min(...lowV) * 2) / 2), vHi = Math.max(5.5, Math.ceil(Math.max(...avgV) * 2) / 2);
+  const tLo = Math.floor(Math.min(...temp) / 5) * 5 - 5, tHi = Math.ceil(Math.max(...temp) / 5) * 5 + 5;
+  chart('ch-sens', [
+    { data: lowV, color: '#2E7D5B', width: 1 },
+    { data: avgV, color: '#4CC38A' },
+    { data: temp, color: '#E8618C', right: true },
+  ], 'V', { range: [vLo, vHi], right: { unit: '°C', range: [tLo, tHi] } });
 }
 
 function rates(key) {
@@ -1289,6 +1327,7 @@ function drawCharts() {
   chart('ch-tx', [{ data: tx, color: '#4CC38A' }], 'KB/s');
   chart('ch-rx', [{ data: rx, color: '#4CC38A' }], 'KB/s');
   chart('ch-lat', [{ data: keyTimes, color: '#E8618C' }, { data: replyTimes.slice().reverse(), color: '#C9CCD1' }], 'ms');
+  drawSensors();
 }
 
 // --- start ---------------------------------------------------------------------------------------------
