@@ -103,7 +103,11 @@ canvas#tv:fullscreen{border-radius:0}
 .fsbtn{position:absolute;right:10px;bottom:10px;width:38px;height:38px;padding:0;background:#000a;border-color:#ffffff30;border-radius:8px;color:#ECEAE4;opacity:0;transition:opacity .15s}
 .screen:hover .fsbtn,.fsbtn:focus-visible{opacity:1}
 @media (hover:none){.fsbtn{opacity:.8}}
-#veil{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#9a9a9a;font:600 1.3em var(--sans);background:#000d;border-radius:8px;pointer-events:none}
+#veil{position:absolute;inset:0;display:none;flex-direction:column;gap:16px;align-items:center;justify-content:center;color:#9a9a9a;font:600 1.3em var(--sans);background:#000d;border-radius:8px;pointer-events:none}
+#veil button{pointer-events:auto}
+/* The RT4K asleep, in a view that needs it on (sd.js, fw.js): why, and a way to turn it on. */
+.asleep{display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 16px;text-align:center;border-top:1px solid var(--rule);color:var(--soft);font-size:15px}
+.asleep p{margin:0;max-width:440px;line-height:1.5}
 .live{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--muted)}
 #rx{height:170px}
 /* The RT4K remote, laid out like the real one; big dark labels on light keys (design: RemoteA). */
@@ -213,7 +217,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div data-subview="live" class="stage">
 <div class="panel" style="grid-area:screen">
 <div class="row"><h2 class="grow">Screen</h2><span id="link" class="small">connecting</span><div class="live"><span class="dot bad"></span>LIVE</div></div>
-<div class="screen"><canvas id="tv" width="1280" height="720" title="Double-click for full screen"></canvas><div id="veil"></div>
+<div class="screen"><canvas id="tv" width="1280" height="720" title="Double-click for full screen"></canvas><div id="veil"><span id="veil-text"></span><button id="veil-on" class="primary" hidden>Turn the RT4K on</button></div>
 <button class="fsbtn" onclick="$('tv').requestFullscreen()" title="Full screen" aria-label="Full screen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button></div>
 </div>
 <div class="panel" style="grid-area:console">

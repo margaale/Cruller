@@ -88,6 +88,10 @@
   let loading = 0;         // the listing request that counts (later ones win)
   let failed = false;      // the last listing failed (retried when the RT4K comes on)
   let power = '';
+  let waking = false;      // "Turn the RT4K on" was clicked; waiting for it to start
+
+  // Asleep or waking up: the RT4K answers nothing but "pwr on" then, so no listing is tried.
+  const asleep = () => power === 'standby' || power === 'starting';
   let busy = false;        // an upload, new folder, rename or delete runs (one at a time)
   let onPut = null;        // the upload's progress, from each status's "put"
 
@@ -175,12 +179,28 @@
     q('sdc').innerHTML = html;
   }
 
+  // The RT4K asleep: in place of the folder, why there's none and a way to turn it on.
+  function showAsleep() {
+    const on = !asleep() || busy;
+    q('sdz').hidden = on;
+    q('sdtbl').hidden = !on;
+    if (on) return;
+    failed = true; // what it showed may not hold once it's back: read it again then
+    q('sde').hidden = true;
+    const starting = power === 'starting' || waking;
+    q('sdzt').textContent = starting ? 'The RT4K is starting. The folder shows up as soon as it answers.' :
+      'The RT4K is in standby. Its SD card can only be read with it on.';
+    q('sdzb').hidden = starting;
+    status('');
+    ['sdu', 'sdn', 'sdr'].forEach((id) => { q(id).disabled = true; });
+  }
+
   function render() {
     crumbs();
     document.querySelectorAll('#sd th[data-k]').forEach((th) => {
       th.setAttribute('aria-sort', th.dataset.k === sortKey ? (sortDesc ? 'descending' : 'ascending') : 'none');
     });
-    ['sdu', 'sdn', 'sdr'].forEach((id) => { q(id).disabled = busy; });
+    ['sdu', 'sdn', 'sdr'].forEach((id) => { q(id).disabled = busy || asleep(); });
     // No colspan: with the date column hidden (narrow screens) it would make a fourth, empty one.
     const up = dir ? '<tr class=up><td class=n><a href="' + hrefFor(dir.split('/').slice(0, -1).join('/')) + '">' +
       '<span class=ico>' + ICON.dir + '</span>..</a></td><td class=sz></td><td class=when></td><td></td></tr>' : '';
@@ -208,6 +228,16 @@
     const moved = d !== dir;
     dir = d;
     crumbs();
+    if (asleep()) { // read once it's on (onStatus)
+      failed = true;
+      entries = [];
+      total = 0;
+      q('sdt').innerHTML = '';
+      showAsleep();
+      if (note) status(...note);
+      return;
+    }
+    showAsleep();
     if (!note) status('Reading the SD card…');
     try {
       const got = await listing(d);
@@ -225,6 +255,7 @@
       total = 0;
       q('sdt').innerHTML = '';
       q('sde').hidden = true;
+      if (asleep() && !note) return showAsleep(); // it went to sleep meanwhile: that says it all
       // An operation's failure says more than the listing's.
       status(note && note[1] ? note[0] : e.message === 'Failed to fetch' ? 'Cruller did not answer.' : e.message, true);
     }
@@ -259,7 +290,7 @@
 
   async function upload(fileList) {
     const files = [...fileList];
-    if (!files.length || busy || dir === null) return;
+    if (!files.length || busy || dir === null || asleep()) return;
     for (const f of files) {
       const clash = entries.find((e) => sameName(e.name, f.name));
       const p = problemHere(f.name, clash && !clash.dir ? clash : undefined); // a file it replaces is fine
@@ -298,7 +329,7 @@
   }
 
   async function newFolder() {
-    if (busy || dir === null) return;
+    if (busy || dir === null || asleep()) return;
     const answer = await window.askText('New folder', dir ? 'In ' + dir : 'In the root of the SD card', '', 'Create');
     const name = answer === null ? '' : answer.trim();
     if (!name) return;
@@ -346,15 +377,22 @@
       '<input type=file id=sdf multiple hidden>' +
       '<div id=sds class=small></div>' +
       '<div id=sdp class=sdp hidden><div id=sdpt class="small mono"></div><progress id=sdpb></progress></div>' +
-      '<table class=files>' +
+      '<table class=files id=sdtbl>' +
       '<thead><tr><th data-k=name>Name</th><th data-k=size class="num cs sz">Size</th><th data-k=mtime class="num cw when">Modified</th><th class=ca></th></tr></thead>' +
       '<tbody id=sdt></tbody></table><div id=sde class=empty hidden>This folder is empty</div>' +
-      '<div class=small>The RT4K has to be on to read its SD card. Drop files here to upload them to this folder. ' +
+      '<div id=sdz class=asleep hidden><p id=sdzt></p><button id=sdzb class=primary>Turn the RT4K on</button></div>' +
+      '<div class=small>Drop files here to upload them to this folder. ' +
       'Transfers go at about 100 KB/s (a 4 MB .rbf takes some 45 s), one after another.</div></div>';
     q('sdr').onclick = () => list(dir || '');
     q('sdu').onclick = () => q('sdf').click();
     q('sdf').onchange = () => { const files = [...q('sdf').files]; q('sdf').value = ''; upload(files); };
     q('sdn').onclick = newFolder;
+    q('sdzb').onclick = () => {
+      if (!window.rt4kWake()) return status('Cruller did not answer.', true);
+      waking = true; // until the status says it's starting
+      showAsleep();
+      setTimeout(() => { if (waking) { waking = false; showAsleep(); } }, 10000); // it didn't take: offer it again
+    };
     q('sdt').onclick = (ev) => {
       const b = ev.target.closest('button[data-a]');
       const e = b && shown[+b.dataset.i];
@@ -375,7 +413,7 @@
     // Files dropped on the panel go to the folder it shows.
     const panel = q('sdbox');
     panel.addEventListener('dragover', (ev) => {
-      if (busy || !ev.dataTransfer.types.includes('Files')) return;
+      if (busy || asleep() || !ev.dataTransfer.types.includes('Files')) return;
       ev.preventDefault();
       panel.classList.add('drop');
     });
@@ -401,13 +439,16 @@
     list(dirFromParts(parts || []));
   }
 
-  // Every status: an upload's progress, and a listing that failed because the RT4K slept is read
-  // again once it's on.
+  // Every status: an upload's progress; the RT4K going to sleep or waking up (turned on here, from
+  // the page's remote or with its own remote): the folder is read again once it's on.
   function onStatus(s) {
     if (onPut && s.put) onPut(s.put);
     const was = power;
     power = s.rt4k_power;
-    if (failed && !busy && was && was !== 'on' && power === 'on' && dir !== null && !q('sd').hidden) list(dir);
+    if (power !== 'standby') waking = false; // starting (or on): the status says so from now on
+    if (!q('sdt') || was === power) return;
+    if (failed && !busy && power === 'on' && dir !== null && !q('sd').hidden) list(dir);
+    else if (!busy) { showAsleep(); if (!asleep()) render(); }
   }
 
   window.sdOpen = open;

@@ -90,9 +90,11 @@ function st(s) {
   showPower(s.rt4k_power);
   if (window.fwPutProgress) window.fwPutProgress(s.put); // the firmware updater's progress bar (fw.js)
   if (window.sdStatus) window.sdStatus(s); // the SD card view reads the folder again once the RT4K is on
+  if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;
-  text('rt4k-chip', usb ? 'RT4K · ' + power + (fwVersion ? ' · firmware ' + fwVersion : '') : 'RT4K not connected');
+  // Its firmware as it last said it, which Cruller keeps while it sleeps.
+  text('rt4k-chip', usb ? 'RT4K · ' + power + (s.rt4k_fw ? ' · firmware ' + s.rt4k_fw : '') : 'RT4K not connected');
   $('rt4k-dot').className = 'dot ' + (!usb ? 'bad' : s.rt4k_power === 'on' ? 'ok' : 'warn');
   text('wifi-chip', s.ssid + (s.rssi ? ' · ' + s.rssi + ' dBm' : ''));
   text('chip-ver', 'v' + s.version);
@@ -532,20 +534,13 @@ function showUptime() {
 }
 setInterval(showUptime, 1000);
 
-// The RT4K's own version, for the header chip: asked once through the console (see fw.js's ask()).
-let fwVersion = '';
-async function askVersion() {
-  if (askVersion.busy) return;
-  askVersion.busy = true;
-  setTimeout(() => { askVersion.busy = false; }, 30000); // at most every 30 s while it doesn't answer
-  try {
-    const r = await fetch('/rt4k/ask?expect=FW%20Version', { method: 'POST', body: 'ver' });
-    const m = (await r.text()).match(/FW Version:\s*(\S+)/);
-    if (m) { fwVersion = m[1]; st(S); }
-  } catch (e) { /* off or busy: the chip just goes without it */ }
-}
-
 // --- power: veil over the screen, and what the power key does -----------------------------------------
+
+// Turns the RT4K on: the live screen's veil, the SD card view and the firmware updater offer it.
+function wake() {
+  return send('pwr on');
+}
+window.rt4kWake = wake; // fw.js, sd.js
 
 function showPower(power) {
   const link = $('link');
@@ -554,8 +549,9 @@ function showPower(power) {
     link.textContent = 'connected' + (what ? ', ' + what : '');
   }
   const veil = $('veil');
-  veil.textContent = power === 'standby' ? 'RT4K in standby' : power === 'starting' ? 'RT4K starting…' : '';
-  veil.style.display = veil.textContent ? 'flex' : 'none';
+  text('veil-text', power === 'standby' ? 'RT4K in standby' : power === 'starting' ? 'RT4K starting…' : '');
+  $('veil-on').hidden = power !== 'standby';
+  veil.style.display = power === 'standby' || power === 'starting' ? 'flex' : 'none';
   const pwr = document.querySelector('.remote .pwr');
   if (power === 'standby') {
     pwr.dataset.c = 'pwr on';
@@ -566,8 +562,8 @@ function showPower(power) {
     pwr.dataset.confirm = 'Turn the RT4K off?';
     pwr.title = 'Turn the RT4K off';
   }
-  if (power === 'on' && !fwVersion) askVersion();
 }
+$('veil-on').onclick = () => { if (wake()) blink(); };
 
 // --- log and console text -----------------------------------------------------------------------------
 

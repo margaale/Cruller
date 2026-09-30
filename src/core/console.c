@@ -11,6 +11,7 @@
 #include "platform.h"
 #include "power.h"
 #include "rt4k.h"
+#include "rt4k_info.h"
 #include "ws.h"
 
 #define CONSOLE_TASK_STACK    512
@@ -57,6 +58,7 @@ static void route(const char *text) {
     plat_lock_exit(&lock);
     if (owner != CON_BROADCAST && console_task_h) xTaskNotifyGive(console_task_h); // may close its window
     power_feed_line(text);
+    rt4k_info_line(text);
     if (owner != CON_POWER && owner != CON_QUERY && owner != CON_FILES) { // the web terminal: all but Cruller's own
         rt4k_term_push((const uint8_t *)text, strlen(text));
         rt4k_term_push((const uint8_t *)"\n", 1);

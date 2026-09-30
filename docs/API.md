@@ -69,14 +69,18 @@ What doesn't change while Cruller runs (a rename restarts it). Read once, when s
 What changes: the RT4K's and Cruller's own.
 
 ```json
-{"rt4k": {"connected": true, "power": "on"},
- "cruller": {"sw_version": "0.4.4", "uptime_s": 3600, "rssi": -52,
+{"rt4k": {"connected": true, "power": "on", "firmware": "1.89.0", "model": "RT4K_Pro"},
+ "cruller": {"sw_version": "0.5.0", "uptime_s": 3600, "rssi": -52,
              "supply_v": 4.84, "supply_min_v": 4.71, "usb_power": true, "temperature_c": 31.4}}
 ```
 
 - `rt4k.connected`: the RT4K is plugged in and its USB link is up.
 - `rt4k.power`: `on`, `standby`, `starting` (it was asked to power on and hasn't shown it yet), or
   `unknown` (not connected, or not known yet). How Cruller knows: [DESIGN.md](DESIGN.md#power-state).
+- `rt4k.firmware`, `rt4k.model` (since 0.5.0): the RT4K's firmware version and its model, as it
+  last said them (its `ver` and `model` replies). Cruller asks each time the RT4K comes on and keeps
+  them across restarts, so they're here while it sleeps too. Each is left out until Cruller has seen
+  it once; they stay when the RT4K is unplugged (the last one it saw).
 - The SVS switch isn't here: its state comes from the SVS Bridge itself (its own API and Home
   Assistant integration), not through Cruller. Cruller 0.4.2 also had an `svs` key here.
 - `cruller.sw_version`: Cruller's version, the running one (it changes with an update).
@@ -110,8 +114,8 @@ websocat 'ws://cruller.local/api/v1/events?types=state'
   `types` (every type this Cruller can send) and `subscribed` (the ones this socket gets). Then only
   events of the subscribed types.
 - **`state`:** the same object as `GET /api/v1/state`. It comes at once, as soon as something in it
-  changes (today: the RT4K plugged in or out, its power), and at least every 60 s (for `uptime_s` and
-  `rssi`).
+  changes (today: the RT4K plugged in or out, its power, its firmware or model), and at least every
+  60 s (for `uptime_s` and `rssi`).
 - **Types:** names Cruller doesn't have are left out of `subscribed`, so a client can ask for a type
   a later Cruller adds and see in `hello` whether this one sends it.
 - **The client's messages:** reserved. Today they're ignored (commands go through

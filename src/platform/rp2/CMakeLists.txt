@@ -58,6 +58,8 @@ target_sources(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core/power_core.c
     ${CRULLER_ROOT}/src/core/rfc2217.c
     ${CRULLER_ROOT}/src/core/rfc2217_proto.c
+    ${CRULLER_ROOT}/src/core/rt4k_info.c
+    ${CRULLER_ROOT}/src/core/rt4k_info_core.c
     ${CRULLER_ROOT}/src/core/rtl1.c
     ${CRULLER_ROOT}/src/core/rtl1_core.c
     ${CRULLER_ROOT}/src/core/settings.c

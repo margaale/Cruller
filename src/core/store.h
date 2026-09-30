@@ -1,4 +1,5 @@
-// Small records kept across restarts: the Wi-Fi credentials (creds.c) and the settings (settings.c).
+// Small records kept across restarts: the Wi-Fi credentials (creds.c), the settings (settings.c) and
+// the RT4K's firmware version and model (rt4k_info.c).
 // A save replaces a record whole; a power cut in the middle leaves the previous copy. Each target
 // keeps them its own way (rp2: two alternating flash sectors per record).
 
@@ -10,6 +11,7 @@
 typedef enum {
     STORE_CREDS,
     STORE_SETTINGS,
+    STORE_RT4K,
     STORE_KEYS,
 } store_key_t;
 

@@ -15,6 +15,8 @@ idf_component_register(
         ${CORE}/power_core.c
         ${CORE}/rfc2217.c
         ${CORE}/rfc2217_proto.c
+        ${CORE}/rt4k_info.c
+        ${CORE}/rt4k_info_core.c
         ${CORE}/rt4k_stub.c # the RT4K's USB host comes next
         ${CORE}/rtl1.c
         ${CORE}/rtl1_core.c

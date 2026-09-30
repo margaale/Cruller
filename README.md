@@ -124,7 +124,7 @@ while it's on.
 ### The RetroTINK tab
 
 - **Live screen**: the RT4K's menu as it looks on your TV (see the screenshot at the top of this
-  page). It stops polling while the RT4K is in standby.
+  page). It stops polling while the RT4K is in standby, and offers to turn it on.
 - **Remote**: every key of the RT4K's remote. The power key asks before turning the RT4K off. While
   this tab is open, your keyboard's arrows, Enter, Escape (back) and Tab (menu) work too.
 - **Console**: type any RT4K serial command, such as `remote menu` or `ver`. You see the replies to
@@ -141,14 +141,19 @@ repository lists, and unzips it. Cruller writes the files to the RT4K's SD card 
 update and restarts, which takes about 40 s. Keep the page open, and don't turn the RT4K off while
 it installs.
 
+The RT4K can be in standby: the installed version is the one Cruller saw the last time it was on
+(it keeps it across restarts), and **Download and install** offers to turn it on. The zip downloads
+while it starts, and the files go to the card once it answers.
+
 #### SD card
 
 ![The SD card view: the RT4K's card, with upload, new folder, rename and delete](docs/images/sd-card.png)
 
 Browse the RT4K's SD card, download files, upload them (with the button, or by dropping them on the
 list), make folders, rename, and delete files or whole folders. Transfers go at about 100 KB/s, so a
-4 MB `.rbf` takes some 45 s, one after another. The RT4K has to be on. It has no clock, so files
-written over the network are dated 2020-01-01.
+4 MB `.rbf` takes some 45 s, one after another. The RT4K has to be on: in standby the view says so
+and offers to turn it on, then shows the folder as soon as it answers (turning it on with its own
+remote works too). It has no clock, so files written over the network are dated 2020-01-01.
 
 ### The SVS tab
 
@@ -187,7 +192,8 @@ mirror, tasks), and the logs.
 **Home Assistant.** Install the [Cruller integration](https://github.com/margaale/cruller-hacs)
 through HACS (as a custom repository). Home Assistant finds Cruller on your network by itself, as
 "Cruller" or by its name. You get the RT4K as a remote (power it on and off, press its keys, send
-console commands), its power state and whether it's plugged in, for your automations. The SVS
+console commands), its power state, its firmware version and model, and whether it's plugged in,
+for your automations. The SVS
 switch's input comes from the [SVS Bridge's integration](https://github.com/margaale/svs-bridge-hacs).
 To load an SVS profile (`/profile/SVS/S3_….rt4`, with "Auto Load SVS" on), send the RT4K the same
 line the switch does:
@@ -255,8 +261,9 @@ and install it again.
   Cruller's IP address from your router instead.
 - **The page says "RT4K not connected".** Check that the OTG adapter supplies power, and that the
   cable carries data: a charge-only cable looks exactly like no device.
-- **The RT4K shows as "Standby".** It's asleep: the power key on the page's remote wakes it. The SD
-  card and firmware updates need it on.
+- **The RT4K shows as "Standby".** It's asleep: **Turn the RT4K on** (on the screen, in the SD card
+  view) or the power key on the page's remote wakes it. Reading the SD card and writing an update to
+  it need it on.
 - **`Cruller_Setup` appeared again.** Cruller couldn't join your network when it started (the router
   was off, say) and waits in setup mode. Restart it once the network is back, or set it up again.
 - **An update from GitHub failed.** The page says why and offers the image to download, so you can
