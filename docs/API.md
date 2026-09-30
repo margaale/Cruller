@@ -70,7 +70,8 @@ What changes: the RT4K's and Cruller's own.
 
 ```json
 {"rt4k": {"connected": true, "power": "on"},
- "cruller": {"sw_version": "0.4.1", "uptime_s": 3600, "rssi": -52}}
+ "cruller": {"sw_version": "0.4.4", "uptime_s": 3600, "rssi": -52,
+             "supply_v": 4.84, "supply_min_v": 4.71, "usb_power": true, "temperature_c": 31.4}}
 ```
 
 - `rt4k.connected`: the RT4K is plugged in and its USB link is up.
@@ -80,6 +81,14 @@ What changes: the RT4K's and Cruller's own.
   Assistant integration), not through Cruller. Cruller 0.4.2 also had an `svs` key here.
 - `cruller.sw_version`: Cruller's version, the running one (it changes with an update).
   `cruller.uptime_s`: seconds since it started. `cruller.rssi`: the Wi-Fi signal, in dBm.
+- The board's own sensors, only on a board that has them (the Pico 2 W, since 0.4.4; the ESP32-S3
+  leaves them out), so a client shows each only when it's there:
+  - `cruller.supply_v`: the supply, in volts: the Pico 2 W's VSYS, USB's 5 V less its input diode
+    (~0.3 V), so ~4.7-4.9 V on a good 5 V supply. Sampled 10 times a second; this is the last sample.
+  - `cruller.supply_min_v`: the lowest single read since it started. A supply that sags when the RT4K
+    draws more (switching inputs) shows here, and sags that deep reset the board.
+  - `cruller.usb_power`: whether USB brings it 5 V (false: powered through VSYS).
+  - `cruller.temperature_c`: the chip's temperature, in °C (its own sensor, ±a few degrees).
 
 ### GET /api/v1/events
 

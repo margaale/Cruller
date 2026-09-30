@@ -68,6 +68,7 @@ typedef struct {
     bool debug;                   // the page shows its Debug tab: gets MSG_DEBUG
     uint32_t last_debug_ms;       // 0 = send right away
     uint32_t con_seq;             // Debug's serial log: the next console line to send (console_read_line)
+    uint32_t sensor_seq;          // Debug's sensor chart: the last sample sent (health_sensor_samples)
     bool events;                  // an /api/v1/events client, not a page (ws.h)
     uint32_t types;               // its event types (WS_EVENT_*, ws_proto.h)
     bool greeted;                 // it got its "hello"
@@ -230,18 +231,26 @@ static bool push_debug(client_t *c) {
     size_t o = (size_t)snprintf(out, size, "{\"status\":");
     http_status_json(out + o, size - o);
     o += strlen(out + o);
-    static const char *const keys[] = {",\"serial\":", ",\"mirror\":", ",\"console\":", ",\"memory\":"};
-    for (int k = 0; k < 4; k++) {
+    static const char *const keys[] = {",\"serial\":", ",\"mirror\":", ",\"console\":", ",\"memory\":", ",\"sensors\":"};
+    const uint32_t sensor_seq = c->sensor_seq; // the sensors take their new samples: given back if the round is skipped
+    for (int k = 0; k < 5; k++) {
         const size_t kl = strlen(keys[k]);
         if (o + kl + 2 >= size) return true; // doesn't fit: skip this round rather than send half
         memcpy(out + o, keys[k], kl + 1);
         o += kl;
         const size_t n = k == 0 ? rt4k_debug_json(out + o, size - o) : k == 1 ? mirror_json(out + o, size - o)
-            : k == 2 ? console_debug_json(out + o, size - o) : http_debug_memory_json(out + o, size - o);
-        if (!n) return true;
+            : k == 2 ? console_debug_json(out + o, size - o) : k == 3 ? http_debug_memory_json(out + o, size - o)
+            : http_debug_sensors_json(out + o, size - o, &c->sensor_seq);
+        if (!n) {
+            c->sensor_seq = sensor_seq;
+            return true;
+        }
         o += n;
     }
-    if (o + 2 >= size) return true;
+    if (o + 2 >= size) {
+        c->sensor_seq = sensor_seq;
+        return true;
+    }
     out[o++] = '}';
     tx[16] = MSG_DEBUG;
     tx[17] = 5; // kind 5: the JSON report (see ws.h)

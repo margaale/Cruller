@@ -88,6 +88,7 @@ static void main_task(void *param) {
     printf("CYW43 up in %lu ms, on core %u\n", (unsigned long)(ms_since_boot() - t0),
         (unsigned)async_context_core_num(cyw43_arch_async_context()));
     health_start_net_probe();
+    health_start_sensors();
     status_led_start();
     console_start(); // before rt4k_start(): the rt4k task feeds them text from the start
     power_start();

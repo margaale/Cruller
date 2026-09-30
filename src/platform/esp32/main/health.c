@@ -141,6 +141,21 @@ void health_stop_net_probe(void) {
     last_reply_ms = 0;
 }
 
+// Sensors: the DevKit has no supply divider; its chip temperature isn't wired up (yet).
+void health_start_sensors(void) {}
+
+bool health_sensors(health_sensors_t *out) {
+    (void)out;
+    return false;
+}
+
+size_t health_sensor_samples(uint32_t *seq, health_sample_t *out, size_t max) {
+    (void)seq;
+    (void)out;
+    (void)max;
+    return 0;
+}
+
 // Self-test: holds lwIP's core lock for `seconds`, as the network freezes looked on rp2.
 static void wedge_task(void *param) {
     const uint32_t seconds = (uint32_t)(uintptr_t)param;

@@ -7,7 +7,9 @@
 #include "task.h"
 #include "semphr.h"
 #include "timers.h"
+#include "hardware/adc.h"
 #include "hardware/regs/addressmap.h"
+#include "hardware/sync.h"
 #include "hardware/structs/qmi.h"
 #include "hardware/structs/scb.h"
 #include "hardware/timer.h"
@@ -175,6 +177,94 @@ void health_rearm_watchdog(void) {
 void health_start_net_probe(void) {
     ping_gate = xSemaphoreCreateMutex();
     xTaskCreate(ping_task, "ping", 512, NULL, WDT_TASK_PRIORITY, NULL);
+}
+
+// --- sensors (health.h) --------------------------------------------------------------------------
+// VSYS/3 is on GPIO29 (ADC3), which is also the CYW43's SPI clock: it's read with the CYW43's lock
+// held, and the driver takes the pin back at its next transfer (as pico-examples' power_status does).
+
+#define SENSOR_PERIOD_MS 100
+#define SUPPLY_BURST     256 // reads per sample, ~2 µs each: ~0.5 ms holding the CYW43
+#define SAMPLE_RING      32u // power of two; a Debug report (every 2 s) takes 20
+#define TEMP_EVERY       10  // samples: the temperature once a second
+
+static health_sample_t samples[SAMPLE_RING];
+static volatile uint32_t sample_seq;       // samples ever taken (samples[(seq - 1) % SAMPLE_RING] is the newest)
+static volatile uint32_t supply_lowest_mv = UINT32_MAX;
+static volatile int8_t usb_power = -1;
+static volatile bool temperature_known;
+static volatile int32_t temperature_dc;
+
+static uint32_t adc_to_mv(uint32_t raw) {
+    return raw * 3300u / 4096u; // 12 bits over the 3.3 V reference
+}
+
+static void sensors_task(void *param) {
+    (void)param;
+    adc_init();
+    adc_set_temp_sensor_enabled(true);
+    for (uint32_t n = 0;; n++) {
+        cyw43_thread_enter();
+        const bool vbus = cyw43_arch_gpio_get(CYW43_WL_GPIO_VBUS_PIN); // also wakes it: its clock line goes quiet
+        adc_gpio_init(PICO_VSYS_PIN);
+        adc_select_input(PICO_VSYS_PIN - ADC_BASE_PIN);
+        for (int i = 0; i < 3; i++) (void)adc_read(); // the first reads after switching come out low
+        uint32_t sum = 0, lowest = 0xfff;
+        for (int i = 0; i < SUPPLY_BURST; i++) {
+            const uint32_t v = adc_read();
+            sum += v;
+            if (v < lowest) lowest = v;
+        }
+        cyw43_thread_exit();
+        const uint32_t avg_mv = 3 * adc_to_mv(sum / SUPPLY_BURST), min_mv = 3 * adc_to_mv(lowest); // VSYS/3
+        if (n % TEMP_EVERY == 0) {
+            // RP2350 datasheet: 0.706 V at 27 °C, -1.721 mV per °C.
+            adc_select_input(NUM_ADC_CHANNELS - 1);
+            (void)adc_read();
+            uint32_t t = 0;
+            for (int i = 0; i < 16; i++) t += adc_read();
+            const int32_t uv = (int32_t)(t * 3300000ull / 4096u / 16u);
+            temperature_dc = 270 - (uv - 706000) * 10 / 1721;
+            temperature_known = true;
+        }
+        usb_power = vbus;
+        if (min_mv < supply_lowest_mv) supply_lowest_mv = min_mv;
+        health_sample_t *s = &samples[sample_seq % SAMPLE_RING];
+        s->supply_mv = (uint16_t)avg_mv;
+        s->supply_min_mv = (uint16_t)min_mv;
+        s->temperature_dc = (int16_t)temperature_dc;
+        __dmb(); // the sample before its number
+        sample_seq++;
+        vTaskDelay(pdMS_TO_TICKS(SENSOR_PERIOD_MS));
+    }
+}
+
+void health_start_sensors(void) {
+    xTaskCreate(sensors_task, "sensors", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
+}
+
+bool health_sensors(health_sensors_t *out) {
+    const uint32_t seq = sample_seq;
+    *out = (health_sensors_t){.usb_power = -1};
+    if (!seq) return true; // not sampled yet: nothing known
+    out->supply = true;
+    out->supply_mv = samples[(seq - 1) % SAMPLE_RING].supply_mv;
+    out->supply_min_mv = supply_lowest_mv;
+    out->usb_power = usb_power;
+    out->temperature = temperature_known;
+    out->temperature_dc = temperature_dc;
+    return true;
+}
+
+size_t health_sensor_samples(uint32_t *seq, health_sample_t *out, size_t max) {
+    if (max > SAMPLE_RING - 1) max = SAMPLE_RING - 1; // the oldest slot may be being rewritten
+    const uint32_t newest = sample_seq;
+    uint32_t from = *seq;
+    if (newest - from > max || from > newest) from = newest > max ? newest - max : 0; // behind, or from before a reset
+    size_t n = 0;
+    for (uint32_t k = from; k != newest; k++) out[n++] = samples[k % SAMPLE_RING];
+    *seq = newest;
+    return n;
 }
 
 // --- self-test ---------------------------------------------------------------------------------
