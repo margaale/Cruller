@@ -137,3 +137,50 @@ long ws_parse(uint8_t *buf, size_t len, size_t max_payload, ws_frame_t *f) {
     f->len = (size_t)plen;
     return (long)(pos + 4 + plen);
 }
+
+// --- /api/v1/events' types -----------------------------------------------------------------------
+
+static const char *const event_names[] = {"state"}; // bit i of a mask is event_names[i]
+#define EVENT_TYPES (sizeof(event_names) / sizeof(event_names[0]))
+
+uint32_t ws_event_types(const char *list) {
+    uint32_t types = 0;
+    for (const char *p = list; p && *p;) {
+        while (*p == ' ' || *p == ',') p++;
+        const char *end = p;
+        while (*end && *end != ',') end++;
+        size_t n = (size_t)(end - p);
+        while (n && p[n - 1] == ' ') n--;
+        for (size_t i = 0; i < EVENT_TYPES; i++) {
+            if (n && n == strlen(event_names[i]) && !strncmp(p, event_names[i], n)) types |= 1u << i;
+        }
+        p = end;
+    }
+    return types;
+}
+
+// Appends s to out (n bytes so far); false if it doesn't fit with the NUL.
+static int put(char *out, size_t size, size_t *n, const char *s) {
+    const size_t l = strlen(s);
+    if (*n + l >= size) return 0;
+    memcpy(out + *n, s, l + 1);
+    *n += l;
+    return 1;
+}
+
+size_t ws_event_names(uint32_t types, char *out, size_t size) {
+    size_t n = 0;
+    int ok = size > 0 && put(out, size, &n, "[");
+    for (size_t i = 0, first = 1; ok && i < EVENT_TYPES; i++) {
+        if (!(types & (1u << i))) continue;
+        ok = (first || put(out, size, &n, ",")) && put(out, size, &n, "\"") && put(out, size, &n, event_names[i]) &&
+            put(out, size, &n, "\"");
+        first = 0;
+    }
+    ok = ok && put(out, size, &n, "]");
+    if (!ok) {
+        if (size) out[0] = 0;
+        return 0;
+    }
+    return n;
+}

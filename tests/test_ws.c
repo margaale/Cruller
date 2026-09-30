@@ -170,6 +170,36 @@ static void test_parse_rejects_too_large(void) {
 
 // --- runner ------------------------------------------------------------------------------------
 
+// --- /api/v1/events' types ---------------------------------------------------------------------
+
+static void test_event_types(void) {
+    CHECK(ws_event_types("state") == WS_EVENT_STATE);
+    CHECK(ws_event_types("state,later") == WS_EVENT_STATE); // a type this Cruller doesn't have: left out
+    CHECK(ws_event_types(" later , state ") == WS_EVENT_STATE);
+    CHECK(ws_event_types("state,state") == WS_EVENT_STATE);
+    CHECK(ws_event_types("later") == 0);
+    CHECK(ws_event_types("") == 0);
+    CHECK(ws_event_types(",, ,") == 0);
+    CHECK(ws_event_types("stat") == 0);
+    CHECK(ws_event_types("states") == 0);
+    CHECK(ws_event_types("State") == 0); // names are lowercase, exactly
+}
+
+static void test_event_names(void) {
+    char out[32];
+    CHECK(ws_event_names(WS_EVENT_STATE, out, sizeof(out)) == 9);
+    CHECK(!strcmp(out, "[\"state\"]"));
+    CHECK(ws_event_names(0, out, sizeof(out)) == 2);
+    CHECK(!strcmp(out, "[]"));
+    CHECK(ws_event_names(0x80000000u | WS_EVENT_STATE, out, sizeof(out)) == 9); // bits without a name: left out
+    CHECK(!strcmp(out, "[\"state\"]"));
+    CHECK(ws_event_names(WS_EVENTS_ALL, out, sizeof(out)) > 2);
+    char small[9]; // one short of ["state"] and its NUL
+    CHECK(ws_event_names(WS_EVENT_STATE, small, sizeof(small)) == 0);
+    CHECK(small[0] == 0);
+    CHECK(ws_event_names(WS_EVENT_STATE, small, 0) == 0);
+}
+
 #define T(fn) {#fn, fn}
 static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_sha1_vectors),
@@ -187,6 +217,8 @@ static const struct { const char *name; void (*fn)(void); } tests[] = {
     T(test_parse_rejects_fragments),
     T(test_parse_rejects_reserved_bits),
     T(test_parse_rejects_too_large),
+    T(test_event_types),
+    T(test_event_names),
 };
 
 int main(void) {
