@@ -14,6 +14,7 @@
 #include "lwip/tcpip.h"
 #include "lwip/priv/tcp_priv.h" // /debug/tcp: lwIP's PCB lists
 
+#include "buttons.h"
 #include "creds.h"
 #include "health.h"
 #include "freeze.h"
@@ -1033,8 +1034,8 @@ static void handle_api_state(int fd) {
 // For automations (Home Assistant...): console commands in, their own replies out, through the same
 // queue as everything else (console.c), so they never get another sender's replies. Body:
 //   {"command": "remote menu"}   {"commands": ["remote menu", "remote down"]}   {"button": "menu"}
-// or plain text, one command per line. "button" takes the remote's names as hass-RT4K sends them:
-// "menu" -> "remote menu"; "power_on" -> "pwr on"; "power_off" / "power" -> "remote pwr".
+// or plain text, one command per line. "button" takes the remote's names as hass-RT4K sends them
+// (buttons.h): "menu" -> "remote menu"; "diagnostics" -> "remote diag"; "power_on" -> "pwr on".
 // Answer: {"ok":true,"power":"on","results":[{"command":"ver","sent":true,"reply":["[COM] ..."]}]}
 
 #define API_MAX_COMMANDS 8
@@ -1064,16 +1065,6 @@ static const char *json_key(const char *body, const char *key) {
     snprintf(k, sizeof(k), "\"%s\"", key);
     const char *p = strstr(body, k);
     return p ? p + strlen(k) : NULL;
-}
-
-static void button_command(const char *button, char *out, size_t size) {
-    char b[48];
-    size_t n = 0;
-    for (; button[n] && n + 1 < sizeof(b); n++) b[n] = (char)tolower((unsigned char)button[n]);
-    b[n] = 0;
-    if (!strcmp(b, "power_on") || !strcmp(b, "pwr_on")) snprintf(out, size, "pwr on");
-    else if (!strcmp(b, "power_off") || !strcmp(b, "power") || !strcmp(b, "pwr")) snprintf(out, size, "remote pwr");
-    else snprintf(out, size, "remote %s", b);
 }
 
 typedef struct {
@@ -1109,7 +1100,7 @@ static void handle_api_command(request_t *r) {
         } else if ((p = json_key(text, "command")) && json_string(p, cmds[0], API_CMD_MAX)) {
             count = 1;
         } else if ((p = json_key(text, "button")) && json_string(p, v, sizeof(v))) {
-            button_command(v, cmds[0], API_CMD_MAX);
+            buttons_command(v, cmds[0], API_CMD_MAX);
             count = 1;
         }
     } else {

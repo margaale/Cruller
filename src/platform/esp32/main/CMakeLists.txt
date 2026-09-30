@@ -3,6 +3,7 @@ set(CORE ${CRULLER_ROOT}/src/core)
 
 idf_component_register(
     SRCS
+        ${CORE}/buttons.c
         ${CORE}/clients.c
         ${CORE}/console.c
         ${CORE}/console_core.c

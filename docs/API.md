@@ -89,8 +89,11 @@ command's replies apart from everyone else's: [DESIGN.md](DESIGN.md#rt4k-console
 
 - `{"command": "ver"}`
 - `{"commands": ["remote menu", "remote down"]}` (up to 8, in order)
-- `{"button": "menu"}`, with hass-RT4K's button names: `power_on` (`pwr on`), `power_off` or
-  `power` (`remote pwr`), and the rest as `remote <name>` (`menu`, `up`…)
+- `{"button": "menu"}`, with hass-RT4K's button names, in any case: `power_on` (`pwr on`),
+  `power_off` or `power` (`remote pwr`), the RT4K's own keys as `remote <key>` (`menu`, `up`, `ok`,
+  `diag`, `prof1`…), and hass-RT4K's other names as the key they stand for (`enter` → `remote ok`,
+  `diagnostics` → `remote diag`, `profile1` → `remote prof1`, `1080p` → `remote res1080p`…; the list
+  is in `src/core/buttons.c`)
 - plain text, one command per line
 
 ```bash
