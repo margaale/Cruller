@@ -46,6 +46,7 @@ target_compile_definitions(littlefs PUBLIC LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WAR
 # Common code (src/core) and the Pico 2 W target (src/platform/rp2, see src/platform/platform.h).
 add_library(cruller_app INTERFACE)
 target_sources(cruller_app INTERFACE
+    ${CRULLER_ROOT}/src/core/buttons.c
     ${CRULLER_ROOT}/src/core/clients.c
     ${CRULLER_ROOT}/src/core/console.c
     ${CRULLER_ROOT}/src/core/console_core.c
