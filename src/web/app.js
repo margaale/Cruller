@@ -1303,7 +1303,7 @@ function drawSensors() {
   const vLo = Math.min(4, Math.floor(Math.min(...lowV) * 2) / 2), vHi = Math.max(5.5, Math.ceil(Math.max(...avgV) * 2) / 2);
   const tLo = Math.floor(Math.min(...temp) / 5) * 5 - 5, tHi = Math.ceil(Math.max(...temp) / 5) * 5 + 5;
   chart('ch-sens', [
-    { data: lowV, color: '#2E7D5B', width: 1 },
+    { data: lowV, color: '#F0B44C', width: 1 }, // --warn: the dips stand out
     { data: avgV, color: '#4CC38A' },
     { data: temp, color: '#E8618C', right: true },
   ], 'V', { range: [vLo, vHi], right: { unit: '°C', range: [tLo, tHi] } });
