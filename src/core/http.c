@@ -395,6 +395,22 @@ size_t http_debug_memory_json(char *out, size_t size) {
     return o < size ? o : 0;
 }
 
+size_t http_debug_sensors_json(char *out, size_t size, uint32_t *seq) {
+    health_sensors_t hs;
+    if (!health_sensors(&hs) || !hs.supply) return (size_t)snprintf(out, size, "null") < size ? 4 : 0;
+    health_sample_t s[24];
+    const size_t n = health_sensor_samples(seq, s, sizeof(s) / sizeof(s[0]));
+    size_t o = 0;
+#define ADD(...) o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__)
+    ADD("{\"supply_mv\":%lu,\"supply_min_mv\":%lu,\"usb_power\":%d,\"temperature_dc\":%ld,\"samples\":[",
+        (unsigned long)hs.supply_mv, (unsigned long)hs.supply_min_mv, hs.usb_power, (long)hs.temperature_dc);
+    // Oldest first, 100 ms apart: [average mV, lowest mV, temperature in tenths of °C].
+    for (size_t i = 0; i < n; i++) ADD("%s[%u,%u,%d]", i ? "," : "", s[i].supply_mv, s[i].supply_min_mv, s[i].temperature_dc);
+    ADD("]}");
+#undef ADD
+    return o < size ? o : 0;
+}
+
 // GET /ws: WebSocket upgrade; the connection then belongs to ws.c.
 static bool form_field(const char *body, const char *name, char *out, size_t size);
 
@@ -1026,15 +1042,32 @@ static void handle_api_info(int fd) {
 void http_api_state_json(char *body, size_t size) {
     rt4k_status_t rt;
     rt4k_get_status(&rt);
-    snprintf(body, size,
-        "{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"},"
-        "\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d}}",
+    size_t n = 0;
+#define ADD(...) n += (size_t)snprintf(body + n, n < size ? size - n : 0, __VA_ARGS__)
+    ADD("{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"},"
+        "\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d",
         rt.mounted ? "true" : "false", rt.mounted ? power_state_name(power_state()) : "unknown",
         CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), net_rssi());
+    // The board's own sensors (health.h), each only where it has it.
+    health_sensors_t hs;
+    if (health_sensors(&hs)) {
+        if (hs.supply) {
+            const uint32_t cv = (hs.supply_mv + 5) / 10, min_cv = (hs.supply_min_mv + 5) / 10; // centivolts
+            ADD(",\"supply_v\":%lu.%02lu,\"supply_min_v\":%lu.%02lu", (unsigned long)(cv / 100), (unsigned long)(cv % 100),
+                (unsigned long)(min_cv / 100), (unsigned long)(min_cv % 100));
+        }
+        if (hs.usb_power >= 0) ADD(",\"usb_power\":%s", hs.usb_power ? "true" : "false");
+        if (hs.temperature) {
+            const int32_t t = hs.temperature_dc;
+            ADD(",\"temperature_c\":%s%ld.%ld", t < 0 ? "-" : "", (long)(t < 0 ? -t : t) / 10, (long)(t < 0 ? -t : t) % 10);
+        }
+    }
+    ADD("}}");
+#undef ADD
 }
 
 static void handle_api_state(int fd) {
-    char body[256];
+    char body[384];
     http_api_state_json(body, sizeof(body));
     respond(fd, 200, "OK", "application/json", body);
 }
@@ -1506,6 +1539,18 @@ static void handle(request_t *r) {
         respond(r->fd, 200, "OK", "text/plain", "Freezing the network for 60 s\n");
         vTaskDelay(pdMS_TO_TICKS(300)); // let the response leave
         health_wedge_network(60);
+    }
+    else if (post && !strcmp(r->path, "/debug/fault")) {
+        // POST /debug/fault?kind=task|flash: self-test of the fault reports (health_fault_test). The
+        // board resets within ~10 s; the log then has the HardFault lines and the freeze record.
+        char kind[8] = "";
+        const char *k = query ? strstr(query, "kind=") : NULL;
+        if (k) snprintf(kind, sizeof(kind), "%.*s", (int)strcspn(k + 5, "&"), k + 5);
+        if (health_fault_test(kind)) { // it faults in a moment: the response leaves first
+            respond(r->fd, 200, "OK", "text/plain", "Faulting; the board resets within ~10 s\n");
+        } else {
+            respond(r->fd, 400, "Bad Request", "text/plain", "kind=task, or kind=flash on the Pico 2 W\n");
+        }
     }
     else if (net_state() == NET_PORTAL || via_portal(r->fd)) redirect(r->fd, "http://192.168.4.1/"); // captive portal probes
     else respond(r->fd, 404, "Not Found", "text/plain", "Not found\n");

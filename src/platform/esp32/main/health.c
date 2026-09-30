@@ -141,6 +141,21 @@ void health_stop_net_probe(void) {
     last_reply_ms = 0;
 }
 
+// Sensors: the DevKit has no supply divider; its chip temperature isn't wired up (yet).
+void health_start_sensors(void) {}
+
+bool health_sensors(health_sensors_t *out) {
+    (void)out;
+    return false;
+}
+
+size_t health_sensor_samples(uint32_t *seq, health_sample_t *out, size_t max) {
+    (void)seq;
+    (void)out;
+    (void)max;
+    return 0;
+}
+
 // Self-test: holds lwIP's core lock for `seconds`, as the network freezes looked on rp2.
 static void wedge_task(void *param) {
     const uint32_t seconds = (uint32_t)(uintptr_t)param;
@@ -154,4 +169,18 @@ static void wedge_task(void *param) {
 
 void health_wedge_network(uint32_t seconds) {
     xTaskCreate(wedge_task, "wedge", PLAT_STACK(512), (void *)(uintptr_t)seconds, tskIDLE_PRIORITY + 2, NULL);
+}
+
+// Self-test of the fault reports: ESP-IDF's panic handler prints the fault and restarts.
+static void fault_task(void *param) {
+    (void)param;
+    vTaskDelay(pdMS_TO_TICKS(300)); // the request's answer leaves first
+    *(volatile uint32_t *)0 = 0;
+    for (;;) vTaskDelay(portMAX_DELAY);
+}
+
+bool health_fault_test(const char *kind) {
+    if (strcmp(kind, "task")) return false; // "flash": the Pico 2 W's QMI only
+    xTaskCreate(fault_task, "fault", PLAT_STACK(512), NULL, tskIDLE_PRIORITY + 2, NULL);
+    return true;
 }

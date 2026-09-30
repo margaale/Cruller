@@ -116,6 +116,7 @@ target_link_libraries(cruller_app INTERFACE
     pico_rand # main.c: seeded before the scheduler
     pico_unique_id
     boot_uf2_headers
+    hardware_adc # health.c: the supply and the chip's temperature
     hardware_exception # freeze.c: the sampler's NMI handler
     hardware_flash
     littlefs
