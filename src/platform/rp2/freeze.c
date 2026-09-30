@@ -224,16 +224,18 @@ static size_t format_core(int c, uint32_t newest, char *out, size_t size) {
     }
     const fault_t *f = &rec.core[c].fault;
     if (f->taken && o < size) {
-        char names[96], flash[48];
+        char names[96], flash[48], mmfar[12] = "-", bfar[12] = "-"; // the addresses only when valid
         cfsr_names(f->cfsr, names, sizeof(names));
+        if (f->cfsr & (1u << 7)) snprintf(mmfar, sizeof(mmfar), "%08lx", (unsigned long)f->mmfar);
+        if (f->cfsr & (1u << 15)) snprintf(bfar, sizeof(bfar), "%08lx", (unsigned long)f->bfar);
         if (f->flash == FLASH_OK) snprintf(flash, sizeof(flash), "reads fine");
         else if (f->flash == FLASH_WRONG) snprintf(flash, sizeof(flash), "reads WRONG (%08lx)", (unsigned long)f->flash_word);
         else if (f->flash == FLASH_DIRECT) snprintf(flash, sizeof(flash), "in direct mode (a flash write)");
         else snprintf(flash, sizeof(flash), "not read");
         o += (size_t)snprintf(out + o, size - o,
-            "core %d fault: pc=%08lx lr=%08lx xpsr=%08lx cfsr=%08lx (%s) hfsr=%08lx mmfar=%08lx bfar=%08lx; flash %s\n",
+            "core %d fault: pc=%08lx lr=%08lx xpsr=%08lx cfsr=%08lx (%s) hfsr=%08lx mmfar=%s bfar=%s; flash %s\n",
             c, (unsigned long)f->pc, (unsigned long)f->lr, (unsigned long)f->xpsr, (unsigned long)f->cfsr, names,
-            (unsigned long)f->hfsr, (unsigned long)f->mmfar, (unsigned long)f->bfar, flash);
+            (unsigned long)f->hfsr, mmfar, bfar, flash);
     }
     return o < size ? o : size - 1;
 }

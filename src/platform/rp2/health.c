@@ -220,7 +220,9 @@ bool health_fault_test(const char *kind) {
 }
 
 // --- faults ------------------------------------------------------------------------------------
-// Log where it happened and spin; the watchdog resets the board and the log survives the reset.
+// Log where it happened, stop feeding the watchdog, and spin: the watchdog resets the board and the
+// log survives the reset. Without the stop, the other core kept feeding it: the board stayed up with
+// one core dead (and the RT4K's USB with it, on core 1), found by /debug/fault?kind=task.
 // All of it runs from RAM and reads nothing in flash (not even a string literal): a handler in flash
 // can't run when the fault came from flash failing, and the core locks up instead (both cores did,
 // the freeze record showed; see freeze.c).
@@ -238,6 +240,7 @@ static char fault_line[2][160] = {
 const uint32_t *volatile health_fault_frame[2];
 
 void __attribute__((used)) __not_in_flash_func(hardfault_report)(const uint32_t *frame) {
+    rebooting = true; // the feeder (wdt_task) stops, on whichever core it runs
     const uint core = get_core_num();
     health_fault_frame[core] = frame;
     // Fault status: CFSR (MMFSR|BFSR|UFSR), HFSR, and the faulting addresses if valid.

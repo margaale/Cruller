@@ -34,9 +34,11 @@ static uint32_t ms_since_boot(void) {
     return to_ms_since_boot(get_absolute_time());
 }
 
-// What reset the chip last (POWMAN CHIP_RESET). A supply dip shows as a brown-out, or as a power-on
-// when the supply went all the way down; the log (kept in RAM) survives neither.
-static const char *reset_cause(uint32_t r) {
+// The last chip-level reset (POWMAN CHIP_RESET). A supply dip shows as a brown-out, or as a power-on
+// when the supply went all the way down; the log (kept in RAM) survives neither. Watchdog resets
+// leave these flags as they were (0.4.4-pr.92 said "brown-out" after an OTA's reboot), so they tell
+// the last power event even then.
+static const char *chip_reset_cause(uint32_t r) {
     if (r & POWMAN_CHIP_RESET_HAD_POR_BITS) return "power-on";
     if (r & POWMAN_CHIP_RESET_HAD_BOR_BITS) return "brown-out";
     if (r & POWMAN_CHIP_RESET_HAD_RUN_LOW_BITS) return "RUN pin";
@@ -55,9 +57,14 @@ static const char *reset_cause(uint32_t r) {
 
 static void main_task(void *param) {
     (void)param;
-    const uint32_t chip_reset = powman_hw->chip_reset;
-    printf("\nCruller %s, boot partition %d (%s boot), reset: %s (0x%08lx)\n", CRULLER_VERSION, ota_boot_partition(),
-        ota_last_boot_type(), reset_cause(chip_reset), (unsigned long)chip_reset);
+    // This reset: the watchdog's (its reason survives it; a chip-level reset clears it), else the chip's.
+    const uint32_t wd = watchdog_hw->reason;
+    const uint32_t chip = powman_hw->chip_reset;
+    const char *cause = wd & WATCHDOG_REASON_TIMER_BITS ? "watchdog timeout"
+        : wd & WATCHDOG_REASON_FORCE_BITS              ? "reboot (watchdog, forced)"
+                                                       : chip_reset_cause(chip);
+    printf("\nCruller %s, boot partition %d (%s boot), reset: %s, last power reset: %s (0x%08lx)\n", CRULLER_VERSION,
+        ota_boot_partition(), ota_last_boot_type(), cause, chip_reset_cause(chip), (unsigned long)chip);
 
     health_start(ota_is_trial_boot());
     freeze_start();
