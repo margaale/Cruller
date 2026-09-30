@@ -58,10 +58,12 @@ static const char *chip_reset_cause(uint32_t r) {
 static void main_task(void *param) {
     (void)param;
     // This reset: the watchdog's (its reason survives it; a chip-level reset clears it), else the chip's.
-    const uint32_t wd = watchdog_hw->reason;
+    // A hang or a fault times out the watchdog that health_start() armed (watchdog_enable() marks its
+    // scratch register); a restart, an update or the boot ROM reboot through it on purpose. Read before
+    // health_start() arms it again.
     const uint32_t chip = powman_hw->chip_reset;
-    const char *cause = wd & WATCHDOG_REASON_TIMER_BITS ? "watchdog timeout"
-        : wd & WATCHDOG_REASON_FORCE_BITS              ? "reboot (watchdog, forced)"
+    const char *cause = watchdog_enable_caused_reboot() ? "watchdog timeout (a hang or a fault)"
+        : watchdog_hw->reason                          ? "reboot"
                                                        : chip_reset_cause(chip);
     printf("\nCruller %s, boot partition %d (%s boot), reset: %s, last power reset: %s (0x%08lx)\n", CRULLER_VERSION,
         ota_boot_partition(), ota_last_boot_type(), cause, chip_reset_cause(chip), (unsigned long)chip);
