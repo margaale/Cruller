@@ -155,3 +155,17 @@ static void wedge_task(void *param) {
 void health_wedge_network(uint32_t seconds) {
     xTaskCreate(wedge_task, "wedge", PLAT_STACK(512), (void *)(uintptr_t)seconds, tskIDLE_PRIORITY + 2, NULL);
 }
+
+// Self-test of the fault reports: ESP-IDF's panic handler prints the fault and restarts.
+static void fault_task(void *param) {
+    (void)param;
+    vTaskDelay(pdMS_TO_TICKS(300)); // the request's answer leaves first
+    *(volatile uint32_t *)0 = 0;
+    for (;;) vTaskDelay(portMAX_DELAY);
+}
+
+bool health_fault_test(const char *kind) {
+    if (strcmp(kind, "task")) return false; // "flash": the Pico 2 W's QMI only
+    xTaskCreate(fault_task, "fault", PLAT_STACK(512), NULL, tskIDLE_PRIORITY + 2, NULL);
+    return true;
+}

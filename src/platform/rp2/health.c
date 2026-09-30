@@ -7,6 +7,9 @@
 #include "task.h"
 #include "semphr.h"
 #include "timers.h"
+#include "hardware/regs/addressmap.h"
+#include "hardware/structs/qmi.h"
+#include "hardware/structs/scb.h"
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
@@ -192,48 +195,68 @@ void health_wedge_network(uint32_t seconds) {
     xTaskCreate(wedge_task, "wedge", 256, (void *)(uintptr_t)seconds, tskIDLE_PRIORITY + 2, NULL);
 }
 
+// --- self-test of the fault reports ------------------------------------------------------------
+// In RAM, since the "flash" kind stops flash answering under it.
+
+static void __not_in_flash_func(fault_task)(void *param) {
+    vTaskDelay(pdMS_TO_TICKS(300)); // the request's answer leaves first
+    if (param) {
+        // In the QMI's direct mode (a flash write's), every XIP access is a bus error: flash stops
+        // answering the way it does when its chip browns out. This read faults first; the other core
+        // faults on its next read from flash.
+        qmi_hw->direct_csr |= QMI_DIRECT_CSR_EN_BITS;
+        (void)*(const volatile uint32_t *)XIP_NOCACHE_NOALLOC_BASE;
+    } else {
+        __asm volatile("udf #0"); // an undefined instruction: a UsageFault, escalated to a HardFault
+    }
+    for (;;) __asm volatile("nop");
+}
+
+bool health_fault_test(const char *kind) {
+    const bool flash = !strcmp(kind, "flash");
+    if (!flash && strcmp(kind, "task")) return false;
+    xTaskCreate(fault_task, "fault", 256, flash ? (void *)1 : NULL, configMAX_PRIORITIES - 2, NULL);
+    return true;
+}
+
 // --- faults ------------------------------------------------------------------------------------
 // Log where it happened and spin; the watchdog resets the board and the log survives the reset.
+// All of it runs from RAM and reads nothing in flash (not even a string literal): a handler in flash
+// can't run when the fault came from flash failing, and the core locks up instead (both cores did,
+// the freeze record showed; see freeze.c).
 
-static void hex32(char *out, uint32_t v) {
-    for (int i = 7; i >= 0; i--, v >>= 4) out[i] = "0123456789abcdef"[v & 15];
+static void __not_in_flash_func(hex32)(char *out, uint32_t v) {
+    for (int i = 7; i >= 0; i--, v >>= 4) out[i] = (char)((v & 15) < 10 ? '0' + (v & 15) : 'a' + (v & 15) - 10);
 }
 
-static void log_reg(const char *name, uint32_t v) {
-    char buf[24];
-    size_t n = strlen(name);
-    memcpy(buf, name, n);
-    buf[n++] = '=';
-    hex32(buf + n, v);
-    buf[n + 8] = ' ';
-    buf[n + 9] = 0;
-    log_write_raw(buf);
-}
+// One per core (they can fault at once), filled in place: each '=' is followed by a value, in order.
+static char fault_line[2][160] = {
+    [0 ... 1] = "\n*** HardFault core ? pc=........ lr=........ r0=........ r1=........ r2=........ r3=........ "
+                "cfsr=........ hfsr=........ mmfar=........ bfar=........\n",
+};
 
-void __attribute__((used)) hardfault_report(const uint32_t *frame) {
+const uint32_t *volatile health_fault_frame[2];
+
+void __attribute__((used)) __not_in_flash_func(hardfault_report)(const uint32_t *frame) {
+    const uint core = get_core_num();
+    health_fault_frame[core] = frame;
     // Fault status: CFSR (MMFSR|BFSR|UFSR), HFSR, and the faulting addresses if valid.
-    const uint32_t cfsr = *(volatile uint32_t *)0xE000ED28u;
-    const uint32_t hfsr = *(volatile uint32_t *)0xE000ED2Cu;
-    const uint32_t mmfar = *(volatile uint32_t *)0xE000ED34u;
-    const uint32_t bfar = *(volatile uint32_t *)0xE000ED38u;
-    log_write_raw("\n*** HardFault core ");
-    log_write_raw(get_core_num() ? "1 " : "0 ");
-    log_reg("pc", frame[6]);
-    log_reg("lr", frame[5]);
-    log_reg("r0", frame[0]);
-    log_reg("r1", frame[1]);
-    log_reg("r2", frame[2]);
-    log_reg("r3", frame[3]);
-    log_reg("cfsr", cfsr);
-    log_reg("hfsr", hfsr);
-    log_reg("mmfar", mmfar);
-    log_reg("bfar", bfar);
-    log_write_raw("\n");
+    const uint32_t values[] = {frame[6], frame[5], frame[0], frame[1], frame[2], frame[3], scb_hw->cfsr, scb_hw->hfsr,
+        scb_hw->mmfar, scb_hw->bfar};
+    char *line = fault_line[core];
+    char *p = line;
+    while (*p != '?') p++;
+    *p = (char)('0' + core);
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+        while (*p != '=') p++;
+        hex32(++p, values[i]);
+    }
+    log_write_raw(line);
     for (;;) __asm volatile("nop");
 }
 
 // Picks the stack the exception frame was pushed to (MSP or PSP) and hands it to the C code.
-void __attribute__((naked)) isr_hardfault(void) {
+void __attribute__((naked, section(".time_critical.isr_hardfault"))) isr_hardfault(void) {
     __asm volatile(
         "tst lr, #4       \n"
         "ite eq           \n"

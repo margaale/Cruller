@@ -21,7 +21,7 @@ static log_state_t __uninitialized_ram(st);
 
 static critical_section_t lock;
 
-static inline void put(const char *buf, uint32_t len) {
+static __force_inline void put(const char *buf, uint32_t len) {
     for (uint32_t i = 0; i < len; i++) st.ring[(st.head + i) & (LOG_SIZE - 1)] = buf[i];
     st.head += len;
     st.check = LOG_MAGIC ^ st.head;
@@ -54,8 +54,13 @@ void log_init(void) {
     stdio_set_driver_enabled(&log_driver, true);
 }
 
-void log_write_raw(const char *s) {
-    put(s, (uint32_t)strlen(s));
+// In RAM, and no strlen() (it's in flash): the HardFault handler logs with it when flash has failed.
+// One loop copies and counts: a loop that only counted, GCC turns into a strlen() call.
+void __not_in_flash_func(log_write_raw)(const char *s) {
+    uint32_t n = 0;
+    for (; s[n]; n++) st.ring[(st.head + n) & (LOG_SIZE - 1)] = s[n];
+    st.head += n;
+    st.check = LOG_MAGIC ^ st.head;
 }
 
 size_t log_read(uint32_t *pos, char *out, size_t max) {
