@@ -8,6 +8,7 @@
 static const char *const keys[STORE_KEYS] = {
     [STORE_CREDS] = "creds",
     [STORE_SETTINGS] = "settings",
+    [STORE_RT4K] = "rt4k",
 };
 
 bool store_load(store_key_t key, void *out, size_t size) {

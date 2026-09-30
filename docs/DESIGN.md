@@ -62,7 +62,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 | ws | 2 | any | WebSocket clients: terminal, mirror planes, log, status |
 | mirror | 2 | any | polls the RT4K's OSD planes for the page's screen mirror |
 | rfc2217 | 2 | any | RFC 2217 server on port 2217 |
-| power | 2 | any | RT4K power state probes |
+| power | 2 | any | RT4K power state probes; asks its firmware and model when it comes on, and keeps them |
 | wdt, ping | 2 | any | watchdog feeder; gateway pings (no traffic for 10 s: let the watchdog reset) |
 | led | 1 | any | status LED |
 | tcpip_thread | 1 | any | lwIP (SDK) |
@@ -85,6 +85,10 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 ### Power state
 
 `src/core/power_core.c` (pure, host-tested) follows what the RT4K shows: any `[COM]` reply means on, `Power On Requested` means starting, `Serial Remote: pwr` or unanswered polls and probes mean standby. It probes with `ver`, which a sleeping RT4K ignores without waking: every 5 s in standby, every second while starting, and after 10 s without a sign of life when on. The mirror stops polling while the RT4K sleeps. (The line break an RT4K is said to produce when it powers down never showed up over USB.)
+
+### The RT4K's firmware and model
+
+`src/core/rt4k_info_core.c` (pure, host-tested) reads the RT4K's firmware version (`ver`'s `FW Version:`) and model (`model=`) from every reply, whoever asked: the power probe that notices it's on is a `ver`, so usually only `model` is left. Each time the RT4K comes on it asks what it hasn't heard since, one question at a time, 3 tries each. `rt4k_info.c` keeps them in `store.h` (`STORE_RT4K`, sectors 4 and 5 of the data partition on the Pico), written only once both answers are in and only when they differ from the kept copy: a restart, or the same firmware again, writes nothing. So the page (the firmware view, the header chip) and `/api/v1/state` have them while the RT4K sleeps; the page's status says whether they're from since it last came on (`rt4k_fw_fresh`). The firmware updater still asks `model` itself before writing: the kept copy is for showing, not for picking the `.rbf`.
 
 ## Interfaces
 
@@ -171,7 +175,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 
 ## Testing
 
-- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, RFC 2217 parsing, console reply windows, the GitHub download's URLs and reply heads, the page's JavaScript (syntax), the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses, which names it takes).
+- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, the RT4K's firmware and model (what's asked, what's kept), RFC 2217 parsing, console reply windows, the GitHub download's URLs and reply heads, the page's JavaScript (syntax), the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses, which names it takes).
 - **On the bench:** `cruller_bench` (not built by default) has the USB port as a serial console and no RT4K link.
 - **On the board behind the RT4K:** OTA only. `/debug/tasks` has the link counters (FT232R overruns, key -> screen times), `/debug/console` the last commands' reply times, and `/debug/freeze` where both cores were before a watchdog reset (kept across it).
 

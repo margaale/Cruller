@@ -3,7 +3,8 @@
 // The browser does the heavy lifting: it reads RetroTINK's firmware index on GitHub, downloads the
 // chosen zip, checks it against the SHA-256 in the index, unzips it and hashes every file. Cruller
 // then writes each file to the RT4K's SD card (POST /rt4k/put, RTL1 put) and runs the RT4K's own
-// installer (fwup check / fwup go) once the user confirms.
+// installer (fwup check / fwup go) once the user confirms. All of it but the writing works with the
+// RT4K asleep: the installed version comes from what Cruller kept, and an install turns it on.
 
 (() => {
   'use strict';
@@ -11,9 +12,14 @@
   const RAW = 'https://raw.githubusercontent.com/RetroTINK-LLC/firmware/main/';
   const CHANNELS = [['Experimental', '4k-experimental.md'], ['Release', '4k.md']];
   const RBF_PREFIXES = ['rt4k_', 'rt4kce_', 'rt6x_']; // one .rbf per model in each zip
+  const PWR_BOOT_MS = 90000; // how long it may take to come on (Cruller's PWR_BOOT_GIVE_UP_MS)
 
   const q = (id) => document.getElementById(id);
-  let installed = null; // {version, model}
+  // The RT4K's firmware and model as it last said them: Cruller keeps them while it sleeps (the
+  // status's rt4k_fw, rt4k_model; rt4k_fw_fresh: said since it last came on).
+  let installed = { version: '', model: '', fresh: false };
+  let power = '';
+  let onPower = null;   // install() waiting for the RT4K to come on
   let busy = false;
   const channels = {}; // name -> [{version, date, url, sha, changelog}]
 
@@ -174,30 +180,76 @@
 
   function showVersions() {
     const list = channels[q('fwc').value] || [];
+    const keep = q('fwv').value;
     q('fwv').innerHTML = '';
     list.forEach((f, i) => {
       const o = document.createElement('option');
       o.value = i;
-      o.textContent = f.version + ' (' + f.date + ')' + (installed && installed.version === f.version ? ' - installed' : '');
+      o.textContent = f.version + ' (' + f.date + ')' + (installed.version === f.version ? ' - installed' : '');
       q('fwv').appendChild(o);
     });
+    if (keep && +keep < list.length) q('fwv').value = keep;
     showChangelog();
   }
 
   function showChangelog() {
     const f = selected();
     q('fwl').textContent = f ? f.changelog : '';
-    q('fwi').disabled = busy || !f || !installed;
+    q('fwi').disabled = busy || !f;
+  }
+
+  // What's installed, from what Cruller kept; and whether it's from now or from before it slept.
+  function showInstalled() {
+    const h = q('fwh');
+    if (!h) return;
+    const on = power === 'on';
+    if (!installed.version) {
+      h.textContent = on ? 'Asking the RT4K for its version…' :
+        'Cruller learns the RT4K\'s version the first time it sees it on.';
+      return;
+    }
+    h.textContent = 'Installed: ' + installed.version + (installed.model ? ' on ' + installed.model.replace(/_/g, ' ') : '') +
+      (installed.fresh ? '' : on ? ' (checking…)' : ' (as of when it was last on)');
+  }
+
+  // Every status: the RT4K's firmware, model and power.
+  function onStatus(s) {
+    power = s.rt4k_power;
+    const was = installed;
+    installed = { version: s.rt4k_fw || '', model: s.rt4k_model || '', fresh: !!s.rt4k_fw_fresh };
+    showInstalled();
+    if (was.version !== installed.version && q('fwv')) showVersions();
+    if (onPower && power === 'on') onPower();
+  }
+
+  // Resolves once the RT4K is on; turns it on first when it's in standby.
+  function whenOn(ms) {
+    if (power === 'on') return Promise.resolve();
+    if (power === 'standby') window.rt4kWake();
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => { onPower = null; reject(new Error('the RT4K did not come on')); }, ms);
+      onPower = () => { clearTimeout(t); onPower = null; resolve(); };
+    });
   }
 
   async function install() {
     const f = selected();
     if (!f || busy) return;
+    // Asleep: turned on now, so it boots while the zip downloads; only the writing needs it.
+    if (power === 'standby' && !(await window.askUser('Turn the RT4K on and install ' + f.version + '?',
+      'It\'s in standby. Cruller turns it on and downloads the firmware meanwhile; the files go to its SD card once it answers.',
+      'Turn on and install'))) return;
+    if (busy) return;
     busy = true;
     q('fwi').disabled = true;
     q('fwsteps').hidden = false;
     STEPS.forEach(([id]) => step(id, 'wait'));
     status('');
+    let on = null;
+    if (power === 'standby' || power === 'starting') {
+      on = whenOn(PWR_BOOT_MS);
+      on.catch(() => {}); // awaited below, once the zip is in
+    }
     try {
       step('dl', 'run', 'starting…', 0, 0);
       const zip = await download(f.url, (got, total) => step('dl', 'run', mb(got) + (total ? ' of ' + mb(total) : ''), got, total));
@@ -207,8 +259,16 @@
       const zsha = sha256(zip);
       if (zsha !== f.sha) throw new Error('the download does not match the SHA-256 in RetroTINK\'s index');
       step('chk', 'done', zsha.slice(0, 12) + '… matches');
-      const entries = zipEntries(zip).filter((e) => wanted(e.name, installed.model));
-      if (!entries.some((e) => e.name.toLowerCase() === 'rt4kup.bin')) throw new Error('no rt4kup.bin in the zip');
+      const all = zipEntries(zip);
+      if (!all.some((e) => e.name.toLowerCase() === 'rt4kup.bin')) throw new Error('no rt4kup.bin in the zip');
+      if (on) {
+        step('wr', 'run', 'waiting for the RT4K to come on…', 0, 0);
+        await on;
+      }
+      // Its model decides which .rbf goes: asked now, not taken from what Cruller kept.
+      step('wr', 'run', 'asking the RT4K its model…', 0, 0);
+      const model = (await ask('model', 'model=', 5000)).split(' ').slice(1).join(' ');
+      const entries = all.filter((e) => wanted(e.name, model));
       // rt4kup.bin last: it names the .rbf to install, so it must not arrive before the .rbf does.
       entries.sort((a, b) => (a.name.toLowerCase() === 'rt4kup.bin') - (b.name.toLowerCase() === 'rt4kup.bin'));
       const total = entries.reduce((s, e) => s + e.size, 0);
@@ -260,6 +320,7 @@
       if (current) step(current, 'fail', e.message);
       else status('Failed: ' + e.message);
     } finally {
+      onPower = null;
       busy = false;
       current = null;
       showChangelog();
@@ -274,7 +335,7 @@
     box.innerHTML =
       '<div class=panel style="max-width:880px">' +
       '<div><div style="font:700 26px var(--head)">RetroTINK firmware</div>' +
-      '<div id=fwh class=small>Asking the RT4K for its version...</div></div>' +
+      '<div id=fwh class=small></div></div>' +
       '<div class=row style="flex-wrap:wrap"><select id=fwc style="flex:0 0 160px"></select><select id=fwv style="flex:1 1 240px"></select>' +
       '<button id=fwi class=primary disabled>Download and install</button></div>' +
       '<h2>What\'s new</h2><pre id=fwl style="height:220px"></pre>' +
@@ -285,14 +346,7 @@
     q('fwc').onchange = showVersions;
     q('fwv').onchange = showChangelog;
     q('fwi').onclick = install;
-    try {
-      const ver = await ask('ver', 'FW Version');
-      const model = await ask('model', 'model=');
-      installed = { version: (ver.match(/FW Version:\s*(\S+)/) || [])[1], model: model.split(' ').slice(1).join(' ') };
-      q('fwh').textContent = 'Installed: ' + installed.version + ' on ' + installed.model.replace(/_/g, ' ');
-    } catch (e) {
-      q('fwh').textContent = 'The RT4K did not answer (' + e.message + '). Is it on?';
-    }
+    showInstalled(); // from the status: nothing to ask the RT4K, which may be asleep
     status('Reading RetroTINK\'s firmware index...');
     for (const [name, file] of CHANNELS) {
       try {
@@ -311,5 +365,6 @@
   }
 
   window.fwOpen = open;
+  window.fwStatus = onStatus;
   window.fwInternals = { sha256, parseIndex, rawUrl, zipEntries, unzipEntry, wanted }; // for tests/test_fw.js
 })();

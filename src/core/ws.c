@@ -11,6 +11,7 @@
 
 #include "platform.h"
 #include "rt4k.h"
+#include "rt4k_info.h"
 #include "http.h"
 #include "log.h"
 #include "rtl1.h"
@@ -160,8 +161,8 @@ static bool push_log_status(client_t *c) {
     uint32_t sent, size;
     const uint32_t every = rtl1_put_progress(p, sizeof(p), &sent, &size) || http_update_progress(&sent, &size) ||
         ota_fetch_running() ? PUT_STATUS_EVERY_MS : STATUS_EVERY_MS; // uploads and downloads: their progress is in it
-    // The wizard's progress, the switch's input, a firmware download's state.
-    const uint32_t setup = net_setup_version() + svs_version() + ota_fetch_version();
+    // The wizard's progress, the switch's input, a firmware download's state, the RT4K's firmware.
+    const uint32_t setup = net_setup_version() + svs_version() + ota_fetch_version() + rt4k_info_seq();
     if (c->last_status_ms && t - c->last_status_ms < every && power == c->status_power && setup == c->status_setup) return true;
     c->last_status_ms = t | 1;
     c->status_power = power;
@@ -171,9 +172,10 @@ static bool push_log_status(client_t *c) {
     return send_tx(c, WS_OP_BINARY, 1 + strlen((char *)tx + 17));
 }
 
-// What makes an events client's state worth pushing at once: the RT4K plugged in or out, its power.
+// What makes an events client's state worth pushing at once: the RT4K plugged in or out, its power,
+// its firmware or model.
 static uint32_t events_now(void) {
-    return (uint32_t)power_state() << 1 | (rt4k_connected() ? 1u : 0u);
+    return (rt4k_info_seq() << 4) ^ ((uint32_t)power_state() << 1 | (rt4k_connected() ? 1u : 0u));
 }
 
 // /api/v1/events: first {"type":"hello",...} (the API's version, every type this Cruller can send, the

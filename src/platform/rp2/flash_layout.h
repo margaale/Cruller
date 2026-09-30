@@ -20,6 +20,10 @@
 #define SETTINGS_SECTOR0_OFFSET (DATA_PART_OFFSET + 2 * FLASH_SECTOR_SIZE_B)
 #define SETTINGS_SECTOR1_OFFSET (DATA_PART_OFFSET + 3 * FLASH_SECTOR_SIZE_B)
 
+// The RT4K's firmware version and model as it last said them (rt4k_info.c): the next two.
+#define RT4K_INFO_SECTOR0_OFFSET (DATA_PART_OFFSET + 4 * FLASH_SECTOR_SIZE_B)
+#define RT4K_INFO_SECTOR1_OFFSET (DATA_PART_OFFSET + 5 * FLASH_SECTOR_SIZE_B)
+
 // DonutShop (arduino-pico, flash=4194304_2097152) LittleFS, read once after migrating.
 // The first Cruller OTA overwrites it (partition B and the data partition overlap it).
 #define DS_FS_OFFSET          0x1FF000u
