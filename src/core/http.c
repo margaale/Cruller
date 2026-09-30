@@ -1014,17 +1014,16 @@ static void handle_api_info(int fd) {
     respond(fd, 200, "OK", "application/json", body);
 }
 
-// GET /api/v1/state: what changes, for polling (gently: requests are served one at a time). "svs" is
-// GET /api/v1/svs's object without the switch.
+// GET /api/v1/state: the RT4K and Cruller, as they change, for polling (gently: requests are served one
+// at a time). Not the SVS: the SVS Bridge's own API tells it.
 static void handle_api_state(int fd) {
     rt4k_status_t rt;
     rt4k_get_status(&rt);
-    char svs[640], body[1024];
-    svs_json(svs, sizeof(svs), false);
+    char body[256];
     snprintf(body, sizeof(body),
-        "{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"},\"svs\":%s,"
+        "{\"rt4k\":{\"connected\":%s,\"power\":\"%s\"},"
         "\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d}}",
-        rt.mounted ? "true" : "false", rt.mounted ? power_state_name(power_state()) : "unknown", svs,
+        rt.mounted ? "true" : "false", rt.mounted ? power_state_name(power_state()) : "unknown",
         CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), net_rssi());
     respond(fd, 200, "OK", "application/json", body);
 }

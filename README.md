@@ -187,9 +187,10 @@ mirror, tasks), and the logs.
 **Home Assistant.** Install the [Cruller integration](https://github.com/margaale/cruller-hacs)
 through HACS (as a custom repository). Home Assistant finds Cruller on your network by itself, as
 "Cruller" or by its name. You get the RT4K as a remote (power it on and off, press its keys, send
-console commands), its power state, whether it's plugged in, and the SVS's active input once an SVS
-Bridge reports it, for your automations. To load an SVS profile (`/profile/SVS/S3_….rt4`, with
-"Auto Load SVS" on), send the RT4K the same line the switch does:
+console commands), its power state and whether it's plugged in, for your automations. The SVS
+switch's input comes from the [SVS Bridge's integration](https://github.com/margaale/svs-bridge-hacs).
+To load an SVS profile (`/profile/SVS/S3_….rt4`, with "Auto Load SVS" on), send the RT4K the same
+line the switch does:
 
 ```yaml
 action: remote.send_command
@@ -225,8 +226,7 @@ curl -X POST http://cruller.local/api/v1/command -d '{"command": "ver"}'
 ```
 
 If a command couldn't be sent (the RT4K isn't connected), `ok` is `false` and the answer is a
-`503`. `GET /api/v1/state` returns the RT4K's power state, the switch's active input and Cruller's
-own, and `GET /api/v1/info` who this Cruller is. The API is versioned: a script written for
+`503`. `GET /api/v1/state` returns the RT4K's power state and Cruller's own, and `GET /api/v1/info` who this Cruller is. The API is versioned: a script written for
 `/api/v1` keeps working as Cruller changes. All of it is in [docs/API.md](docs/API.md).
 
 **Discovery.** Cruller announces itself over mDNS as `_rt4k._tcp` (TXT `id`, `ver`, `api`: the API's

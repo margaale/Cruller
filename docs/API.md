@@ -42,7 +42,7 @@ The API's version is a whole number: `api` in the TXT, `api_version` in `/api/v1
 | Route | What for |
 |---|---|
 | `GET /api/v1/info` | Who this Cruller is. |
-| `GET /api/v1/state` | The RT4K's power, the switch's input, Cruller's own. |
+| `GET /api/v1/state` | The RT4K's power, and Cruller's own. |
 | `POST /api/v1/command` | Console commands to the RT4K, and their replies. |
 | `GET /api/v1/svs` | The switch's active input, and the switch as its bridge describes it. |
 | `POST /api/v1/svs` | The SVS Bridge's report. |
@@ -64,21 +64,18 @@ What doesn't change while Cruller runs (a rename restarts it). Read once, when s
 
 ### GET /api/v1/state
 
-What changes.
+What changes: the RT4K's and Cruller's own.
 
 ```json
 {"rt4k": {"connected": true, "power": "on"},
- "svs": {"known": true, "input": 3, "total": 8, "name": "PS2", "id": "svs-bridge-aabbccddeeff",
-         "paired": "svs-bridge-aabbccddeeff", "heard_s": 12, "since_s": 340, "switch_seq": 2,
-         "history": [[3, 340], [1, 900]]},
  "cruller": {"sw_version": "0.4.1", "uptime_s": 3600, "rssi": -52}}
 ```
 
 - `rt4k.connected`: the RT4K is plugged in and its USB link is up.
 - `rt4k.power`: `on`, `standby`, `starting` (it was asked to power on and hasn't shown it yet), or
   `unknown` (not connected, or not known yet). How Cruller knows: [DESIGN.md](DESIGN.md#power-state).
-- `svs`: the same object as `GET /api/v1/svs`, without `switch`. `{"known": false, "paired": ""}`
-  until an SVS Bridge has reported.
+- The SVS switch isn't here: its state comes from the SVS Bridge itself (its own API and Home
+  Assistant integration), not through Cruller. Cruller 0.4.2 also had an `svs` key here.
 - `cruller.sw_version`: Cruller's version, the running one (it changes with an update).
   `cruller.uptime_s`: seconds since it started. `cruller.rssi`: the Wi-Fi signal, in dBm.
 
