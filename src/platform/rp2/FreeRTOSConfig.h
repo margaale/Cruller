@@ -11,7 +11,8 @@
 #define configUSE_TICK_HOOK                     0
 #define configTICK_RATE_HZ                      ((TickType_t)1000)
 #define configMAX_PRIORITIES                    32
-#define configMINIMAL_STACK_SIZE                (configSTACK_DEPTH_TYPE)512
+// The idle tasks (they peaked at 54 words) and the SDK's flash lockout task; the CYW43's task has its own.
+#define configMINIMAL_STACK_SIZE                (configSTACK_DEPTH_TYPE)256
 #define configUSE_16_BIT_TICKS                  0
 #define configIDLE_SHOULD_YIELD                 1
 #define configUSE_TIME_SLICING                  1
@@ -50,7 +51,9 @@
 #define configUSE_TIMERS                        1
 #define configTIMER_TASK_PRIORITY               (configMAX_PRIORITIES - 1)
 #define configTIMER_QUEUE_LENGTH                10
-#define configTIMER_TASK_STACK_DEPTH            1024
+// Its callbacks: the watchdog's starvation check (a line to the log) and the async context's timer (a
+// notification). It peaked at 56 words, before the check ever had to write its line.
+#define configTIMER_TASK_STACK_DEPTH            512
 
 // SMP
 #define configNUMBER_OF_CORES                   2
