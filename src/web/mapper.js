@@ -138,11 +138,10 @@
   const SKIP_MENU = /profile|diagnostic|console|status|about|check sd|update|reset|default|factory|format|calibrat|save|load|banner/i;
   const RISKY = /output|input source|resolution|safe ?mode|reset|default|factory|update|format|delete|save|load/i;
 
-  // --- the map as kept (in Cruller, /rt4k/map: gzipped) ----------------------------------------------------
-  // {v: 1, maps: [base, ...]}: the first firmware mapped whole ({firmware, ver, size, settings}), each later
-  // one as its differences from it ({firmware, ver, size, base, changed}). A setting: {path, label, bytes:
-  // [[offset, length]], values: [[shown, hex]] (each value seen, its own bytes), min, max, step (numbers),
-  // round (a list that goes round), note}.
+  // --- the map as shipped (a JSON in src/web, mapped here, merged by tools/merge-map.js) --------------------
+  // {v: 1, maps: [{firmware, ver, size, settings}]}: one map per RT4K firmware mapped, each whole. A
+  // setting: {path, label, bytes: [[offset, length]], values: [[shown, hex]] (each value seen, its own
+  // bytes), min, max, step (numbers), round (a list that goes round), note}.
 
   function compact(r) {
     const c = { path: r.path.join(' › '), label: r.label };
@@ -158,42 +157,26 @@
 
   const settingKey = (c) => c.path + '\n' + c.label;
 
-  // The settings a firmware has in doc: its base's, with its own changes over them.
+  // The settings mapped for a firmware (null: none).
   function settingsOf(doc, fw) {
-    const m = (doc.maps || []).find((x) => x.firmware === fw);
-    if (!m) return null;
-    if (m.settings) return m.settings;
-    const base = settingsOf(doc, m.base) || [], changed = new Map(m.changed.map((c) => [settingKey(c), c]));
-    return base.map((c) => changed.get(settingKey(c)) || c).concat(m.changed.filter((c) => !base.some((b) => settingKey(b) === settingKey(c))));
+    const m = (doc && doc.maps || []).find((x) => x.firmware === fw);
+    return m ? m.settings : null;
   }
 
-  // doc with settings added for firmware fw (those it had replaced): in the base when it's the base's
-  // firmware or there's none yet, else as fw's differences from the base.
+  // doc with settings added to firmware fw's map (those it had replaced; a new map for a new firmware).
   function keep(doc, fw, ver, size, settings) {
     doc = { v: 1, maps: (doc && doc.maps || []).map((m) => ({ ...m })) };
-    const merge = (list) => {
-      const out = new Map(list.map((c) => [settingKey(c), c]));
-      for (const c of settings) out.set(settingKey(c), c);
-      return [...out.values()];
-    };
     let m = doc.maps.find((x) => x.firmware === fw);
-    const base = doc.maps.find((x) => x.settings);
     if (!m) {
-      m = base ? { firmware: fw, ver, size, base: base.firmware, changed: [] } : { firmware: fw, ver, size, settings: [] };
+      m = { firmware: fw, settings: [] };
       doc.maps.push(m);
     }
-    if (m.settings) {
-      m.settings = merge(m.settings);
-    } else {
-      const from = new Map(settingsOf(doc, m.base).map((c) => [settingKey(c), JSON.stringify(c)]));
-      m.changed = merge(m.changed).filter((c) => from.get(settingKey(c)) !== JSON.stringify(c));
-    }
-    Object.assign(m, { ver, size });
+    const out = new Map(m.settings.map((c) => [settingKey(c), c]));
+    for (const c of settings) out.set(settingKey(c), c);
+    Object.assign(m, { ver, size, settings: [...out.values()] });
     return doc;
   }
 
-  const gzip = async (text) => new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
-  const gunzip = async (bytes) => new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 
   // --- the RT4K -----------------------------------------------------------------------------------------
 
@@ -477,53 +460,23 @@
     }
   }
 
-  // The map Cruller keeps (null: none yet).
-  async function loadKept() {
-    const r = await retried(() => fetch('/rt4k/map'));
-    if (r.status === 404) return null;
-    if (!r.ok) throw await failed(r, 'the kept map');
-    return JSON.parse(await gunzip(new Uint8Array(await r.arrayBuffer())));
-  }
-
-  // What this page mapped, added to what Cruller keeps for the RT4K's firmware (written only if it changed).
-  async function keepInCruller() {
+  // What this page mapped, as a map for the RT4K's firmware ({v: 1, maps: [...]}, one map here): to merge
+  // into the one the page ships with (src/web, tools/merge-map.js), mapped here for each firmware.
+  async function download() {
     try {
       const state = await (await fetch('/api/v1/state')).json();
-      const fw = state.rt4k && state.rt4k.firmware;
-      if (!fw) throw new Error('Not kept: the RT4K\'s firmware isn\'t known yet');
-      const mapped = st.results.filter((r) => r.own && r.own.length).map(compact);
-      if (!mapped.length) return log('Nothing mapped to keep yet');
-      const f = fields(sgetReady), doc = keep(await loadKept(), fw, +f.ver || null, +f.size || null, mapped);
-      const body = await gzip(JSON.stringify(doc));
-      const r = await fetch('/rt4k/map', { method: 'POST', body });
-      if (!r.ok) throw await failed(r, 'Not kept');
-      log('Kept in Cruller: ' + settingsOf(doc, fw).length + ' settings for ' + fw + ' (' + (body.length / 1024).toFixed(1) + ' KB of 24)');
+      const fw = (state.rt4k && state.rt4k.firmware) || 'unknown';
+      const f = fields(sgetReady), mapped = st.results.filter((r) => r.own && r.own.length).map(compact);
+      const doc = keep(null, fw, +f.ver || null, +f.size || null, mapped);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 1)], { type: 'application/json' }));
+      a.download = 'rt4k-settings-' + fw + '-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '') + '.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      log('Downloaded ' + mapped.length + ' settings for ' + fw);
     } catch (e) {
       log(e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message, true);
     }
-  }
-
-  async function showKept() {
-    try {
-      const doc = await loadKept();
-      if (!doc) return log('Cruller keeps no map yet');
-      for (const m of doc.maps) {
-        log('Kept: ' + m.firmware + ' (settings ver ' + m.ver + '), ' + settingsOf(doc, m.firmware).length + ' settings' +
-          (m.base ? ', ' + m.changed.length + ' of them changed from ' + m.base : ''));
-      }
-    } catch (e) {
-      log(e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message, true);
-    }
-  }
-
-  function download() {
-    const info = window.crullerStatus || {};
-    const doc = { rt4k: { firmware: info.rt4k_fw || null, model: info.rt4k_model || null }, sget: fields(sgetReady), made: new Date().toISOString(), settings: st.results };
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 1)], { type: 'application/json' }));
-    a.download = 'rt4k-settings-map-' + (doc.rt4k.firmware || 'fw') + '.json';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   function render() {
@@ -542,7 +495,7 @@
       '<label class="small"><input type="checkbox" id="mp-all"> every value: to both ends (slow)</label>' +
       '<label class="small"><input type="checkbox" id="mp-risky"> the output and the input too</label>' +
       '<span class="grow"></span><button id="mp-snap">Snapshot</button><button id="mp-cmp">Compare</button>' +
-      '<button id="mp-keep">Keep in Cruller</button><button id="mp-kept">Kept maps</button><button id="mp-dl" disabled>Download JSON</button></div>' +
+      '<button id="mp-dl" disabled>Download JSON</button></div>' +
       '<div id="mp-log" class="small mono" style="max-height:180px;overflow:auto"></div>' +
       '<table class="tbl"><thead><tr><th>Menu</th><th>Setting</th><th>Bytes</th><th>Values</th></tr></thead><tbody id="mp-rows"></tbody></table>';
     q('mp-go').onclick = run;
@@ -550,8 +503,6 @@
     q('mp-snap').onclick = () => manual(false);
     q('mp-cmp').onclick = () => manual(true);
     q('mp-dl').onclick = download;
-    q('mp-keep').onclick = keepInCruller;
-    q('mp-kept').onclick = showKept;
     render();
   }
 

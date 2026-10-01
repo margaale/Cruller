@@ -80,20 +80,15 @@ check(JSON.stringify(m.numeric(['0.5x', '1x', '1.5x'])) === '{"min":0.5,"max":1.
 const at = m.takeAt(b, [{ off: 1, len: 2 }]);
 check(JSON.stringify(at) === '{"1":9,"2":9}' && m.hexAt(at, [{ off: 1, len: 2 }, { off: 6, len: 1 }]) === '09 09 | ??', 'bytes by offset, back as hex');
 
-// The map as kept: the first firmware whole, a later one as its differences; runs add up.
+// The map as shipped: one per firmware, each whole; runs add up, a setting mapped again replaces it.
 const top = { path: 'Scaling/Crop Setup', label: 'Top Trim', bytes: [[0x524, 2]], min: -403, max: 403, step: 1 };
 const red = { path: 'Scaling/Crop Setup', label: 'Red', bytes: [[0x17d4, 1]], min: 0, max: 31, step: 1 };
 let doc = m.keep(null, '1.92.0', 109, 22876, [top]);
-doc = m.keep(doc, '1.92.0', 109, 22876, [red]);
-check(doc.maps.length === 1 && doc.maps[0].settings.length === 2, 'two runs on one firmware: one map, both settings');
-const moved = { ...red, bytes: [[0x17e4, 1]] };
-doc = m.keep(doc, '1.93.0', 110, 22900, [top, moved]);
-check(doc.maps.length === 2 && doc.maps[1].base === '1.92.0' && JSON.stringify(doc.maps[1].changed) === JSON.stringify([moved]),
-  'a new firmware: only what moved: ' + JSON.stringify(doc.maps[1]));
-const s93 = m.settingsOf(doc, '1.93.0');
-check(s93.length === 2 && s93.find((c) => c.label === 'Red').bytes[0][0] === 0x17e4 && s93.find((c) => c.label === 'Top Trim').bytes[0][0] === 0x524,
-  'its settings: the base with its changes');
-check(m.settingsOf(doc, '1.92.0').find((c) => c.label === 'Red').bytes[0][0] === 0x17d4 && m.settingsOf(doc, '1.80.0') === null, 'the base untouched');
+doc = m.keep(doc, '1.92.0', 109, 22876, [red, { ...top, max: 400 }]);
+check(doc.maps.length === 1 && doc.maps[0].settings.length === 2 && m.settingsOf(doc, '1.92.0')[0].max === 400, 'two runs on one firmware: one map, the later setting kept');
+doc = m.keep(doc, '1.93.0', 110, 22900, [{ ...red, bytes: [[0x17e4, 1]] }]);
+check(doc.maps.length === 2 && m.settingsOf(doc, '1.93.0').length === 1 && m.settingsOf(doc, '1.93.0')[0].bytes[0][0] === 0x17e4, 'a new firmware: its own map');
+check(m.settingsOf(doc, '1.92.0').find((c) => c.label === 'Red').bytes[0][0] === 0x17d4 && m.settingsOf(doc, '1.80.0') === null, 'the other untouched');
 const rec = { path: ['Advanced', 'Scaling/Crop Setup'], label: 'Top Trim', own: [{ off: 0x524, len: 2 }], values: [{ value: '-403', at: { 1316: 0x6d, 1317: 0xfe } }], min: -403, max: 403, step: 1 };
 check(JSON.stringify(m.compact(rec)) === '{"path":"Advanced › Scaling/Crop Setup","label":"Top Trim","bytes":[[1316,2]],"values":[["-403","6dfe"]],"min":-403,"max":403,"step":1}',
   'a setting as kept: ' + JSON.stringify(m.compact(rec)));

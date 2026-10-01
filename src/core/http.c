@@ -27,7 +27,6 @@
 #include "rt4k_info.h"
 #include "rtl1.h"
 #include "settings.h"
-#include "store.h"
 #include "svs.h"
 #include "ws.h"
 #include "ws_proto.h"
@@ -88,10 +87,6 @@ static union {
         uint8_t buf[RT4K_SETTINGS_MAX];
         rtl1_info_t info;
     } xfer;                     // /rt4k/xfer: an OSD plane, the font, or the live settings (sget)
-    struct rt4k_map {
-        uint32_t len;
-        uint8_t data[STORE_MAP_MAX - 4];
-    } map;                      // /rt4k/map: the record as kept (STORE_RT4K_MAP), zeros past len
     char stream[2048];          // /log, /rt4k/rx
     form_t form;                // /rt4k/cmd, /rt4k/ask, /wifi, /settings
     raw_t raw;                  // /debug/raw, POST /setup
@@ -527,42 +522,6 @@ static void handle_rt4k_xfer(int fd, const char *query) {
     char headers[200];
     snprintf(headers, sizeof(headers), "X-Ready: %s\r\n", info->ready);
     respond_bytes(fd, headers, scratch.xfer.buf, info->len);
-}
-
-// /rt4k/map: the RT4K's settings map, as the page keeps it (gzipped JSON, the page's own), so it's at
-// hand with the RT4K off. GET: the one kept (404 when none). POST: a new one, 24 KB at most, kept across
-// restarts and written only when it changed (store.h). The ESP32's NVS hasn't the room: 507 there.
-
-static bool map_sink(const uint8_t *data, size_t len, void *ctx) {
-    struct rt4k_map *m = ctx;
-    if (m->len + len > sizeof(m->data)) return false;
-    memcpy(m->data + m->len, data, len);
-    m->len += (uint32_t)len;
-    return true;
-}
-
-static void handle_rt4k_map(request_t *r, bool post) {
-    struct rt4k_map *m = &scratch.map;
-    if (!post) {
-        if (!store_load(STORE_RT4K_MAP, m, sizeof(*m)) || !m->len || m->len > sizeof(m->data)) {
-            respond(r->fd, 404, "Not Found", "text/plain", "no settings map kept\n");
-            return;
-        }
-        respond_bytes(r->fd, "", m->data, m->len);
-        return;
-    }
-    memset(m, 0, sizeof(*m)); // zeros past it: the same map writes nothing
-    if (r->content_length <= 0 || r->content_length > (long)sizeof(m->data) || !read_body(r, map_sink, m)) {
-        const bool big = r->content_length > (long)sizeof(m->data);
-        respond(r->fd, big ? 413 : 400, big ? "Payload Too Large" : "Bad Request", "text/plain",
-            big ? "the map is over 24 KB\n" : "send the map as the body\n");
-        return;
-    }
-    if (!store_save(STORE_RT4K_MAP, m, sizeof(*m))) {
-        respond(r->fd, 507, "Insufficient Storage", "text/plain", "could not keep it (no room for it on this board?)\n");
-        return;
-    }
-    respond(r->fd, 200, "OK", "text/plain", "kept\n");
 }
 
 static void handle_status(int fd) {
@@ -1611,7 +1570,6 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read);
     else if (post && !strcmp(r->path, "/rt4k/cmd")) handle_rt4k_cmd(r);
     else if (get && !strcmp(r->path, "/rt4k/xfer")) handle_rt4k_xfer(r->fd, query);
-    else if ((get || post) && !strcmp(r->path, "/rt4k/map")) handle_rt4k_map(r, post);
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r, false, NULL);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
 #if CRULLER_DEBUG
