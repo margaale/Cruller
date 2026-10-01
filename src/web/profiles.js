@@ -605,13 +605,21 @@
     if (power !== 'standby') waking = false;
     svsPower(was);
     if (!q('pft')) return;
+    // Cruller tells the loaded profile itself ("rt4k_profile", since 0.6): then the page doesn't ask.
+    const told = 'rt4k_profile' in s;
+    if (told && !busy && s.rt4k_profile !== loaded) {
+      loaded = s.rt4k_profile;
+      loadedAt = Date.now();
+      showLoaded();
+      if (!asleep() && was === power) render();
+    }
     if (was !== power) {
       if (asleep()) loaded = null;
-      if (!busy && power === 'on' && showing()) { readLoaded(); if (failed && dir !== null) list(dir); }
+      if (!busy && power === 'on' && showing()) { if (!told) readLoaded(); if (failed && dir !== null) list(dir); }
       else if (!busy) { showAsleep(); if (!asleep()) render(); }
       return;
     }
-    if (!busy && power === 'on' && showing() && Date.now() - loadedAt >= READ_EVERY) readLoaded();
+    if (!told && !busy && power === 'on' && showing() && Date.now() - loadedAt >= READ_EVERY) readLoaded();
   }
 
   window.profOpen = open;

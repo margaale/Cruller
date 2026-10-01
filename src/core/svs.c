@@ -7,6 +7,7 @@
 #include "task.h"
 
 #include "platform.h"
+#include "rt4k_info.h"
 #include "store.h"
 
 static svs_state_t now_state;
@@ -41,7 +42,10 @@ bool svs_report(const svs_msg_t *m) {
     }
     known = true;
     plat_critical_exit();
-    if (changed) printf("svs: input %d%s%s\n", input, m->name[0] ? " " : "", m->name);
+    if (changed) {
+        printf("svs: input %d%s%s\n", input, m->name[0] ? " " : "", m->name);
+        rt4k_info_profile_soon(); // Auto Load SVS may load that input's profile
+    }
     if (new_switch) printf("svs: %d inputs described, output to the RetroTINK: %s\n", m->sw.inputs_n,
         m->sw.has_output ? m->sw.output.kind : "not said");
     return changed;
