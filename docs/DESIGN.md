@@ -170,7 +170,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
 3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI. Not started.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, the API (`/api/v1`), RFC 2217. LED patterns still to do.
-5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete), firmware updates from RetroTINK's repository, the profiles view (the loaded profile, loading one, saving the current settings as a new one) and each SVS input's profile (the RT4K's /profile/SVS/S<n>_ files). Still to do: Extron/TESmart/MT-VIKI serial, IR, editing profiles.
+5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete), firmware updates from RetroTINK's repository, the profiles view (the loaded profile, loading one, saving the current settings as a new one, copying one) and each SVS input's profile (the RT4K's /profile/SVS/S<n>_ files). Still to do: Extron/TESmart/MT-VIKI serial, IR, editing profiles.
 
 ### M0 results (2026-09-25)
 

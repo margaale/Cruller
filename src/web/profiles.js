@@ -2,8 +2,9 @@
 //
 // The folders under /profile on its SD card (GET /rt4k/ls, as sd.js reads them), the profile it has
 // loaded, loading one and saving its current settings as a new one: the console's "prof get",
-// "prof load <path>" and "prof save <path>" (POST /rt4k/ask), with paths relative to /profile. Each
-// folder has its own address (#rt4k/profiles/<path>). Uses sd.js's helpers (window.sdInternals).
+// "prof load <path>" and "prof save <path>" (POST /rt4k/ask), with paths relative to /profile; and
+// copying one under a new name (GET /rt4k/get, POST /rt4k/put). Each folder has its own address
+// (#rt4k/profiles/<path>). Uses sd.js's helpers (window.sdInternals).
 
 (() => {
   'use strict';
@@ -65,6 +66,7 @@
   const ICON = {
     dir: svg('<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>', true),
     prof: svg('<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>'),
+    copy: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>'),
   };
 
   // --- Cruller ----------------------------------------------------------------------------------------
@@ -74,6 +76,16 @@
     const t = (await r.text()).trim();
     if (!r.ok) throw new Error(r.status === 504 ? 'the RT4K did not answer' : t);
     return t;
+  }
+
+  // Copies a file on the SD card (paths from its root) through the page: read whole, written with its
+  // SHA-256 (the RT4K checks it).
+  async function copyFile(from, to) {
+    const g = await fetch('/rt4k/get?path=' + encodeURIComponent(from));
+    if (!g.ok) throw new Error(from.split('/').pop() + ': ' + ((await g.text()).trim() || 'HTTP ' + g.status));
+    const data = new Uint8Array(await g.arrayBuffer());
+    const p = await fetch('/rt4k/put?path=' + encodeURIComponent(to) + '&sha=' + window.sha256(data), { method: 'POST', body: data });
+    if (!p.ok) throw new Error(to.split('/').pop() + ': ' + ((await p.text()).trim() || 'HTTP ' + p.status));
   }
 
   async function readLoaded() {
@@ -164,8 +176,9 @@
           '<span class=nm>' + esc(e.name) + '</span></a></td></tr>';
       }
       const on = sameLoaded(path);
-      const act = on ? '<span class="pill on">Loaded</span>' :
-        '<button class=pfload data-p="' + esc(path) + '"' + off + ' aria-label="Load ' + esc(plain(e.name)) + '">' + (busy === path ? 'Loading…' : 'Load') + '</button>';
+      const act = (on ? '<span class="pill on">Loaded</span>' :
+        '<button class=pfload data-p="' + esc(path) + '"' + off + ' aria-label="Load ' + esc(plain(e.name)) + '">' + (busy === path ? 'Loading…' : 'Load') + '</button>') +
+        '<button class="ib pfcopy" data-n="' + esc(e.name) + '"' + off + ' title="Copy" aria-label="Copy ' + esc(plain(e.name)) + '">' + ICON.copy + '</button>';
       return '<tr' + (on ? ' class=cur' : '') + '><td class=n title="' + esc(e.name) + '"><span class=fn><span class="ico f">' + ICON.prof + '</span>' +
         '<span class=nm>' + esc(plain(e.name)) + '</span></span></td><td class=act>' + act + '</td></tr>';
     }).join('');
@@ -239,6 +252,12 @@
     });
   }
 
+  // What's wrong with a new profile's name in the folder shown ('' if nothing).
+  const nameProblem = (name) => sd.nameProblem(name) ||
+    (sd.utf8Length(join(ROOT, join(dir, name))) > PATH_MAX ? 'The path is too long for Cruller (' + PATH_MAX + ' bytes at most).' : '') ||
+    (entries.some((e) => e.dir && sd.sameName(e.name, name)) ? 'There is a folder called "' + name + '" here.' : '');
+  const taken = (name) => entries.some((e) => !e.dir && sd.sameName(e.name, name));
+
   // Saves the RT4K's current settings as a new profile in the folder shown.
   async function saveNew() {
     if (busy || dir === null || asleep()) return;
@@ -248,11 +267,9 @@
     const typed = answer === null ? '' : answer.trim();
     if (!typed) return;
     const name = withExt(typed, model);
-    const p = sd.nameProblem(name) ||
-      (sd.utf8Length(join(ROOT, join(dir, name))) > PATH_MAX ? 'The path is too long for Cruller (' + PATH_MAX + ' bytes at most).' : '') ||
-      (entries.some((e) => e.dir && sd.sameName(e.name, name)) ? 'There is a folder called "' + name + '" here.' : '');
+    const p = nameProblem(name);
     if (p) return status(p, true);
-    if (entries.some((e) => !e.dir && sd.sameName(e.name, name)) &&
+    if (taken(name) &&
       !(await window.askUser('Replace ' + plain(name) + '?', 'This folder already has a profile with that name: it will hold the RT4K\'s current settings instead.', 'Replace', true))) return;
     const path = join(dir, name);
     await run(path, 'Saving ' + plain(name), async () => {
@@ -260,6 +277,26 @@
       const r = await ask('prof save ' + path, 'prof', 10000);
       if (r !== 'prof save ok') throw new Error(r);
       return 'Saved ' + plain(name);
+    });
+  }
+
+  // Copies a profile of the folder shown under a new name there, as it was saved: one to start another from.
+  async function copy(name) {
+    if (busy || dir === null || asleep()) return;
+    const answer = await window.askText('Copy ' + plain(name),
+      'A copy of it, as it was saved, goes to ' + (dir ? '/profile/' + dir : '/profile') + ' under this name.', plain(name) + ' copy', 'Copy');
+    const typed = answer === null ? '' : answer.trim();
+    if (!typed) return;
+    const to = isProfile(typed) ? typed : typed + extOf(name);
+    if (sd.sameName(to, name)) return;
+    const p = nameProblem(to);
+    if (p) return status(p, true);
+    if (taken(to) &&
+      !(await window.askUser('Replace ' + plain(to) + '?', 'This folder already has a profile with that name: it will hold the copy instead.', 'Replace', true))) return;
+    await run(join(dir, to), 'Copying ' + plain(name), async () => {
+      status('Copying ' + plain(name) + ' to ' + plain(to) + '…');
+      await copyFile(join(ROOT, join(dir, name)), join(ROOT, join(dir, to)));
+      return 'Copied to ' + plain(to);
     });
   }
 
@@ -284,8 +321,9 @@
       setTimeout(() => { if (waking) { waking = false; showAsleep(); } }, 10000);
     };
     q('pft').onclick = (ev) => {
-      const b = ev.target.closest('button.pfload');
+      const b = ev.target.closest('button.pfload'), c = ev.target.closest('button.pfcopy');
       if (b && !busy) load(b.dataset.p);
+      if (c && !busy) copy(c.dataset.n);
     };
     addEventListener('beforeunload', (ev) => { if (busy) { ev.preventDefault(); ev.returnValue = ''; } });
   }
@@ -526,11 +564,7 @@
       if (!r.startsWith('mv ok')) throw new Error(s.from + ': ' + r);
       return;
     }
-    const g = await fetch('/rt4k/get?path=' + encodeURIComponent(svsPath(s.from)));
-    if (!g.ok) throw new Error(s.from + ': ' + ((await g.text()).trim() || 'HTTP ' + g.status));
-    const data = new Uint8Array(await g.arrayBuffer());
-    const p = await fetch('/rt4k/put?path=' + encodeURIComponent(svsPath(s.to)) + '&sha=' + window.sha256(data), { method: 'POST', body: data });
-    if (!p.ok) throw new Error(s.to + ': ' + ((await p.text()).trim() || 'HTTP ' + p.status));
+    await copyFile(svsPath(s.from), svsPath(s.to));
   }
 
   const stepText = (s) => (s.op === 'mv' ? 'renaming ' + plain(s.from) + ' to ' + plain(s.to) : 'copying ' + plain(s.from) + ' to ' + plain(s.to));
