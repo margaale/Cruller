@@ -60,6 +60,55 @@ typedef struct {
     bool adopted;         // the socket now belongs to someone else (WebSocket): don't close it
 } request_t;
 
+typedef struct {
+    char buf[384]; // /rt4k/ask's "mv <path>|<path>"
+    size_t len;
+} form_t;
+
+typedef struct {
+    uint8_t buf[4608];
+    size_t len;
+} raw_t;
+
+#define API_MAX_COMMANDS 8
+#define API_CMD_MAX      200
+
+// The handlers' buffers. The HTTP task serves one request at a time, so they share this one place, each
+// handler its own member: 14 KB, where a static each took 68 KB of the Pico 2 W's RAM. Not the transfer
+// task's (/rt4k/get and /rt4k/put): those use none of them.
+static union {
+    struct {
+        char out[2048];
+        TaskStatus_t tasks[24];
+    } debug_tasks;
+    char debug_memory[2048];
+    struct {
+        uint8_t buf[4096];
+        rtl1_info_t info;
+    } xfer;                     // /rt4k/xfer
+    char stream[2048];          // /log, /rt4k/rx
+    form_t form;                // /rt4k/cmd, /rt4k/ask, /wifi, /settings
+    raw_t raw;                  // /debug/raw, POST /setup
+    struct api_command_bufs {
+        raw_t body;
+        char cmds[API_MAX_COMMANDS][API_CMD_MAX];
+        char results[3800], out[4096];
+    } api_command;
+    // The POST body or the GET answer: room for the longest switch Cruller keeps, every name full of
+    // quotes to escape; and the switch it's made from, or the message parsed.
+    struct {
+        char buf[8192];
+        union {
+            svs_switch_t sw;
+            svs_msg_t m;
+        };
+    } svs;
+    char usbtrace[12288];
+    char console[1600];
+    char freeze[4096];
+    char scan[1600];
+} scratch;
+
 // --- helpers -----------------------------------------------------------------------------------
 
 static bool send_all(int fd, const void *data, size_t len) {
@@ -212,19 +261,20 @@ static void json_escape(char *out, size_t size, const char *in) {
 // task's state too. Only on request: uxTaskGetSystemState() suspends the scheduler on both cores while
 // it scans every stack, for milliseconds, and the rt4k task missed USB packets (FT232R overruns).
 static void handle_debug_tasks(int fd, const char *query) {
-    static char out[2048];
-    ws_debug(out, sizeof(out));
+    char *const out = scratch.debug_tasks.out;
+    const size_t size = sizeof(scratch.debug_tasks.out);
+    ws_debug(out, size);
     size_t o = strlen(out);
     if (!query || !strstr(query, "stacks")) {
         respond(fd, 200, "OK", "text/plain", out);
         return;
     }
-    static TaskStatus_t tasks[24];
-    const UBaseType_t n = uxTaskGetSystemState(tasks, 24, NULL);
+    TaskStatus_t *const tasks = scratch.debug_tasks.tasks;
+    const UBaseType_t n = uxTaskGetSystemState(tasks, sizeof(scratch.debug_tasks.tasks) / sizeof(tasks[0]), NULL);
     static const char *states[] = {"running", "ready", "blocked", "suspended", "deleted", "invalid"};
-    for (UBaseType_t i = 0; i < n && o < sizeof(out) - 80; i++) {
+    for (UBaseType_t i = 0; i < n && o < size - 80; i++) {
         const unsigned st = tasks[i].eCurrentState <= eInvalid ? (unsigned)tasks[i].eCurrentState : 5u;
-        o += (size_t)snprintf(out + o, sizeof(out) - o, "%-12s %-9s prio %lu stack free %lu\n", tasks[i].pcTaskName,
+        o += (size_t)snprintf(out + o, size - o, "%-12s %-9s prio %lu stack free %lu\n", tasks[i].pcTaskName,
             states[st], (unsigned long)tasks[i].uxCurrentPriority, (unsigned long)tasks[i].usStackHighWaterMark);
     }
     respond(fd, 200, "OK", "text/plain", out);
@@ -265,9 +315,8 @@ static struct stats_mem heap_stats(void) {
 }
 
 static void handle_debug_memory(int fd) {
-    static char out[2048];
-    http_debug_memory(out, sizeof(out));
-    respond(fd, 200, "OK", "text/plain", out);
+    http_debug_memory(scratch.debug_memory, sizeof(scratch.debug_memory));
+    respond(fd, 200, "OK", "text/plain", scratch.debug_memory);
 }
 
 void http_debug_memory(char *out, size_t size) {
@@ -456,18 +505,17 @@ static void handle_rt4k_xfer(int fd, const char *query) {
         respond(fd, 400, "Bad Request", "text/plain", "cmd must be osd, osd2 or font\n");
         return;
     }
-    static uint8_t buf[4096];
-    static rtl1_info_t info;
-    const rtl1_result_t r = rtl1_transfer(cmd, buf, sizeof(buf), &info, false, 0);
+    rtl1_info_t *const info = &scratch.xfer.info;
+    const rtl1_result_t r = rtl1_transfer(cmd, scratch.xfer.buf, sizeof(scratch.xfer.buf), info, false, 0);
     if (r != RTL1_OK) {
         char msg[160];
-        snprintf(msg, sizeof(msg), "%s: %s\n", rtl1_result_name(r), info.detail);
+        snprintf(msg, sizeof(msg), "%s: %s\n", rtl1_result_name(r), info->detail);
         respond(fd, 502, "Bad Gateway", "text/plain", msg);
         return;
     }
     char headers[200];
-    snprintf(headers, sizeof(headers), "X-Ready: %s\r\n", info.ready);
-    respond_bytes(fd, headers, buf, info.len);
+    snprintf(headers, sizeof(headers), "X-Ready: %s\r\n", info->ready);
+    respond_bytes(fd, headers, scratch.xfer.buf, info->len);
 }
 
 static void handle_status(int fd) {
@@ -564,14 +612,13 @@ static void handle_stream(int fd, const char *query, size_t (*reader)(uint32_t *
     uint32_t pos = 0;
     const char *p = query ? strstr(query, "since=") : NULL;
     if (p) pos = (uint32_t)strtoul(p + 6, NULL, 10);
-    static char text[2048];
-    const size_t n = reader(&pos, text, sizeof(text));
+    const size_t n = reader(&pos, scratch.stream, sizeof(scratch.stream));
     char hdr[200];
     const int h = snprintf(hdr, sizeof(hdr),
         "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %u\r\n"
         "X-Next: %lu\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)n, (unsigned long)pos);
     send_all(fd, hdr, (size_t)h);
-    if (n) send_all(fd, text, n);
+    if (n) send_all(fd, scratch.stream, n);
 }
 
 // The firmware upload in progress, for the page's progress bar (like "put": the browser's own upload
@@ -645,24 +692,19 @@ static void handle_update_fetch(request_t *r, const char *query) {
     else respond(r->fd, 400, "Bad Request", "text/plain", msg);
 }
 
-typedef struct {
-    char buf[384]; // /rt4k/ask's "mv <path>|<path>"
-    size_t len;
-} form_t;
-
 static bool form_sink(const uint8_t *data, size_t len, void *ctx);
 
 static void handle_rt4k_cmd(request_t *r) {
-    static form_t form;
-    form.len = 0;
-    form.buf[0] = 0;
-    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form.buf) || !read_body(r, form_sink, &form)) {
+    form_t *const form = &scratch.form;
+    form->len = 0;
+    form->buf[0] = 0;
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form->buf) || !read_body(r, form_sink, form)) {
         respond(r->fd, 400, "Bad Request", "text/plain", "Send the command as the request body\n");
         return;
     }
     // Strip line endings; rt4k_command() adds the framing the RT4K expects.
-    for (char *c = form.buf; *c; c++) if (*c == '\r' || *c == '\n') *c = ' ';
-    if (!rt4k_command(form.buf)) {
+    for (char *c = form->buf; *c; c++) if (*c == '\r' || *c == '\n') *c = ' ';
+    if (!rt4k_command(form->buf)) {
         respond(r->fd, 503, "Service Unavailable", "text/plain", "RT4K queue full\n");
         return;
     }
@@ -674,11 +716,6 @@ static void handle_rt4k_cmd(request_t *r) {
 // Debug: POST /debug/raw[?pause=S]: the body goes to the RT4K as is (no framing), and transfers
 // (the mirror's polls) are refused for S seconds (default 10) so they don't interleave. For working
 // out protocols such as RTL1 put from a PC; replies show up in /rt4k/rx.
-typedef struct {
-    uint8_t buf[4608];
-    size_t len;
-} raw_t;
-
 static bool raw_sink(const uint8_t *data, size_t len, void *ctx) {
     raw_t *b = ctx;
     if (b->len + len > sizeof(b->buf)) return false;
@@ -688,12 +725,12 @@ static bool raw_sink(const uint8_t *data, size_t len, void *ctx) {
 }
 
 static void handle_debug_raw(request_t *r, const char *query) {
-    static raw_t body;
-    body.len = 0;
+    raw_t *const body = &scratch.raw;
+    body->len = 0;
     const char *p = query ? strstr(query, "pause=") : NULL;
     const uint32_t pause_s = p ? (uint32_t)strtoul(p + 6, NULL, 10) : 10;
     rtl1_pause(pause_s * 1000);
-    if (r->content_length <= 0 || r->content_length > (long)sizeof(body.buf) || !read_body(r, raw_sink, &body)) {
+    if (r->content_length <= 0 || r->content_length > (long)sizeof(body->buf) || !read_body(r, raw_sink, body)) {
         respond(r->fd, 400, "Bad Request", "text/plain", "Send up to 4608 bytes as the body\n");
         return;
     }
@@ -703,15 +740,15 @@ static void handle_debug_raw(request_t *r, const char *query) {
     }
     // In chunks: the TX queue (2048 bytes) is smaller than a full frame.
     size_t sent = 0;
-    for (int tries = 0; sent < body.len && tries < 500; tries++) {
-        const size_t n = body.len - sent < 512 ? body.len - sent : 512;
-        if (rt4k_write(body.buf + sent, n)) sent += n;
+    for (int tries = 0; sent < body->len && tries < 500; tries++) {
+        const size_t n = body->len - sent < 512 ? body->len - sent : 512;
+        if (rt4k_write(body->buf + sent, n)) sent += n;
         else vTaskDelay(pdMS_TO_TICKS(2));
     }
     rt4k_link_unlock();
     char msg[48];
-    snprintf(msg, sizeof(msg), "sent %u of %u bytes\n", (unsigned)sent, (unsigned)body.len);
-    respond(r->fd, sent == body.len ? 200 : 503, sent == body.len ? "OK" : "Service Unavailable", "text/plain", msg);
+    snprintf(msg, sizeof(msg), "sent %u of %u bytes\n", (unsigned)sent, (unsigned)body->len);
+    respond(r->fd, sent == body->len ? 200 : 503, sent == body->len ? "OK" : "Service Unavailable", "text/plain", msg);
 }
 
 static bool form_sink(const uint8_t *data, size_t len, void *ctx) {
@@ -1010,20 +1047,20 @@ static void handle_rt4k_get(request_t *r, const char *query) {
 // POST /rt4k/ask?expect=<text>[&timeout=<ms>] with a console command as the body: the first reply
 // line containing <text> (e.g. "ver" / "FW Version:", "fwup check" / "fwup").
 static void handle_rt4k_ask(request_t *r, const char *query) {
-    static form_t form;
-    form.len = 0;
-    form.buf[0] = 0;
+    form_t *const form = &scratch.form;
+    form->len = 0;
+    form->buf[0] = 0;
     char expect[48], tmo[12];
     if (!query || !form_field(query, "expect", expect, sizeof(expect)) || !expect[0] || r->content_length <= 0 ||
-        r->content_length >= (long)sizeof(form.buf) || !read_body(r, form_sink, &form)) {
+        r->content_length >= (long)sizeof(form->buf) || !read_body(r, form_sink, form)) {
         respond(r->fd, 400, "Bad Request", "text/plain", "Need ?expect=<text> and a command as the body\n");
         return;
     }
-    for (char *c = form.buf; *c; c++) if (*c == '\r' || *c == '\n') *c = ' ';
+    for (char *c = form->buf; *c; c++) if (*c == '\r' || *c == '\n') *c = ' ';
     uint32_t timeout_ms = form_field(query, "timeout", tmo, sizeof(tmo)) ? (uint32_t)strtoul(tmo, NULL, 10) : 3000;
     if (timeout_ms > 20000) timeout_ms = 20000;
     char line[200];
-    if (rt4k_query(form.buf, expect, line, sizeof(line), timeout_ms)) {
+    if (rt4k_query(form->buf, expect, line, sizeof(line), timeout_ms)) {
         strncat(line, "\n", sizeof(line) - strlen(line) - 1);
         respond(r->fd, 200, "OK", "text/plain", line);
     } else {
@@ -1108,9 +1145,6 @@ static void handle_api_state(int fd) {
 // (buttons.h): "menu" -> "remote menu"; "diagnostics" -> "remote diag"; "power_on" -> "pwr on".
 // Answer: {"ok":true,"power":"on","results":[{"command":"ver","sent":true,"reply":["[COM] ..."]}]}
 
-#define API_MAX_COMMANDS 8
-#define API_CMD_MAX      200
-
 // The JSON string value after "key": ... (no nesting needed). Returns the position after it, or NULL.
 static const char *json_string(const char *p, char *out, size_t size) {
     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ',' || *p == '[' || *p == ':') p++;
@@ -1152,15 +1186,16 @@ static void api_line(const char *line, void *ctx) {
 }
 
 static void handle_api_command(request_t *r) {
-    static raw_t body;
-    body.len = 0;
-    if (r->content_length <= 0 || r->content_length >= (long)sizeof(body.buf) || !read_body(r, raw_sink, &body)) {
+    struct api_command_bufs *const b = &scratch.api_command;
+    raw_t *const body = &b->body;
+    body->len = 0;
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(body->buf) || !read_body(r, raw_sink, body)) {
         respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"send commands as the body\"}");
         return;
     }
-    body.buf[body.len] = 0;
-    const char *text = (const char *)body.buf;
-    static char cmds[API_MAX_COMMANDS][API_CMD_MAX];
+    body->buf[body->len] = 0;
+    const char *text = (const char *)body->buf;
+    char (*const cmds)[API_CMD_MAX] = b->cmds;
     int count = 0;
     if (*text == '{') {
         const char *p;
@@ -1192,23 +1227,22 @@ static void handle_api_command(request_t *r) {
             "{\"ok\":false,\"error\":\"no command (\\\"command\\\", \\\"commands\\\" or \\\"button\\\")\"}");
         return;
     }
-    static char results[3800], out[4096];
     size_t len = 0;
     bool all_sent = true;
-    for (int i = 0; i < count && len < sizeof(results) - 64; i++) {
+    for (int i = 0; i < count && len < sizeof(b->results) - 64; i++) {
         char esc[400];
         json_escape(esc, sizeof(esc), cmds[i]);
-        len += (size_t)snprintf(results + len, sizeof(results) - len, "%s{\"command\":\"%s\",\"reply\":[",
+        len += (size_t)snprintf(b->results + len, sizeof(b->results) - len, "%s{\"command\":\"%s\",\"reply\":[",
             i ? "," : "", esc);
-        api_reply_t reply = {results, sizeof(results) - 32, len, 0}; // room kept for the closing parts
+        api_reply_t reply = {b->results, sizeof(b->results) - 32, len, 0}; // room kept for the closing parts
         const bool sent = console_run(CON_HTTP, cmds[i], api_line, &reply);
-        len = reply.len < sizeof(results) - 32 ? reply.len : sizeof(results) - 32;
-        len += (size_t)snprintf(results + len, sizeof(results) - len, "],\"sent\":%s}", sent ? "true" : "false");
+        len = reply.len < sizeof(b->results) - 32 ? reply.len : sizeof(b->results) - 32;
+        len += (size_t)snprintf(b->results + len, sizeof(b->results) - len, "],\"sent\":%s}", sent ? "true" : "false");
         all_sent &= sent;
     }
-    snprintf(out, sizeof(out), "{\"ok\":%s,\"power\":\"%s\",\"results\":[%s]}", all_sent ? "true" : "false",
-        power_state_name(power_state()), results);
-    respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", out);
+    snprintf(b->out, sizeof(b->out), "{\"ok\":%s,\"power\":\"%s\",\"results\":[%s]}", all_sent ? "true" : "false",
+        power_state_name(power_state()), b->results);
+    respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", b->out);
 }
 
 // --- /api/v1/svs (also /api/svs): the Scalable Video Switch's active input, and the switch (docs/SVS.md)
@@ -1218,10 +1252,6 @@ static void handle_api_command(request_t *r) {
 // 60 s (svs_proto.h reads it); GET answers what Cruller last heard, the switch included.
 
 #define SVS_BODY_MAX 6144 // 32 inputs with long names fit in about 4.5 KB
-
-// The POST body, or the GET answer (one request at a time): room for the longest switch Cruller keeps,
-// every name full of quotes to escape.
-static char svs_buf[8192];
 
 // ,"profiles":{"1":"S1_PS1.rt4",...} (each input's profile, as kept) at out + n, if it fits; the new n.
 static int svs_profiles_part(char *out, size_t size, int n) {
@@ -1263,10 +1293,10 @@ static void svs_json(char *out, size_t size, bool full) {
     }
     if (n <= 0 || (size_t)n >= size) return;
     n += snprintf(out + n, size - (size_t)n, "]");
-    static svs_switch_t sw; // (only the HTTP task asks for the full one)
-    if (full && (size_t)n + 16 < size && svs_get_switch(&sw)) {
+    svs_switch_t *const sw = &scratch.svs.sw; // (only the HTTP task asks for the full one)
+    if (full && (size_t)n + 16 < size && svs_get_switch(sw)) {
         n += snprintf(out + n, size - (size_t)n, ",\"switch\":");
-        const size_t w = svs_switch_json(&sw, out + n, size - (size_t)n - 1);
+        const size_t w = svs_switch_json(sw, out + n, size - (size_t)n - 1);
         n = w ? n + (int)w : n - 10; // doesn't fit: left out (not half of it)
         out[n] = 0;
     }
@@ -1293,15 +1323,16 @@ typedef struct {
 static bool svs_sink(const uint8_t *data, size_t len, void *ctx) {
     svs_body_t *b = ctx;
     if (b->len + len > SVS_BODY_MAX) return false;
-    memcpy(svs_buf + b->len, data, len);
+    memcpy(scratch.svs.buf + b->len, data, len);
     b->len += len;
     return true;
 }
 
 static void handle_svs(request_t *r, bool post) {
+    char *const buf = scratch.svs.buf;
     if (!post) {
-        svs_json(svs_buf, sizeof(svs_buf), true);
-        respond(r->fd, 200, "OK", "application/json", svs_buf);
+        svs_json(buf, sizeof(scratch.svs.buf), true);
+        respond(r->fd, 200, "OK", "application/json", buf);
         return;
     }
     char out[160];
@@ -1311,10 +1342,10 @@ static void handle_svs(request_t *r, bool post) {
             "application/json", "{\"ok\":false,\"error\":\"send the JSON as the body (6 KB at most)\"}");
         return;
     }
-    svs_buf[body.len] = 0;
-    static svs_msg_t m;
+    buf[body.len] = 0;
+    svs_msg_t *const m = &scratch.svs.m;
     const char *error;
-    if (!svs_parse(svs_buf, &m, &error)) {
+    if (!svs_parse(buf, m, &error)) {
         char esc[96];
         json_escape(esc, sizeof(esc), error);
         snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\"}", esc);
@@ -1325,18 +1356,18 @@ static void handle_svs(request_t *r, bool post) {
     // set up for another RT4K can't change this one's profiles. POST /api/v1/svs/unpair frees it.
     settings_t s;
     settings_get(&s);
-    if (s.svs_bridge[0] && strcmp(s.svs_bridge, m.id)) {
+    if (s.svs_bridge[0] && strcmp(s.svs_bridge, m->id)) {
         char paired[2 * SETTINGS_NAME_MAX + 2];
         json_escape(paired, sizeof(paired), s.svs_bridge);
         snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"paired with another SVS Bridge\",\"paired\":\"%s\"}", paired);
         respond(r->fd, 409, "Conflict", "application/json", out);
         return;
     }
-    if (!s.svs_bridge[0] && m.id[0]) {
-        snprintf(s.svs_bridge, sizeof(s.svs_bridge), "%s", m.id);
-        printf("http: paired with SVS Bridge %s: %s\n", m.id, settings_save(&s) ? "saved" : "NOT saved");
+    if (!s.svs_bridge[0] && m->id[0]) {
+        snprintf(s.svs_bridge, sizeof(s.svs_bridge), "%s", m->id);
+        printf("http: paired with SVS Bridge %s: %s\n", m->id, settings_save(&s) ? "saved" : "NOT saved");
     }
-    const bool changed = svs_report(&m);
+    const bool changed = svs_report(m);
     snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
     respond(r->fd, 200, "OK", "application/json", out);
 }
@@ -1353,11 +1384,12 @@ static void handle_svs_profiles(request_t *r) {
             "{\"ok\":false,\"error\":\"send the profiles as the body, a line each (1 KB at most)\"}");
         return;
     }
-    svs_buf[body.len] = 0;
-    char *text = svs_buf + SVS_PROFILES_MAX; // in order, after the body (smaller than that)
+    char *const buf = scratch.svs.buf;
+    buf[body.len] = 0;
+    char *text = buf + SVS_PROFILES_MAX; // in order, after the body (smaller than that)
     const char *error;
     char out[200];
-    if (!svs_profiles_parse(svs_buf, text, SVS_PROFILES_MAX, &error)) {
+    if (!svs_profiles_parse(buf, text, SVS_PROFILES_MAX, &error)) {
         char esc[160];
         json_escape(esc, sizeof(esc), error);
         snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\"}", esc);
@@ -1374,16 +1406,16 @@ static void handle_svs_profiles(request_t *r) {
 }
 
 static void handle_wifi(request_t *r) {
-    static form_t form;
-    form.len = 0;
-    form.buf[0] = 0;
+    form_t *const form = &scratch.form;
+    form->len = 0;
+    form->buf[0] = 0;
     wifi_creds_t creds = {0};
-    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form.buf) || !read_body(r, form_sink, &form) ||
-        !form_field(form.buf, "ssid", creds.ssid, sizeof(creds.ssid)) || !creds.ssid[0]) {
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form->buf) || !read_body(r, form_sink, form) ||
+        !form_field(form->buf, "ssid", creds.ssid, sizeof(creds.ssid)) || !creds.ssid[0]) {
         respond(r->fd, 400, "Bad Request", "text/plain", "Invalid network name\n");
         return;
     }
-    if (!form_field(form.buf, "pass", creds.pass, sizeof(creds.pass))) creds.pass[0] = 0;
+    if (!form_field(form->buf, "pass", creds.pass, sizeof(creds.pass))) creds.pass[0] = 0;
     if (!creds_save(&creds)) {
         respond(r->fd, 500, "Internal Server Error", "text/plain", "Could not save the credentials\n");
         return;
@@ -1402,15 +1434,15 @@ static void handle_wifi(request_t *r) {
 static void handle_setup(request_t *r, bool post) {
     char out[320];
     if (post) {
-        static raw_t body;
-        body.len = 0;
+        raw_t *const body = &scratch.raw;
+        body->len = 0;
         char ssid[CREDS_SSID_MAX + 1] = "", pass[CREDS_PASS_MAX + 1] = "", name[SETTINGS_NAME_MAX + 1] = "";
-        if (r->content_length <= 0 || r->content_length >= 1024 || !read_body(r, raw_sink, &body)) {
+        if (r->content_length <= 0 || r->content_length >= 1024 || !read_body(r, raw_sink, body)) {
             respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"send the form as the body\"}");
             return;
         }
-        body.buf[body.len] = 0;
-        const char *form = (const char *)body.buf;
+        body->buf[body->len] = 0;
+        const char *form = (const char *)body->buf;
         if (!form_field(form, "ssid", ssid, sizeof(ssid)) || !ssid[0]) {
             respond(r->fd, 400, "Bad Request", "application/json", "{\"ok\":false,\"error\":\"pick a network\"}");
             return;
@@ -1444,11 +1476,11 @@ static void handle_setup(request_t *r, bool post) {
 // restarts, right after answering.
 static void handle_settings(request_t *r) {
     char name[SETTINGS_NAME_MAX + 1] = "";
-    static form_t form;
-    form.len = 0;
-    form.buf[0] = 0;
-    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form.buf) || !read_body(r, form_sink, &form) ||
-        !form_field(form.buf, "name", name, sizeof(name)) || !settings_name_ok(name)) {
+    form_t *const form = &scratch.form;
+    form->len = 0;
+    form->buf[0] = 0;
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(form->buf) || !read_body(r, form_sink, form) ||
+        !form_field(form->buf, "name", name, sizeof(name)) || !settings_name_ok(name)) {
         respond(r->fd, 400, "Bad Request", "text/plain", "The name takes letters, numbers and spaces (up to 32)\n");
         return;
     }
@@ -1568,21 +1600,18 @@ static void handle(request_t *r) {
         respond_bytes(r->fd, "", d, n);
     }
     else if (get && !strcmp(r->path, "/debug/usbtrace")) {
-        static char trace_text[12288];
-        rt4k_trace_dump(trace_text, sizeof(trace_text));
-        respond(r->fd, 200, "OK", "text/plain", trace_text);
+        rt4k_trace_dump(scratch.usbtrace, sizeof(scratch.usbtrace));
+        respond(r->fd, 200, "OK", "text/plain", scratch.usbtrace);
     }
     else if (get && !strcmp(r->path, "/debug/memory")) handle_debug_memory(r->fd);
     else if (get && !strcmp(r->path, "/debug/tcp")) handle_debug_tcp(r->fd);
     else if (get && !strcmp(r->path, "/debug/console")) {
-        static char console_text[1600];
-        console_debug(console_text, sizeof(console_text));
-        respond(r->fd, 200, "OK", "text/plain", console_text);
+        console_debug(scratch.console, sizeof(scratch.console));
+        respond(r->fd, 200, "OK", "text/plain", scratch.console);
     }
     else if (get && !strcmp(r->path, "/debug/freeze")) {
-        static char freeze_text[4096];
-        freeze_dump(freeze_text, sizeof(freeze_text));
-        respond(r->fd, 200, "OK", "text/plain", freeze_text);
+        freeze_dump(scratch.freeze, sizeof(scratch.freeze));
+        respond(r->fd, 200, "OK", "text/plain", scratch.freeze);
     }
     else if (post && !strcmp(r->path, "/update")) handle_update(r);
     else if (post && !strcmp(r->path, "/update/fetch")) handle_update_fetch(r, query);
@@ -1595,9 +1624,8 @@ static void handle(request_t *r) {
     else if (post && !strcmp(r->path, "/restart")) handle_restart(r, false);
     else if (post && !strcmp(r->path, "/factory-reset")) handle_restart(r, true);
     else if (get && !strcmp(r->path, "/wifi/scan")) {
-        static char scan[1600];
-        net_scan_json(scan, sizeof(scan));
-        respond(r->fd, 200, "OK", "application/json", scan);
+        net_scan_json(scratch.scan, sizeof(scratch.scan));
+        respond(r->fd, 200, "OK", "application/json", scratch.scan);
     }
     else if (post && !strcmp(r->path, "/debug/portal")) {
         // POST /debug/portal?minutes=N: the setup access point next to the station link (0 closes it).
