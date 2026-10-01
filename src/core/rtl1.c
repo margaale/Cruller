@@ -92,19 +92,21 @@ static const rtl1_hooks_t hooks = {
                              // transfer and the RT4K reads it as a bad text command
 };
 
+#if CRULLER_DEBUG
 // Debug: the raw bytes of the current transfer, kept when it fails (GET /debug/lastfail).
 #define CAPTURE_MAX 6144
 static uint8_t capture[CAPTURE_MAX], last_fail[CAPTURE_MAX];
 static size_t capture_len, last_fail_len;
 static volatile bool capturing;
 
-void rtl1_pause(uint32_t ms) {
-    paused_until_ms = now_ms() + ms;
-}
-
 size_t rtl1_last_failure(const uint8_t **data) {
     *data = last_fail;
     return last_fail_len;
+}
+#endif
+
+void rtl1_pause(uint32_t ms) {
+    paused_until_ms = now_ms() + ms;
 }
 
 void rtl1_init(void) {
@@ -116,11 +118,13 @@ void rtl1_init(void) {
 
 void rtl1_feed(const uint8_t *data, size_t len) {
     xSemaphoreTake(feed_lock, portMAX_DELAY);
+#if CRULLER_DEBUG
     if (capturing) {
         const size_t n = len < CAPTURE_MAX - capture_len ? len : CAPTURE_MAX - capture_len;
         memcpy(capture + capture_len, data, n);
         capture_len += n;
     }
+#endif
     rtl1_core_feed(data, len, now_ms());
     xSemaphoreGive(feed_lock);
 }
@@ -150,8 +154,10 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     xSemaphoreTake(done_sem, 0); // stale
     rtl1_core_begin(cmd, out, max, info, quiet, ready_timeout_ms, now_ms());
+#if CRULLER_DEBUG
     capture_len = 0;
     capturing = true;
+#endif
     xSemaphoreGive(feed_lock);
 
     char line[RTL1_PATH_MAX + 48];
@@ -170,6 +176,7 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
             if (signalled || over) break;
         }
         result = rtl1_core_result();
+#if CRULLER_DEBUG
         xSemaphoreTake(feed_lock, portMAX_DELAY);
         capturing = false;
         if (result == RTL1_ERR_PROTOCOL) {
@@ -177,6 +184,7 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
             last_fail_len = capture_len;
         }
         xSemaphoreGive(feed_lock);
+#endif
     }
 
     xSemaphoreTake(feed_lock, portMAX_DELAY);

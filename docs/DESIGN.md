@@ -106,7 +106,7 @@ It also knows the profile the RT4K has loaded (`prof get`'s `prof loaded=`), onl
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
 - **`POST /update`, `POST /update/fetch`**: a Cruller image uploaded as the request body, or downloaded by Cruller itself from its GitHub releases (see "OTA").
 - **Status**: `GET /status` (JSON, also pushed over the WebSocket), the page's: it changes with the page, so clients outside it use `GET /api/v1/state`.
-- **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/console`, `/debug/usbtrace`, `/debug/freeze`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`.
+- **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/tcp`, `/debug/console`, `/debug/freeze`, which only read; and the developer tools, which a build with `CRULLER_DEBUG=0` leaves out (`src/platform/platform.h`, 16 KB of the Pico 2 W's RAM): `/debug/usbtrace`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`, `/debug/portal`, `/debug/wedge`, `/debug/fault`. The status says which (`"dev_tools"`), and the Debug tab shows their buttons only when they're there.
 
 ## Flash layout
 

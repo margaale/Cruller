@@ -17,6 +17,7 @@ set(CMAKE_CXX_STANDARD 17)
 include(${CRULLER_ROOT}/src/version.cmake)
 set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z or X.Y.Z-label.N)")
 set(CRULLER_BUILD 0 CACHE STRING "Build number: CI's run number (github.run_number), 0 for a local build")
+option(CRULLER_DEBUG "The developer tools (src/platform/platform.h): 16 KB of RAM" ON)
 
 pico_sdk_init()
 
@@ -107,6 +108,9 @@ target_compile_definitions(cruller_app INTERFACE
     CRULLER_VERSION="${CRULLER_VERSION}"
     CYW43_HOST_NAME="cruller"
 )
+if (NOT CRULLER_DEBUG)
+    target_compile_definitions(cruller_app INTERFACE CRULLER_DEBUG=0)
+endif()
 target_link_libraries(cruller_app INTERFACE
     pico_stdlib
     pico_cyw43_arch_lwip_sys_freertos
@@ -156,6 +160,12 @@ target_compile_definitions(cruller PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
 cruller_image(cruller_bench)
 target_compile_definitions(cruller_bench PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
 set_target_properties(cruller_bench PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+# Same OTA image without the developer tools (CRULLER_DEBUG=0), so that build keeps building. Not
+# built by default.
+cruller_image(cruller_nodebug)
+target_compile_definitions(cruller_nodebug PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1 CRULLER_DEBUG=0)
+set_target_properties(cruller_nodebug PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # First image, installed by DonutShop's OTA stage-3 with a normal boot: must not be TBYB.
 cruller_image(cruller_migration_app)

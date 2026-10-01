@@ -103,7 +103,9 @@ static union {
             svs_msg_t m;
         };
     } svs;
+#if CRULLER_DEBUG
     char usbtrace[12288];
+#endif
     char console[1600];
     char freeze[4096];
     char scan[1600];
@@ -569,9 +571,13 @@ void http_status_json(char *body, size_t size) {
     } else if (n && n < size && ota_fetch_json(fetch, sizeof(fetch))) {
         snprintf(body + n - 1, size - (n - 1), ",\"update\":%s}", fetch);
     }
-    // The platform: which image the firmware index has for it ("rp2": a .uf2).
+    // The platform: which image the firmware index has for it ("rp2": a .uf2). Whether the build has the
+    // developer tools (CRULLER_DEBUG): the Debug tab shows their buttons only then.
     n = strlen(body);
-    if (n && n < size) snprintf(body + n - 1, size - (n - 1), ",\"platform\":\"%s\"}", PLAT_NAME);
+    if (n && n < size) {
+        snprintf(body + n - 1, size - (n - 1), ",\"platform\":\"%s\",\"dev_tools\":%s}", PLAT_NAME,
+            CRULLER_DEBUG ? "true" : "false");
+    }
     // The RT4K's firmware and model as it last said them (rt4k_info.h), and whether it said them since
     // it last came on (else they're from before: it sleeps, or hasn't answered yet).
     rt4k_info_t info;
@@ -728,9 +734,6 @@ static void handle_rt4k_cmd(request_t *r) {
     respond(r->fd, 200, "OK", "text/plain", rt.mounted ? "sent\n" : "queued, but no RT4K is connected (dropped)\n");
 }
 
-// Debug: POST /debug/raw[?pause=S]: the body goes to the RT4K as is (no framing), and transfers
-// (the mirror's polls) are refused for S seconds (default 10) so they don't interleave. For working
-// out protocols such as RTL1 put from a PC; replies show up in /rt4k/rx.
 static bool raw_sink(const uint8_t *data, size_t len, void *ctx) {
     raw_t *b = ctx;
     if (b->len + len > sizeof(b->buf)) return false;
@@ -739,6 +742,10 @@ static bool raw_sink(const uint8_t *data, size_t len, void *ctx) {
     return true;
 }
 
+#if CRULLER_DEBUG
+// Debug: POST /debug/raw[?pause=S]: the body goes to the RT4K as is (no framing), and transfers
+// (the mirror's polls) are refused for S seconds (default 10) so they don't interleave. For working
+// out protocols such as RTL1 put from a PC; replies show up in /rt4k/rx.
 static void handle_debug_raw(request_t *r, const char *query) {
     raw_t *const body = &scratch.raw;
     body->len = 0;
@@ -765,6 +772,7 @@ static void handle_debug_raw(request_t *r, const char *query) {
     snprintf(msg, sizeof(msg), "sent %u of %u bytes\n", (unsigned)sent, (unsigned)body->len);
     respond(r->fd, sent == body->len ? 200 : 503, sent == body->len ? "OK" : "Service Unavailable", "text/plain", msg);
 }
+#endif
 
 static bool form_sink(const uint8_t *data, size_t len, void *ctx) {
     form_t *f = ctx;
@@ -1558,6 +1566,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/rt4k/xfer")) handle_rt4k_xfer(r->fd, query);
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r, false, NULL);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
+#if CRULLER_DEBUG
     else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
     else if (post && !strcmp(r->path, "/debug/baud")) {
         // POST /debug/baud?rate=N: the RT4K's line speed change, as the PIPe Profiler does it:
@@ -1614,6 +1623,7 @@ static void handle(request_t *r) {
             rt4k_flow_control() ? "on" : "off", rt4k_modem_status() & 0x10 ? "on" : "off");
         respond(r->fd, 200, "OK", "text/plain", msg);
     }
+#endif
     else if (post && !strcmp(r->path, "/rt4k/put")) handle_rt4k_put(r, query);
     else if (post && !strcmp(r->path, "/rt4k/ask")) handle_rt4k_ask(r, query);
     else if (get && !strcmp(r->path, "/rt4k/ls")) handle_rt4k_ls(r, query);
@@ -1622,6 +1632,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/api/v1/state")) handle_api_state(r->fd);
     else if (get && !strcmp(r->path, "/api/v1/events")) handle_ws(r, true, query);
     else if (post && (!strcmp(r->path, "/api/v1/command") || !strcmp(r->path, "/api/command"))) handle_api_command(r);
+#if CRULLER_DEBUG
     else if (get && !strcmp(r->path, "/debug/lastfail")) {
         const uint8_t *d;
         const size_t n = rtl1_last_failure(&d);
@@ -1631,6 +1642,7 @@ static void handle(request_t *r) {
         rt4k_trace_dump(scratch.usbtrace, sizeof(scratch.usbtrace));
         respond(r->fd, 200, "OK", "text/plain", scratch.usbtrace);
     }
+#endif
     else if (get && !strcmp(r->path, "/debug/memory")) handle_debug_memory(r->fd);
     else if (get && !strcmp(r->path, "/debug/tcp")) handle_debug_tcp(r->fd);
     else if (get && !strcmp(r->path, "/debug/console")) {
@@ -1655,6 +1667,7 @@ static void handle(request_t *r) {
         net_scan_json(scratch.scan, sizeof(scratch.scan));
         respond(r->fd, 200, "OK", "application/json", scratch.scan);
     }
+#if CRULLER_DEBUG
     else if (post && !strcmp(r->path, "/debug/portal")) {
         // POST /debug/portal?minutes=N: the setup access point next to the station link (0 closes it).
         char v[8];
@@ -1683,6 +1696,7 @@ static void handle(request_t *r) {
             respond(r->fd, 400, "Bad Request", "text/plain", "kind=task, or kind=flash on the Pico 2 W\n");
         }
     }
+#endif
     else if (net_state() == NET_PORTAL || via_portal(r->fd)) redirect(r->fd, "http://192.168.4.1/"); // captive portal probes
     else respond(r->fd, 404, "Not Found", "text/plain", "Not found\n");
 }
