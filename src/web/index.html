@@ -456,10 +456,10 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="panel"><h2>Tools</h2>
 <form class="row" onsubmit="return cmd('d-cm')"><input id="d-cm" placeholder="Raw command…" autocomplete="off" autocapitalize="none"><button class="primary">Send</button></form>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-<a class="btn" href="/debug/usbtrace" target="_blank">USB trace</a>
-<button onclick="tool('/debug/portal?minutes=10')">Test setup portal</button>
-<button onclick="tool('/debug/flow?on=1')">Flow control on</button>
-<button onclick="tool('/debug/flow?on=0')">Flow control off</button>
+<a class="btn" href="/debug/usbtrace" target="_blank" data-dev>USB trace</a>
+<button onclick="tool('/debug/portal?minutes=10')" data-dev>Test setup portal</button>
+<button onclick="tool('/debug/flow?on=1')" data-dev>Flow control on</button>
+<button onclick="tool('/debug/flow?on=0')" data-dev>Flow control off</button>
 </div><div class="small" id="d-tool"></div></div>
 
 <div class="panel span2"><div class="row"><h2 class="grow">Cruller log</h2></div><pre id="lg"></pre></div>

@@ -135,6 +135,8 @@ function st(s) {
   text('f-host', 'Reached at ' + (s.hostname || 'cruller') + '.local' + (s.name ? '' : ' · give it a name to tell it apart'));
   showSvs(s.svs);
   if (s.platform && !upd.loaded) updLoad();
+  // A build without the developer tools (CRULLER_DEBUG=0) doesn't have their routes: no buttons for them.
+  for (const e of document.querySelectorAll('[data-dev]')) e.hidden = s.dev_tools === false;
   if (s.update && upd.onProgress) upd.onProgress(s.update);
   if (s.setup) wzProgress(s.setup);
   showUptime();

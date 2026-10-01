@@ -124,7 +124,7 @@ jobs:
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
         run: |
           bash scripts/build.sh rp2 Release
-          ninja -C build/rp2 cruller_bench # built so it keeps building; not published
+          ninja -C build/rp2 cruller_bench cruller_nodebug # built so they keep building; not published
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.uf2 installs a new board
       # (BOOTSEL, then drop it on the drive); cruller.uf2 is the OTA image the Cruller tab looks for.

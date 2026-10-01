@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Local build of a target (src/platform/<target>) into build/<target>. Paths default to this
 # machine's setup; override them through the environment.
-#   [CRULLER_VERSION=x.y.z] [CRULLER_BUILD=n] [PICO_BOARD=pico2_w] scripts/build.sh [rp2] [Debug|Release]
+#   [CRULLER_VERSION=x.y.z] [CRULLER_BUILD=n] [CRULLER_DEBUG=0] [PICO_BOARD=pico2_w] scripts/build.sh [rp2] [Debug|Release]
+#   (CRULLER_DEBUG=0: without the developer tools, see src/platform/platform.h)
 #   [CRULLER_VERSION=x.y.z] scripts/build.sh esp32       (in an ESP-IDF 6.1 shell: idf.py on the PATH)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -49,6 +50,7 @@ cmake -S "$src" -B "$out" -G Ninja \
     -DCMAKE_BUILD_TYPE="$build_type" \
     ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} \
     ${CRULLER_BUILD:+-DCRULLER_BUILD="$CRULLER_BUILD"} \
+    -DCRULLER_DEBUG="${CRULLER_DEBUG:-1}" \
     ${PICO_BOARD:+-DPICO_BOARD="$PICO_BOARD"} \
     -Dpicotool_DIR="$PICOTOOL_DIR" \
     -Dpioasm_DIR="$PIOASM_DIR"

@@ -301,6 +301,10 @@ The Pico's boot ROM starts the newer of its two copies, and a local build is bui
 any CI build of the same version. Pass `CRULLER_VERSION` and `CRULLER_BUILD` to go above the one
 installed. A local build takes its version from `src/version.cmake`, and CI passes its own.
 
+`CRULLER_DEBUG=0` builds it without the developer tools: the `/debug` routes that act on the RT4K
+or the board, the RTL1 failure capture and the USB trace (16 KB of RAM). The Debug tab then hides
+their buttons. The routes that only read stay.
+
 `scripts/build.sh esp32`, in an ESP-IDF 6.1 shell, builds the ESP32-S3 port into `build/esp32`.
 
 ## Development

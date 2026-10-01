@@ -12,6 +12,7 @@
 #include "hardware/irq.h"
 #include "tusb.h"
 
+#include "platform.h"
 #include "rtl1.h"
 #include "rtl1_core.h"
 #include "console.h"
@@ -178,12 +179,14 @@ uint8_t rt4k_modem_status(void) {
 static uint32_t last_rearm_lat_us;
 static struct { uint32_t max_us, slow, overrun_us, max_overrun_us; } gap_stats;
 
+static uint32_t xfer_packets;
+
+#if CRULLER_DEBUG
 // Debug: a timeline of USB events during transfers, frozen shortly after an overrun shows up
 // (GET /debug/usbtrace). Written on core 1 only (USB IRQ and the rt4k task).
 #define TRACE_SIZE 512u // power of two
 static struct { uint32_t us; uint16_t kind, val; } trace[TRACE_SIZE];
 static volatile uint32_t trace_head, trace_stop_at; // trace_stop_at: 0 while recording
-static uint32_t xfer_packets;
 
 static void __not_in_flash_func(trace_add)(uint16_t kind, uint16_t val) {
     if (rtl1_core_phase() == RTL1_PH_IDLE) return;
@@ -204,6 +207,12 @@ static void __not_in_flash_func(usb_irq_probe)(void) {
     const char *c1 = pcTaskGetName(xTaskGetCurrentTaskHandleForCore(1));
     trace_add(TR_IRQ, (uint16_t)((uint8_t)c0[0] << 8 | (uint8_t)c1[0]));
 }
+#else
+static inline void trace_add(uint16_t kind, uint16_t val) {
+    (void)kind;
+    (void)val;
+}
+#endif
 
 // Status bytes of every FTDI packet (src/platform/rp2/patches/tinyusb/0002). An overrun means the FT232R's receive
 // buffer filled up: the host didn't collect packets fast enough and serial bytes were lost.
@@ -215,7 +224,9 @@ void tuh_cdc_ftdi_status_cb(uint8_t idx, uint8_t modem_status, uint8_t line_stat
     xfer_packets++;
     if (line_status & 0x02) {
         trace_add(TR_OVERRUN, (uint16_t)xfer_packets);
+#if CRULLER_DEBUG
         if (!trace_stop_at) trace_stop_at = trace_head + 64;
+#endif
         ftdi_stats.overruns++;
         ftdi_stats.last_overrun_ms = to_ms_since_boot(get_absolute_time());
         gap_stats.overrun_us = last_rearm_lat_us; // the re-arm before the data that shows the loss
@@ -250,7 +261,9 @@ void rt4k_term_push(const uint8_t *data, size_t len) {
 static void host_init(void) {
     static const tusb_rhport_init_t rh = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(BOARD_TUH_RHPORT, &rh);
+#if CRULLER_DEBUG
     irq_add_shared_handler(USBCTRL_IRQ, usb_irq_probe, PICO_SHARED_IRQ_HANDLER_LOWEST_ORDER_PRIORITY);
+#endif
 }
 
 static void rt4k_task(void *param) {
@@ -446,6 +459,7 @@ void rt4k_get_status(rt4k_status_t *out) {
     memcpy(out, (const void *)&status, sizeof(*out));
 }
 
+#if CRULLER_DEBUG
 size_t rt4k_trace_dump(char *out, size_t size) {
     static const char *const kinds[] = {"?", "irq", "event", "xfer", "OVERRUN"};
     const uint32_t head = trace_head;
@@ -467,3 +481,4 @@ size_t rt4k_trace_dump(char *out, size_t size) {
     trace_stop_at = 0;
     return o;
 }
+#endif
