@@ -467,6 +467,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="small">What each core was running at the last samples; after a watchdog reset it shows the moments before it.</div>
 <table class="tbl"><thead><tr><th>Core</th><th>Task</th><th class="r">Watchdog left</th><th class="r">Fed</th></tr></thead><tbody id="z-rows"></tbody></table>
 <a class="more" href="/debug/freeze" target="_blank">Every sample →</a></div>
+<div class="panel span3" id="mp"></div>
 <div class="panel span2"><div class="row"><h2 class="grow">Tasks</h2><span class="small">on request: reading the stacks pauses both cores for a few ms</span><button onclick="stacks()">Read tasks</button></div>
 <table class="tbl"><thead><tr><th>Task</th><th>State</th><th class="r">Priority</th><th class="r">Stack never used</th></tr></thead><tbody id="t-rows"><tr><td colspan="4" class="small">Not read yet</td></tr></tbody></table></div>
 </section>
@@ -491,6 +492,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <script src="/fw.js" defer></script>
 <script src="/sd.js" defer></script>
 <script src="/profiles.js" defer></script>
+<script src="/mapper.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>
