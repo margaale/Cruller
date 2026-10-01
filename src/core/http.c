@@ -536,6 +536,21 @@ void http_status_json(char *body, size_t size) {
         snprintf(body + n - 1, size - (n - 1), ",\"rt4k_fw\":\"%s\",\"rt4k_model\":\"%s\",\"rt4k_fw_fresh\":%s}", fw, model,
             fresh ? "true" : "false");
     }
+    // The profile it has loaded (rt4k_info.h): "rt4k_profile", its path under /profile ("": none; null:
+    // not known), when there's room (else the page asks itself), escaped straight into body.
+    char profile[RT4K_INFO_PROFILE_MAX + 1];
+    const bool known = rt4k_info_profile(profile, sizeof(profile));
+    n = strlen(body);
+    if (n && n + 2 * strlen(profile) + 32 < size) {
+        if (!known) {
+            snprintf(body + n - 1, size - (n - 1), ",\"rt4k_profile\":null}");
+        } else {
+            n += (size_t)snprintf(body + n - 1, size - (n - 1), ",\"rt4k_profile\":\"") - 1;
+            json_escape(body + n, size - n - 3, profile);
+            n += strlen(body + n);
+            snprintf(body + n, size - n, "\"}");
+        }
+    }
     // The switch's active input once its bridge has reported one, or the paired bridge:
     // "svs":{"input","name","paired",...}.
     svs_state_t s;
@@ -1073,6 +1088,19 @@ void http_api_state_json(char *body, size_t size) {
         json_escape(esc, sizeof(esc), info.model);
         ADD(",\"model\":\"%s\"", esc);
     }
+    // The profile it has loaded, its path under /profile ("": none; null: not known, it isn't on),
+    // escaped straight into body.
+    char profile[RT4K_INFO_PROFILE_MAX + 1];
+    if (rt4k_info_profile(profile, sizeof(profile))) {
+        ADD(",\"profile\":\"");
+        if (n + 2 < size) {
+            json_escape(body + n, size - n - 2, profile);
+            n += strlen(body + n);
+        }
+        ADD("\"");
+    } else {
+        ADD(",\"profile\":null");
+    }
     ADD("},\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d",
         CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), net_rssi());
     // The board's own sensors (health.h), each only where it has it.
@@ -1094,7 +1122,7 @@ void http_api_state_json(char *body, size_t size) {
 }
 
 static void handle_api_state(int fd) {
-    char body[384];
+    char body[384 + 2 * RT4K_INFO_PROFILE_MAX]; // a long profile path, escaped (handle_status takes more)
     http_api_state_json(body, sizeof(body));
     respond(fd, 200, "OK", "application/json", body);
 }

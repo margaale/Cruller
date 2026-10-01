@@ -70,7 +70,8 @@ What doesn't change while Cruller runs (a rename restarts it). Read once, when s
 What changes: the RT4K's and Cruller's own.
 
 ```json
-{"rt4k": {"connected": true, "power": "on", "firmware": "1.89.0", "model": "RT4K_Pro"},
+{"rt4k": {"connected": true, "power": "on", "firmware": "1.89.0", "model": "RT4K_Pro",
+          "profile": "SVS/S2_Genesis.rt4"},
  "cruller": {"sw_version": "0.5.0", "uptime_s": 3600, "rssi": -52,
              "supply_v": 4.84, "supply_min_v": 4.71, "usb_power": true, "temperature_c": 31.4}}
 ```
@@ -82,6 +83,11 @@ What changes: the RT4K's and Cruller's own.
   last said them (its `ver` and `model` replies). Cruller asks each time the RT4K comes on and keeps
   them across restarts, so they're here while it sleeps too. Each is left out until Cruller has seen
   it once; they stay when the RT4K is unplugged (the last one it saw).
+- `rt4k.profile` (since 0.6.0): the profile the RT4K has loaded, its path under `/profile`
+  (`"SVS/S2_Genesis.rt4"`), `""` for none (settings that aren't a saved profile), or `null` when it
+  isn't known: the RT4K isn't on. The RT4K doesn't say when it loads one (from its menu, its remote,
+  Auto Load SVS), so Cruller asks (`prof get`) every 10 s without hearing it, and 3 s after the SVS
+  switches inputs or a `prof load`: a change shows within 10 s, an SVS one within about 3.
 - The SVS switch isn't here: its state comes from the SVS Bridge itself (its own API and Home
   Assistant integration), not through Cruller. Cruller 0.4.2 also had an `svs` key here.
 - `cruller.sw_version`: Cruller's version, the running one (it changes with an update).
