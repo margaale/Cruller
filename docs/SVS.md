@@ -94,10 +94,11 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
   n is on (over the HD-15), it loads the first `/profile/SVS/S<n>_<anything>.rt4` it finds, and only
   from that folder, so nothing goes through Cruller then. Picking one makes it that file: renamed to
   `S<n>_<name>`, or copied when it's another input's (each input keeps its own). The files the input
-  had become unassigned: `X_` in front of their whole name (`S1_SNES.rt4`: `X_S1_SNES.rt4`, which no
-  other file has), kept in the folder to be picked again. Not an `S`: were the RT4K to read the input
-  loosely, "SX_" could read as input 0. When the input is on screen, Cruller loads it right away
-  (`prof load`). It all runs in the page, with the SD card routes (`ls`, `get`, `put`, `mv`).
+  had become unassigned: `X_` in place of their `S<n>_` (`S1_SNES.rt4`: `X_SNES.rt4`, or
+  `X_SNES (2).rt4` when that's taken), kept in the folder to be picked again. Not an `S`: were the
+  RT4K to read the input loosely, "SX_" could read as input 0. The combos show each by its name alone
+  (`SNES`). When the input is on screen, Cruller loads it right away (`prof load`). It all runs in the
+  page, with the SD card routes (`ls`, `get`, `put`, `mv`).
 - gameID (coming): each console is assigned a switch input. Only the console on the active input
   changes the RT4K's profile, and switching inputs re-applies that console's game profile if it has
   one. Game profiles use their own SVS numbers (S100 and up) so they never overwrite the switch's

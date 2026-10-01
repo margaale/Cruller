@@ -305,7 +305,7 @@
   // /profile/SVS/S<n>_<anything>.rt4 it finds, and only from that folder. Each input gets a combo with
   // the profiles there; picking one makes it the input's file: renamed to S<n>_<name>, or copied when
   // it's another input's (each input keeps its own). The files the input had become unassigned: X_ in
-  // front of their whole name (S1_SNES: X_S1_SNES, which no other file has), kept in the folder to be
+  // place of their S<n>_ (S1_SNES: X_SNES, or X_SNES (2) when that's taken), kept in the folder to be
   // picked again.
 
   const SVS_DIR = 'SVS'; // under /profile (FAT: whatever its case on the card)
@@ -342,7 +342,7 @@
     const taken = new Set(files.map((f) => f.toLowerCase()));
     for (const f of mine) {
       if (f === keep) continue;
-      const to = freeName(taken, UNSET + plain(f), extOf(f));
+      const to = freeName(taken, UNSET + baseName(f), extOf(f));
       taken.delete(f.toLowerCase());
       taken.add(to.toLowerCase());
       steps.push({ op: 'mv', from: f, to });
@@ -402,13 +402,16 @@
   }
 
   // The combo's options for input n: none, its own, the unassigned ones (renamed when picked), and the
-  // other inputs' (copied).
+  // other inputs' (copied). Each by its name alone; two unassigned ones of the same name (X_SNES and a
+  // loose SNES) by their whole names.
   function svsOptions(n, current) {
     const opt = (f, label) => '<option value="' + esc(f) + '"' + (f === current ? ' selected' : '') + '>' + esc(label) + '</option>';
     const group = (label, list, text) => (list.length ? '<optgroup label="' + label + '">' + list.map((f) => opt(f, text(f))).join('') + '</optgroup>' : '');
     const files = sd.sortEntries(sv.files.map((name) => ({ name, dir: false })), 'name', false).map((e) => e.name);
+    const unset = files.filter((f) => !slotOf(f));
+    const twice = (f) => unset.filter((g) => baseName(g).toLowerCase() === baseName(f).toLowerCase()).length > 1;
     return '<option value="">None</option>' + files.filter((f) => slotOf(f) === n).map((f) => opt(f, baseName(f))).join('') +
-      group('Unassigned', files.filter((f) => !slotOf(f)), (f) => plain(f).replace(/^X_/i, '')) +
+      group('Unassigned', unset, (f) => (twice(f) ? plain(f) : baseName(f))) +
       group('Copy another input\'s', files.filter((f) => slotOf(f) && slotOf(f) !== n).sort((a, b) => slotOf(a) - slotOf(b)),
         (f) => baseName(f) + ' (input ' + slotOf(f) + ')');
   }
