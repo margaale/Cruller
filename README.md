@@ -32,7 +32,7 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
   [RetroTINK's firmware repository](https://github.com/RetroTINK-LLC/firmware). It's checked
   against its SHA-256, written to the RT4K's card and installed by the RT4K itself.
 - **Profiles**: the ones in the SD card's `/profile` folder, which one is loaded, load one with a
-  click, or save the RT4K's current settings as a new one.
+  click, save the RT4K's current settings as a new one, or copy one to start another from.
 - **The SD card, over the network**: browse it, download, upload, make folders, rename and delete.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
