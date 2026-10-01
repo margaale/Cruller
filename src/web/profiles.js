@@ -546,22 +546,19 @@
     }
     sv.busy = true;
     svsRender();
-    let note;
+    // Only what went wrong is said: the combos show how it ended.
+    let note = [''];
     try {
       for (const s of p.steps) {
         svsStatus('Input ' + n + ': ' + stepText(s) + '…');
         await svsStep(s);
       }
-      const away = p.steps.filter((s) => s.op === 'mv' && slotOf(s.from) === n).map((s) => baseName(s.to));
-      const said = [p.target ? 'Input ' + n + ': ' + baseName(p.target) : 'Input ' + n + ' has no profile now'];
-      if (away.length) said.push('The one it had is unassigned now: ' + away.join(', '));
       // The input on screen: loaded now, as the RT4K would on switching to it.
       if (p.target && n === sv.input && power === 'on') {
         svsStatus('Input ' + n + ': loading ' + baseName(p.target) + '…');
         const r = await ask('prof load ' + SVS_DIR + '/' + p.target, 'prof', 15000);
-        said.push(r === 'prof load ok' ? 'Loaded, as it\'s on screen' : 'Loading it failed: ' + r);
+        if (r !== 'prof load ok') note = ['Input ' + n + ': loading ' + baseName(p.target) + ' failed: ' + r, true];
       }
-      note = [said.join('. ') + '.'];
     } catch (e) {
       note = ['Input ' + n + ': ' + (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message), true];
     }
@@ -570,7 +567,7 @@
     } catch (e) { // what's in the folder now isn't known: nothing to pick from until it's read again
       sv.files = null;
       sv.failed = true;
-      note = [note[0] + ' Could not read /profile/SVS again: use the refresh button.', true];
+      note = [(note[0] ? note[0] + ' ' : '') + 'Could not read /profile/SVS again: use the refresh button.', true];
     }
     sv.busy = false;
     svsRender();
