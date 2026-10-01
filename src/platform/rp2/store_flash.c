@@ -1,4 +1,5 @@
-// store.h in the data partition's flash: two alternating sectors per record (flash_layout.h).
+// store.h in the data partition's flash: two alternating copies per record, from its start in the keys'
+// order (flash_layout.h), a sector each but the map's (spans).
 //
 // A copy is its magic, a sequence number, the data, then a CRC-32 of all that (padding to 4 bytes
 // included, as zeros), in as many pages as it takes. The newer valid copy wins; a save overwrites the
@@ -23,10 +24,26 @@ static const uint32_t magics[STORE_KEYS] = {
     [STORE_SETTINGS] = 0x54535243u,     // "CRST"
     [STORE_RT4K] = 0x4b525243u,         // "CRRK"
     [STORE_SVS_PROFILES] = 0x50535243u, // "CRSP"
+    [STORE_RT4K_MAP] = 0x4d535243u,     // "CRSM"
 };
 
-_Static_assert(sizeof(header_t) + STORE_RECORD_MAX + 4 <= FLASH_SECTOR_SIZE_B, "a record must fit one sector");
-_Static_assert(2u * STORE_KEYS * FLASH_SECTOR_SIZE_B <= DATA_PART_SIZE, "the records must fit the data partition");
+// Sectors per copy: one, the map's seven (a new key at the end keeps the others where they are).
+static const uint8_t spans[STORE_KEYS] = {
+    [STORE_CREDS] = 1, [STORE_SETTINGS] = 1, [STORE_RT4K] = 1, [STORE_SVS_PROFILES] = 1, [STORE_RT4K_MAP] = 7,
+};
+#define SPANS_TOTAL (2u * (1 + 1 + 1 + 1 + 7))
+
+_Static_assert(sizeof(header_t) + STORE_RECORD_MAX + 4 <= FLASH_SECTOR_SIZE_B, "a small record must fit one sector");
+_Static_assert(sizeof(header_t) + STORE_MAP_MAX + 4 <= 7 * FLASH_SECTOR_SIZE_B, "the map must fit its seven");
+_Static_assert(STORE_KEYS == 5, "a new key: its span here, and in SPANS_TOTAL");
+_Static_assert(SPANS_TOTAL * FLASH_SECTOR_SIZE_B <= DATA_PART_SIZE, "the records must fit the data partition");
+
+// Where a key's copy starts: after every key before it, two copies each.
+static uint32_t copy_offset(store_key_t key, int copy) {
+    uint32_t sector = 0;
+    for (int k = 0; k < (int)key; k++) sector += 2u * spans[k];
+    return STORE_SECTOR_OFFSET(sector + (uint32_t)copy * spans[key]);
+}
 
 static uint32_t crc32_add(uint32_t crc, const void *data, size_t len) {
     const uint8_t *p = data;
@@ -59,8 +76,8 @@ static bool valid(store_key_t key, uint32_t offset, size_t size, uint32_t *seq) 
 // The newer valid copy (0 or 1) and its sequence number, or -1 when neither is valid.
 static int newest(store_key_t key, size_t size, uint32_t *seq) {
     uint32_t sa = 0, sb = 0;
-    const bool va = valid(key, STORE_SECTOR_OFFSET(key, 0), size, &sa);
-    const bool vb = valid(key, STORE_SECTOR_OFFSET(key, 1), size, &sb);
+    const bool va = valid(key, copy_offset(key, 0), size, &sa);
+    const bool vb = valid(key, copy_offset(key, 1), size, &sb);
     if (va && (!vb || (int32_t)(sa - sb) > 0)) {
         *seq = sa;
         return 0;
@@ -74,9 +91,9 @@ static int newest(store_key_t key, size_t size, uint32_t *seq) {
 
 bool store_load(store_key_t key, void *out, size_t size) {
     uint32_t seq;
-    const int i = size <= STORE_RECORD_MAX ? newest(key, size, &seq) : -1;
+    const int i = size <= STORE_MAX(key) ? newest(key, size, &seq) : -1;
     if (i < 0) return false;
-    memcpy(out, FLASH_RAW_PTR(STORE_SECTOR_OFFSET(key, i)) + sizeof(header_t), size);
+    memcpy(out, FLASH_RAW_PTR(copy_offset(key, i)) + sizeof(header_t), size);
     return true;
 }
 
@@ -90,12 +107,12 @@ static uint8_t copy_byte(const header_t *h, const uint8_t *data, size_t size, ui
 }
 
 bool store_save(store_key_t key, const void *data, size_t size) {
-    if (size > STORE_RECORD_MAX) return false;
+    if (size > STORE_MAX(key)) return false;
     uint32_t seq = 0;
     const int i = newest(key, size, &seq);
-    if (i >= 0 && !memcmp(FLASH_RAW_PTR(STORE_SECTOR_OFFSET(key, i)) + sizeof(header_t), data, size)) return true;
+    if (i >= 0 && !memcmp(FLASH_RAW_PTR(copy_offset(key, i)) + sizeof(header_t), data, size)) return true;
     // Overwrite the older (or invalid) copy, so a power cut never loses both.
-    const uint32_t target = STORE_SECTOR_OFFSET(key, i == 0 ? 1 : 0);
+    const uint32_t target = copy_offset(key, i == 0 ? 1 : 0);
     const header_t h = {magics[key], i < 0 ? 1 : seq + 1};
     static const uint8_t zeros[4];
     uint32_t crc = crc32_add(0xffffffffu, &h, sizeof(h));
@@ -106,7 +123,7 @@ bool store_save(store_key_t key, const void *data, size_t size) {
     uint8_t *page = pages[key];
     const size_t total = crc_offset(size) + sizeof(crc);
     if (!flash_quiet_begin()) return false;
-    bool ok = flash_erase_safe(target, FLASH_SECTOR_SIZE_B);
+    bool ok = flash_erase_safe(target, spans[key] * FLASH_SECTOR_SIZE_B);
     for (size_t at = 0; ok && at < total; at += FLASH_PAGE_SIZE_B) {
         memset(page, 0xff, FLASH_PAGE_SIZE_B);
         for (size_t k = 0; k < FLASH_PAGE_SIZE_B && at + k < total; k++) page[k] = copy_byte(&h, data, size, crc, at + k);

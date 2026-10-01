@@ -12,10 +12,11 @@
 #define DATA_PART_OFFSET      0x3A2000u
 #define DATA_PART_SIZE        0x5B000u
 
-// store.h's records (store_flash.c): two alternating sectors each from the start of the data
-// partition, in the keys' order: the Wi-Fi credentials, the settings (name, paired SVS Bridge), the
-// RT4K's firmware and model, each SVS input's profile, and whatever comes after.
-#define STORE_SECTOR_OFFSET(key, copy) (DATA_PART_OFFSET + (2u * (uint32_t)(key) + (uint32_t)(copy)) * FLASH_SECTOR_SIZE_B)
+// store.h's records (store_flash.c): two alternating copies each from the start of the data partition,
+// in the keys' order: the Wi-Fi credentials, the settings (name, paired SVS Bridge), the RT4K's firmware
+// and model, each SVS input's profile (a sector a copy: sectors 0-7), the RT4K's settings map (seven:
+// 8-21), and whatever comes after. A record's n-th sector from there:
+#define STORE_SECTOR_OFFSET(n) (DATA_PART_OFFSET + (uint32_t)(n) * FLASH_SECTOR_SIZE_B)
 
 // DonutShop (arduino-pico, flash=4194304_2097152) LittleFS, read once after migrating.
 // The first Cruller OTA overwrites it (partition B and the data partition overlap it).
