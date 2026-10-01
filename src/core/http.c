@@ -45,6 +45,7 @@
 #define RECV_TIMEOUT_MS     15000
 #define HEADER_MAX          1536
 #define BODY_CHUNK          1024
+#define RT4K_SETTINGS_MAX   24576 // sget: the live settings (22876 bytes on firmware 1.9x), with room to grow
 
 static volatile bool listening = false;
 bool http_listening(void) { return listening; }
@@ -83,9 +84,9 @@ static union {
     } debug_tasks;
     char debug_memory[2048];
     struct {
-        uint8_t buf[4096];
+        uint8_t buf[RT4K_SETTINGS_MAX];
         rtl1_info_t info;
-    } xfer;                     // /rt4k/xfer
+    } xfer;                     // /rt4k/xfer: an OSD plane, the font, or the live settings (sget)
     char stream[2048];          // /log, /rt4k/rx
     form_t form;                // /rt4k/cmd, /rt4k/ask, /wifi, /settings
     raw_t raw;                  // /debug/raw, POST /setup
@@ -492,8 +493,9 @@ static void handle_ws(request_t *r, bool events, const char *query) {
     r->adopted = ws_adopt(r->fd, events, types);
 }
 
-// GET /rt4k/xfer?cmd=osd|osd2|font: one RTL1 transfer, verified (CRC, sequence, SHA-256), as the
-// raw payload; the RT4K's ready line comes back in X-Ready.
+// GET /rt4k/xfer?cmd=osd|osd2|font|sget: one RTL1 transfer, verified (CRC, sequence, SHA-256), as the
+// raw payload; the RT4K's ready line comes back in X-Ready. sget: the settings it runs on now, a profile
+// without its 128-byte header ("sget ready size=22876 ver=..." on 1.9x).
 static void handle_rt4k_xfer(int fd, const char *query) {
     const char *c = query ? strstr(query, "cmd=") : NULL;
     char cmd[16] = "";
@@ -503,8 +505,8 @@ static void handle_rt4k_xfer(int fd, const char *query) {
         memcpy(cmd, c + 4, n);
         cmd[n] = 0;
     }
-    if (strcmp(cmd, "osd") && strcmp(cmd, "osd2") && strcmp(cmd, "font")) {
-        respond(fd, 400, "Bad Request", "text/plain", "cmd must be osd, osd2 or font\n");
+    if (strcmp(cmd, "osd") && strcmp(cmd, "osd2") && strcmp(cmd, "font") && strcmp(cmd, "sget")) {
+        respond(fd, 400, "Bad Request", "text/plain", "cmd must be osd, osd2, font or sget\n");
         return;
     }
     rtl1_info_t *const info = &scratch.xfer.info;
