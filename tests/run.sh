@@ -33,5 +33,7 @@ if command -v node >/dev/null; then
     node tests/test_fw.js || status=1
     echo "== sd.js (SD card view)"
     node tests/test_sd.js || status=1
+    echo "== profiles.js (profiles view)"
+    node tests/test_profiles.js || status=1
 fi
 exit $status

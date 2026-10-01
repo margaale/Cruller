@@ -49,6 +49,7 @@ The API's version is a whole number: `api` in the TXT, `api_version` in `/api/v1
 | `GET /api/v1/svs` | The switch's active input, and the switch as its bridge describes it. |
 | `POST /api/v1/svs` | The SVS Bridge's report. |
 | `POST /api/v1/svs/unpair` | Forget the paired SVS Bridge. |
+| `POST /api/v1/svs/profiles` | Each input's profile, as the page read the RT4K's card, to keep. |
 
 ### GET /api/v1/info
 
@@ -167,3 +168,12 @@ curl -X POST http://cruller.local/api/v1/command -d '{"command": "ver"}'
 The SVS Bridge reports the switch's active input with `POST /api/v1/svs`, and `GET /api/v1/svs`
 answers what Cruller last heard. `POST /api/v1/svs/unpair` forgets the paired bridge, so the next one
 to report is kept. The formats, and pairing, are in [SVS.md](SVS.md).
+
+`POST /api/v1/svs/profiles` keeps each input's profile: the file in the RT4K's `/profile/SVS` it
+loads for that input, as the page last read the card. The body is a line per input that has one,
+`<input>\t<file name>` (`1\tS1_SNES.rt4`); none at all is an empty body. Cruller keeps them across
+restarts, writing its flash only when they changed, and `GET /api/v1/svs` gives them back as
+`"profiles": {"1": "S1_SNES.rt4", "3": "S3_PS1.rt4"}`, so they're known while the RT4K sleeps.
+`profiles_seq` (in both, and in the page's status) changes with them. Answers
+`{"ok": true, "changed": true}`; a line that isn't an input 1-32, a tab and a name (150 bytes at
+most), or more than 1 KB, gets `400`/`413 {"ok": false, "error": "…"}`.

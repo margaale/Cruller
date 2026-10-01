@@ -66,14 +66,16 @@ function route() {
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
   document.querySelectorAll('nav.tabs a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.tab === tab));
-  const view = sub === 'firmware' || sub === 'sd' ? sub : 'live';
+  const view = ['firmware', 'profiles', 'sd'].includes(sub) ? sub : 'live';
   document.querySelectorAll('[data-subview]').forEach((e) => { e.hidden = e.dataset.subview !== view; });
   document.querySelectorAll('.sub a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.sub === view));
   $('chip-rt4k').hidden = tab !== 'rt4k';
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
+  if (tab === 'rt4k' && view === 'profiles' && window.profOpen) window.profOpen(rest); // rest: the folder under /profile (profiles.js)
   if (tab === 'rt4k' && view === 'live') fit();
+  if (tab === 'svs' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
   tellVisibility();
   tellDebug();
   if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); }
@@ -91,6 +93,7 @@ function st(s) {
   if (window.fwPutProgress) window.fwPutProgress(s.put); // the firmware updater's progress bar (fw.js)
   if (window.sdStatus) window.sdStatus(s); // the SD card view reads the folder again once the RT4K is on
   if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power
+  if (window.profStatus) window.profStatus(s); // profiles: read again once the RT4K is on, the loaded one now and then
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;
   // Its firmware as it last said it, which Cruller keeps while it sleeps.
@@ -141,129 +144,418 @@ function st(s) {
 
 const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
 
-// The switch as the bridge describes it (GET /api/v1/svs "switch"): fetched when its switch_seq changes.
-const svsSw = { seq: 0, loading: 0, data: null, last: null };
+// The switch as the bridge describes it (GET /api/v1/svs "switch"), and each input's profile as Cruller
+// keeps it ("profiles", for profiles.js): fetched when switch_seq or profiles_seq changes.
+const svsSw = { seq: 0, pseq: 0, loading: 0, data: null, last: null, cards: '' }; // cards: what the grid was drawn for
 const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
 const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
 
-// The consoles, by their id in the SVS Bridge's list: a short name, and an icon. Each is its
-// controller (or the machine itself) seen from above on a 60x40 grid: the body a tint of the text
-// colour (.con .b in index.html), sticks and pads in the text colour, and the buttons in their own
-// colours (PlayStation's shapes, the ABXY of Xbox, SNES and Dreamcast, GameCube's big green A,
-// Neo Geo's four) so each reads at a glance, even between siblings (PS1 has no sticks, PS2 its red
-// analog light, PS3 its PS button and player lights; the first Xbox its big jewel).
-const HUE = { red: '#E5534B', yellow: '#F0B44C', green: '#4CC38A', blue: '#5B8DEF', pink: '#E07FBF', teal: '#3FBFA8', orange: '#F08A24', grey: '#9EA3AB' };
-const I = {
-  body: (d) => `<path class="b" d="${d}"/>`,
-  // The cross, s its half length.
-  dpad: (x, y, s = 4.6) => { const w = s * 0.36; return `<path d="M${x - w} ${y - s}h${2 * w}v${s - w}h${s - w}v${2 * w}h${w - s}v${s - w}h${-2 * w}v${w - s}h${w - s}v${-2 * w}h${s - w}z"/>`; },
-  // PS1's: four separate arrows.
-  arrows: (x, y) => `<path class="l" style="stroke-width:2.4;stroke-linecap:butt" d="M${x} ${y - 5}v3M${x} ${y + 2}v3M${x - 5} ${y}h3M${x + 2} ${y}h3"/>`,
-  // A round pad with the cross on it (Mega Drive, Saturn).
-  disc: (x, y, r = 5.2) => `<circle class="k" cx="${x}" cy="${y}" r="${r}"/><path class="l" style="stroke-width:1.1" d="M${x} ${y - r + 1.6}v${2 * r - 3.2}M${x - r + 1.6} ${y}h${2 * r - 3.2}"/>`,
-  btn: (x, y, r, c) => `<circle cx="${x}" cy="${y}" r="${r}"${c ? ` fill="${c}"` : ''}/>`,
-  stick: (x, y, r = 3.4) => `<circle class="k" cx="${x}" cy="${y}" r="${r}"/><circle cx="${x}" cy="${y}" r="${r * 0.42}"/>`,
-  pill: (x, y, w = 3.6) => `<path class="l" style="stroke-width:1.5" d="M${x - w / 2} ${y}h${w}"/>`,
-  // △ ○ × □, around (x, y).
-  ps: (x, y, d = 4.6, s = 1.8) => `<g class="l" style="stroke-width:1.2">` +
-    `<path stroke="${HUE.teal}" d="M${x} ${y - d - s}l${s * 1.1} ${s * 1.8}h${-s * 2.2}z"/>` +
-    `<circle stroke="${HUE.red}" cx="${x + d}" cy="${y}" r="${s}"/>` +
-    `<path stroke="${HUE.blue}" d="M${x - s * 0.9} ${y + d - s * 0.9}l${s * 1.8} ${s * 1.8}m0 ${-s * 1.8}l${-s * 1.8} ${s * 1.8}"/>` +
-    `<rect stroke="${HUE.pink}" x="${x - d - s * 0.85}" y="${y - s * 0.85}" width="${s * 1.7}" height="${s * 1.7}"/></g>`,
+// The consoles, by their id in the SVS Bridge's list: a short name, and an icon. Each icon is the console's
+// controller (or the machine itself) as the real one, on a 60x40 grid: its plastic's colour, its buttons in
+// theirs, no logos, so each reads at a glance on a dark tile, and the look-alikes apart (PS1 grey without
+// sticks, PS2 black with its analog light, PS3 its PS button and player lights; Xbox black with its jewel,
+// Xbox 360 white). Outlines are a step lighter than black bodies and darker than light ones.
+const { CONSOLES, PAD } = (() => {
+  const C = {
+    grey: '#C6C9CF', greyLine: '#868A92', greyDeep: '#A7AAB1', // light grey plastic
+    black: '#3D4047', blackLine: '#9A9FA8', blackDeep: '#24262B', blackKey: '#82878F', blackRing: '#B3B6BD', // black plastic, outlined lighter
+    white: '#E7E7E3', whiteLine: '#9A9EA6',
+    indigo: '#5B50AC', indigoLine: '#8D84D2',
+    ink: '#3A3D44', dark: '#1D1F23', mid: '#5E636C', soft: '#8E929A',
+    red: '#DC4A4F', blue: '#4C70DA', yellow: '#E9B93B', green: '#3FAE5C', pink: '#E07FBF', teal: '#3BB39A', orange: '#F08A24',
+  };
+
+  const body = (d, fill, line) => `<path d="${d}" fill="${fill}" stroke="${line}" stroke-width="1.3" stroke-linejoin="round"/>`;
+  const circle = (x, y, r, fill, extra = '') => `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}"${extra}/>`;
+  const ring = (x, y, r, fill, line, w = 1) => circle(x, y, r, fill, ` stroke="${line}" stroke-width="${w}"`);
+  // The cross, s its half length, w its arms' width.
+  const dpad = (x, y, s, fill, w = s * 0.72) => {
+    const h = w / 2;
+    return `<path d="M${x - h} ${y - s}h${w}v${s - h}h${s - h}v${w}h${h - s}v${s - h}h${-w}v${h - s}h${h - s}v${-w}h${s - h}z" fill="${fill}" stroke-linejoin="round"/>`;
+  };
+  const stick = (x, y, r, outer, inner) => circle(x, y, r, outer) + circle(x, y, r * 0.45, inner);
+  const pill = (x, y, w, h, fill, rot = 0) => `<rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="${h / 2}" fill="${fill}"${rot ? ` transform="rotate(${rot} ${x} ${y})"` : ''}/>`;
   // Four buttons in a diamond: top, right, bottom, left.
-  diamond: (x, y, d, r, [t, rt, b, l]) => I.btn(x, y - d, r, t) + I.btn(x + d, y, r, rt) + I.btn(x, y + d, r, b) + I.btn(x - d, y, r, l),
-};
-// The PlayStation pads' body, and a computer's rows of keys.
-const dualshock = 'M17 8h26c6 0 10 3 11.5 9.5 2 8 3 16-1.5 18-4 1.8-7-2.5-9.5-6.5-1-1.5-2-2-3.5-2h-21c-1.5 0-2.5.5-3.5 2-2.5 4-5.5 8.3-9.5 6.5-4.5-2-3.5-10-1.5-18C7 11 11 8 17 8z';
-const keyRows = (x0, x1, ys) => `<path class="l" style="stroke-width:1.9;stroke-dasharray:1.9 1.1;stroke-linecap:butt" d="${ys.map((y) => `M${x0} ${y}H${x1}`).join('')}"/>`;
-const CONSOLES = {
-  nes: ['NES', I.body('M5 10h50a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2z') +
-    `<rect class="k" x="6" y="13" width="48" height="15" rx="1"/>${I.dpad(13.5, 20.5)}` +
-    `<path class="l" style="stroke-width:.9;opacity:.6" d="M22 15.5h13M22 17.5h13"/>${I.pill(25, 23.5)}${I.pill(32, 23.5)}` +
-    `<rect x="37.5" y="17" width="7" height="7" rx="1" class="k"/><rect x="46" y="17" width="7" height="7" rx="1" class="k"/>${I.btn(41, 20.5, 2.6, HUE.red)}${I.btn(49.5, 20.5, 2.6, HUE.red)}`],
-  snes: ['SNES', I.body('M16 9h28a11 11 0 0 1 0 22H16a11 11 0 0 1 0-22z') + `<path class="l" style="stroke-width:1.8" d="M8 9.5a12 12 0 0 1 7-2.3M45 7.2a12 12 0 0 1 7 2.3"/>` +
-    `${I.dpad(15.5, 20)}<path class="l" style="stroke-width:1.7" d="M25 22.5l3-1.7M31 22.5l3-1.7"/>${I.diamond(44.5, 20, 4.4, 2.3, [HUE.blue, HUE.red, HUE.yellow, HUE.green])}`],
-  n64: ['N64', I.body('M7 9.5C12 6.5 22 7 30 7s18-.5 23 2.5c3.5 2 4 6 3 10.5l-2.5 12c-.7 3-4.3 3-5 0l-2.3-9c-.4-1.5-1.3-2-2.7-2h-4.3l-2.7 13c-.6 3-7.4 3-8 0L22.8 21.5h-4.3c-1.4 0-2.3.5-2.7 2l-2.3 9c-.7 3-4.3 3-5 0L6 20c-1-4.5-.5-8.5 1-10.5z') +
-    `${I.dpad(13, 15.5, 4)}${I.stick(30, 18, 3)}${I.btn(30, 11.5, 1.5, HUE.red)}${I.btn(41.5, 19, 2.4, HUE.blue)}${I.btn(38, 14.5, 2.1, HUE.green)}` +
-    I.diamond(48.5, 14, 3, 1.35, [HUE.yellow, HUE.yellow, HUE.yellow, HUE.yellow])],
-  gamecube: ['GameCube', I.body('M14 8c6-1 11 1.5 16 1.5S40 7 46 8c7.5 1.3 11.5 8 11 16-.4 6.5-3.5 10.5-8 10.3-4-.2-5.5-3.7-8-6.3-1-1-2-1.5-3.5-1.5h-15c-1.5 0-2.5.5-3.5 1.5-2.5 2.6-4 6.1-8 6.3-4.5.2-7.6-3.8-8-10.3-.5-8 3.5-14.7 11-16z') +
-    `${I.stick(13.5, 16.5, 4)}${I.dpad(22, 23, 3.2)}${I.btn(30, 16.5, 1.2)}${I.btn(44.5, 16.5, 3.6, HUE.green)}${I.btn(39, 20.5, 1.9, HUE.red)}${I.btn(36.5, 24.3, 2.2, HUE.yellow)}` +
-    `<path class="l" style="stroke-width:2.2" d="M50 12.3a6.2 6.2 0 0 1 .3 8.6M39.6 12.2a6.2 6.2 0 0 1 8.4-1.9"/>`],
-  wii: ['Wii', I.body('M8 13h44a5 5 0 0 1 5 5v4a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5v-4a5 5 0 0 1 5-5z') +
-    `${I.btn(7, 16.5, 1.1, HUE.red)}${I.dpad(13, 20, 3.8)}<circle class="k" cx="22" cy="20" r="2.8"/>${I.btn(30, 16.3, .9)}${I.btn(30, 20, 1.3, HUE.blue)}${I.btn(30, 23.7, .9)}` +
-    `${I.btn(38, 20, 1.8)}${I.btn(43.5, 20, 1.8)}${[16.5, 19, 21.5, 24].map((y) => I.btn(52.5, y, .7, HUE.blue)).join('')}`],
-  sms: ['Master System', I.body('M4 11h52a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V12a1 1 0 0 1 1-1z') + `<path class="l" d="M12 11c0-3.5 2-5.5 6-5.5"/>` +
-    `<rect class="k" x="7.5" y="14" width="13" height="13" rx="2"/>${I.dpad(14, 20.5, 4.4)}<rect x="34" y="17" width="7" height="7" rx="1.2"/><rect x="45" y="17" width="7" height="7" rx="1.2"/>`],
-  megadrive: ['Mega Drive', I.body('M9 10.5c8-4 34-4 42 0 6.5 3.5 7 13 2 19-3.5 4-8 4-12 .5-3.5-3-7.5-4-11-4s-7.5 1-11 4c-4 3.5-8.5 3.5-12-.5-5-6-4.5-15.5 2-19z') +
-    `${I.disc(15, 19, 5.5)}${I.pill(30, 15.5)}${I.btn(37, 23, 2.7)}${I.btn(43, 20.3, 2.7)}${I.btn(49, 17.6, 2.7)}`],
-  saturn: ['Saturn', I.body('M11 9c9-2.5 29-2.5 38 0 7 2 8.5 12 6 18.5-2 5.5-8 6.5-12 2.5-2-2-4.5-3-6.5-3h-13c-2 0-4.5 1-6.5 3-4 4-10 3-12-2.5-2.5-6.5-1-16.5 6-18.5z') +
-    `<path class="l" style="stroke-width:1.8" d="M7 10.5a10 10 0 0 1 7-3M46 7.5a10 10 0 0 1 7 3"/>${I.disc(14.5, 18.5, 5)}${I.pill(30, 19)}` +
-    `${I.btn(38.5, 22.5, 2.1)}${I.btn(43.5, 21, 2.1)}${I.btn(48.5, 19.5, 2.1)}${I.btn(38.5, 16, 1.5)}${I.btn(43, 14.5, 1.5)}${I.btn(47.5, 13, 1.5)}`],
-  dreamcast: ['Dreamcast', I.body('M10 7h40c5 0 7.5 4 7 9l-2 13c-.8 5-5.5 6-8.5 2.5L42 26H18l-4.5 5.5C10.5 35 5.8 34 5 29L3 16c-.5-5 2-9 7-9z') +
-    `<rect class="k" x="23" y="8.5" width="14" height="10" rx="1.5"/>${I.stick(12.5, 14.5, 3.4)}${I.dpad(15, 23.5, 3.8)}` +
-    `<path d="M31.3 22.3a1.6 1.6 0 1 1-1.9-1.6 3 3 0 1 1-2.3 3.7" fill="none" stroke="${HUE.orange}" stroke-width="1.2" stroke-linecap="round"/>` +
-    I.diamond(46, 15.5, 3.9, 1.9, [HUE.green, HUE.blue, HUE.red, HUE.yellow])],
-  ps1: ['PS1', I.body(dualshock) + `${I.arrows(14, 17)}${I.pill(26, 17, 3)}${I.pill(33.5, 17, 3)}${I.ps(46, 17)}`],
-  ps2: ['PS2', I.body(dualshock) + `${I.dpad(14, 16, 4.2)}${I.ps(46, 16)}${I.stick(22, 24, 3.3)}${I.stick(38, 24, 3.3)}${I.btn(30, 21.5, .9, HUE.red)}${I.pill(26.5, 15.5, 2.6)}${I.pill(33.5, 15.5, 2.6)}`],
-  ps3: ['PS3', I.body(dualshock) + `<path class="l" style="stroke:${HUE.red};stroke-width:1.3;stroke-linecap:butt" d="M25 9.5h1.8M28.1 9.5h1.8M31.2 9.5h1.8M34.3 9.5h1.8"/>` +
-    `${I.dpad(14, 16, 4.2)}${I.ps(46, 16)}${I.stick(22, 24, 3.3)}${I.stick(38, 24, 3.3)}<circle class="k" cx="30" cy="20.5" r="2.1"/>${I.pill(26.5, 15, 2.6)}${I.pill(33.5, 15, 2.6)}`],
-  xbox: ['Xbox', I.body('M12 5h36c6 0 10 5 10.5 12 .5 9-1 18-6 18-4 0-6-4-8-6.5H15.5c-2 2.5-4 6.5-8 6.5-5 0-6.5-9-6-18C2 10 6 5 12 5z') +
-    `${I.stick(11.5, 13.5, 3.6)}${I.dpad(20.5, 23, 3.6)}${I.stick(39.5, 23, 3.4)}` +
-    `<circle class="k" cx="30" cy="14" r="5.2"/><circle cx="30" cy="14" r="3.4" fill="${HUE.green}"/><path class="l" style="stroke:#1B1D21;stroke-width:1.2" d="M28.3 12.3l3.4 3.4m0-3.4l-3.4 3.4"/>` +
-    `${I.diamond(48, 13.5, 3.8, 1.8, [HUE.yellow, HUE.red, HUE.green, HUE.blue])}${I.btn(52, 21.5, 1.3)}${I.btn(55, 18, 1.3, '#E6E4DE')}`],
-  xbox360: ['Xbox 360', I.body('M14 8c6-1 11 1.5 16 1.5S40 7 46 8c7 1 11 7 11.5 14 .5 8-2.5 13-7 12.5-3.5-.4-5-4-8-6.5H18c-3 2.5-4.5 6.1-8 6.5-4.5.5-7.5-4.5-7-12.5C3.5 15 7.5 9 14 8z') +
-    `${I.stick(14, 16, 3.4)}${I.dpad(22.5, 24, 3.4)}${I.stick(37.5, 24, 3.2)}` +
-    `<circle class="k" cx="30" cy="15" r="2.9"/><circle cx="30" cy="15" r="1.6" fill="${HUE.green}"/>${I.btn(24.5, 15.5, .9)}${I.btn(35.5, 15.5, .9)}` +
-    I.diamond(46, 16, 3.8, 1.9, [HUE.yellow, HUE.red, HUE.green, HUE.blue])],
-  pce: ['PC Engine', I.body('M8 10h44a4 4 0 0 1 4 4v13a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V14a4 4 0 0 1 4-4z') +
-    `${I.dpad(13.5, 20.5)}${I.pill(25, 24)}${I.pill(31.5, 24)}<rect class="k" x="37" y="13" width="5" height="3.2" rx=".8"/><rect class="k" x="45" y="13" width="5" height="3.2" rx=".8"/>` +
-    `${I.btn(40.5, 23, 2.9)}${I.btn(48.5, 21.5, 2.9)}`],
-  neogeo: ['Neo Geo', I.body('M6 12h48a3 3 0 0 1 3 3v17a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V15a3 3 0 0 1 3-3z') +
-    `<circle class="k" cx="15" cy="23.5" r="7.2"/>${I.btn(15, 23.5, 4.8, HUE.red)}<circle cx="13.5" cy="22" r="1.4" fill="#fff" fill-opacity=".45"/>` +
-    `${I.btn(29, 27.5, 2.9, HUE.red)}${I.btn(36, 24.5, 2.9, HUE.yellow)}${I.btn(43.5, 23, 2.9, HUE.green)}${I.btn(51, 23.5, 2.9, HUE.blue)}${I.pill(44, 16)}${I.pill(50.5, 16)}`],
-  atari2600: ['Atari 2600', I.body('M17 16h26a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H17a3 3 0 0 1-3-3V19a3 3 0 0 1 3-3z') +
-    `<ellipse cx="22" cy="20.5" rx="3.3" ry="2.3" fill="${HUE.red}"/><ellipse class="k" cx="32" cy="26.5" rx="5.5" ry="3.8"/>` +
-    `<path class="l" style="stroke-width:3.6" d="M32 26V6.5"/>`],
-  jaguar: ['Jaguar', I.body('M12 5h36c6 0 10 5 10 11.5S54.5 28 49.5 28c-3 0-5-2-7.5-2l-.8 8.5c-.2 2-1.7 3-3.7 3H22.5c-2 0-3.5-1-3.7-3L18 26c-2.5 0-4.5 2-7.5 2C5.5 28 2 22.5 2 16.5S6 5 12 5z') +
-    `${I.dpad(12, 15, 4.2)}${I.btn(42, 20, 2.1)}${I.btn(47, 16.5, 2.1)}${I.btn(52, 13, 2.1)}${I.pill(25.5, 12, 3)}${I.pill(34.5, 12, 3)}` +
-    [0, 1, 2].map((c) => [0, 1, 2, 3].map((r) => `<rect x="${22.2 + c * 5.8}" y="${18.2 + r * 4}" width="3.8" height="2.6" rx=".6"/>`).join('')).join('')],
-  '3do': ['3DO', I.body('M13 9h34c6 0 10 4 10 10.5 0 7-4 12.5-9.5 12.5-3.5 0-5.5-2-8-4.5-1.3-1.3-2.5-2-4.5-2h-10c-2 0-3.2.7-4.5 2C18 30 16 32 12.5 32 7 32 3 26.5 3 19.5 3 13 7 9 13 9z') +
-    `${I.dpad(14, 20, 4.4)}${I.btn(37, 24, 2.6)}${I.btn(42.5, 20.5, 2.6)}${I.btn(48, 17, 2.6)}${I.pill(27, 15, 3)}${I.pill(33, 15, 3)}`],
-  cdi: ['CD-i', I.body('M11 9h38a7 7 0 0 1 7 7v9a7 7 0 0 1-7 7H11a7 7 0 0 1-7-7v-9a7 7 0 0 1 7-7z') +
-    `<circle class="k" cx="17" cy="20.5" r="6.5"/><circle cx="17" cy="20.5" r="2.4"/>${I.btn(38, 20.5, 3, HUE.grey)}${I.btn(47, 20.5, 3, HUE.grey)}` +
-    `<path class="l" style="stroke-width:.9;opacity:.6" d="M35 26.5h15"/>`],
-  amiga: ['Amiga', I.body('M4 10h52a2 2 0 0 1 2 2v19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2z') +
-    keyRows(6, 31, [14]) + keyRows(6, 43, [18.5, 22, 25.5]) + `<path class="l" style="stroke-width:2.2" d="M15 29.3h18"/>` + keyRows(46, 54, [18.5, 22, 25.5, 29]) +
-    `${I.btn(38, 14, .9, HUE.green)}${I.btn(41.5, 14, .9, HUE.orange)}<path class="l" style="stroke-width:1.1;opacity:.7" d="M58 17v9"/>`],
-  c64: ['C64', I.body('M7 10h46c1.3 0 2.2.7 2.5 2L58 30.5c.3 1.5-.6 2.5-2 2.5H4c-1.4 0-2.3-1-2-2.5L4.5 12c.3-1.3 1.2-2 2.5-2z') +
-    keyRows(8, 44, [15, 19, 23, 27]) + `<path class="l" style="stroke-width:2.2" d="M17 30.2h20"/>` +
-    [14.5, 19, 23.5, 28].map((y) => `<rect x="47.5" y="${y - 1.6}" width="6" height="3.2" rx=".6"/>`).join('') +
-    `<path d="M9 12.4h6" stroke="${HUE.blue}" stroke-width="1.2"/><path d="M15.5 12.4h3" stroke="${HUE.red}" stroke-width="1.2"/>`],
-  msx: ['MSX', I.body('M4 12h52a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V14a2 2 0 0 1 2-2z') + `<rect class="k" x="36" y="6" width="17" height="6" rx="1"/>` +
-    keyRows(6, 40, [17, 21, 25]) + `<path class="l" style="stroke-width:2.2" d="M13 29h22"/>` + I.diamond(49.5, 22, 3.6, 1.6, [])],
-  supergun: ['Arcade', I.body('M18 2h24l1.5 6-2 2v10l3 3v15H15.5V23l3-3V10l-2-2z') +
-    `<rect x="19.5" y="3" width="21" height="4" rx=".8" fill="${HUE.orange}" fill-opacity=".85"/><rect x="20.5" y="10" width="19" height="10" rx="1" fill="#0E0F11" stroke="currentColor" stroke-width="1"/>` +
-    `<path class="l" style="stroke-width:1.1" d="M15.5 23h29"/>${I.btn(22.5, 21.5, 1.7, HUE.red)}${I.btn(30.5, 22.2, 1.2, HUE.blue)}${I.btn(34.5, 22.2, 1.2, HUE.blue)}${I.btn(38.5, 22.2, 1.2, HUE.blue)}` +
-    `<rect class="k" x="26" y="28" width="8" height="6" rx=".8"/>`],
-  pc: ['PC', I.body('M12 4h36a2 2 0 0 1 2 2v21a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z') +
-    `<rect x="13" y="7" width="34" height="18" rx="1" fill="#0E0F11" stroke="currentColor" stroke-width="1"/><path class="l" style="stroke-width:1.8" d="M30 29v4M21 35h18"/>` +
-    `${I.btn(45.5, 27, .7, HUE.green)}`],
-};
-// A console Cruller has no drawing of (a newer bridge's list, or only a name): a plain pad.
-const PAD = I.body('M16 10h28c7 0 11 5 12 11.5.8 5.5-1 10.5-5.5 10.5-3.5 0-5-3-7.5-5.5H17c-2.5 2.5-4 5.5-7.5 5.5C5 32 3.2 27 4 21.5 5 15 9 10 16 10z') +
-  `${I.dpad(15.5, 19.5, 4)}${I.diamond(44.5, 19.5, 3.6, 1.7, [])}${I.pill(26.5, 18, 3)}${I.pill(33.5, 18, 3)}`;
-const svgCon = (body, cls = 'con') => `<svg class="${cls}" viewBox="0 0 60 40" fill="currentColor" aria-hidden="true">${body}</svg>`;
+  const diamond = (x, y, d, r, [t, rt, b, l]) => circle(x, y - d, r, t) + circle(x + d, y, r, rt) + circle(x, y + d, r, b) + circle(x - d, y, r, l);
+  // A round pad with a cross groove (Mega Drive, Saturn).
+  const disc = (x, y, r, fill, groove) => circle(x, y, r, fill) + `<path d="M${x} ${y - r + 1.4}v${2 * r - 2.8}M${x - r + 1.4} ${y}h${2 * r - 2.8}" stroke="${groove}" stroke-width="1.6" stroke-linecap="round"/>`;
+  // A body drawn as the PlayStations: its fill, what's on it, then its outline over all.
+  const shell = (d, fill, line, inside) => `<path d="${d}" fill="${fill}"/>` + inside +
+    `<path d="${d}" fill="none" stroke="${line}" stroke-width="1.3" stroke-linejoin="round"/>`;
+  // A row of n keys from x0: a thick dashed line, each dash a key (w wide, h tall).
+  const keys = (x0, n, y, fill, w = 2.2, h = 2.2, gap = 0.6) =>
+    `<path d="M${x0} ${y}h${+(n * w + (n - 1) * gap).toFixed(2)}" stroke="${fill}" stroke-width="${h}" stroke-dasharray="${w} ${gap}"/>`;
+  // Four small arrows pointing out, d from (x, y).
+  const arrows4 = (x, y, d, fill, s = 0.9) => [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([u, v]) => {
+    const f = (n) => +n.toFixed(2), a = d + s * 0.6, b = d - s * 0.6;
+    return `<path d="M${f(x + u * a)} ${f(y + v * a)}L${f(x + u * b - v * s)} ${f(y + v * b + u * s)}L${f(x + u * b + v * s)} ${f(y + v * b - u * s)}Z" fill="${fill}"/>`;
+  }).join('');
+  const ellipse = (x, y, rx, ry, fill, extra = '') => `<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="${fill}"${extra}/>`;
+
+  // The PlayStation pads, as the real ones: each side a big round wing (the d-pad's, the buttons'), the
+  // middle lower between them, a ledge on top of each wing with L1/R1 coming out of it, the grips going
+  // down nearly straight, the d-pad as four arrows in a round well and △ ○ × □ on dark buttons.
+  // by: where the middle's bottom edge meets the grips (lower with the sticks).
+  const PS_L = 13.5, PS_R = 46.5, PS_Y = 17, PS_W = 9.8; // the wings' centres and radius
+  // wl, wr: the wings' centres (the wells' too), the grips staying where they are.
+  // Each grip: its outer side straight down from the wing's side, leaning out PS_SPLAY degrees; a round
+  // tip (PS_TIP_R, its centre at PS_TIP_Y) tangent to it; its inner side the line tangent to both the
+  // tip and the wing's circle, so the grip comes off the wing. The middle is straight between the wings,
+  // on top, and at the bottom between where the grips touch them.
+  const PS_SPLAY = 4, PS_TIP_R = 4.2, PS_TIP_Y = 35.7;
+  const PS_WELL = 8.5; // the d-pad's and the buttons' wells
+  const PS_WL = 12.8, PS_WR = 47.2; // the wings' (and wells') centres on all three pads
+  const PS_MID_BOTTOM = 25; // the middle's bottom edge (the grips' inner sides, on their tangents, cut it)
+  // Where the line from (ax, ay) touches the circle (cx, cy, rho), on the side turn picks (+1, -1).
+  const tangent = (ax, ay, cx, cy, rho, turn) => {
+    const dx = ax - cx, dy = ay - cy, d = Math.hypot(dx, dy), t = turn * Math.acos(rho / d);
+    const ux = dx / d, uy = dy / d;
+    return [cx + rho * (ux * Math.cos(t) - uy * Math.sin(t)), cy + rho * (ux * Math.sin(t) + uy * Math.cos(t))];
+  };
+  // housing: the right stick housing (x, y, r) to take into the bottom edge (the left one mirrors it);
+  // low: the bottom edge between the housings (by when not given).
+  const psBody = (by, wl = PS_L, wr = PS_R, housing = null, low = null) => {
+    const r = PS_W, y = PS_Y, dx = Math.sqrt(r * r - (y - 10.2) ** 2), f = (n) => +n.toFixed(2), m = (x) => f(60 - x);
+    // The right grip; the left one is its mirror (wl = 60 - wr).
+    const sp = PS_SPLAY * Math.PI / 180, rho = PS_TIP_R, ax = wr + r;
+    const ly = PS_TIP_Y - rho * Math.sin(sp), lx = ax + Math.tan(sp) * (ly - y); // the outer side meets the tip
+    const tx = lx - rho * Math.cos(sp), ty = PS_TIP_Y;
+    // The inner side: the line touching the wing (wr, y, r) and the tip on their inner sides. Its normal n
+    // (pointing out of the grip) meets n·(W - T) = rho - r.
+    const Dx = wr - tx, Dy = y - ty, D = Math.hypot(Dx, Dy), dl = Math.atan2(Dy, Dx);
+    const phi = dl - Math.acos((rho - r) / D), nx = Math.cos(phi), ny = Math.sin(phi);
+    const bx = wr + r * nx, bw = y + r * ny;                                   // the inner side leaves the wing
+    const ix = tx + rho * nx, iy = ty + rho * ny;                              // ... and meets the tip
+    // The middle's bottom edge, lower than where the tangent touches the wing: the grip's side starts where it cuts it.
+    const cut = (PS_MID_BOTTOM - bw) / (iy - bw);
+    const sx = bx + (ix - bx) * Math.max(0, cut);
+    by = Math.max(f(bw), PS_MID_BOTTOM);
+    let bottom = `L${f(sx)} ${by}L${m(sx)} ${by}L${m(ix)} ${f(iy)}`;
+    if (housing) {
+      // Where the grip's inner side leaves the housing (from inside it at the bottom edge), and where the
+      // housing's circle crosses the bottom edge on its inner side.
+      const [hx, hy, hr] = housing, ux = ix - sx, uy = iy - by, ox = sx - hx, oy = by - hy;
+      const qa = ux * ux + uy * uy, qb = 2 * (ux * ox + uy * oy), qc = ox * ox + oy * oy - hr * hr;
+      const t = (-qb + Math.sqrt(qb * qb - 4 * qa * qc)) / (2 * qa);
+      const yl = low == null ? by : low;
+      const px = sx + t * ux, py = by + t * uy, cx = hx - Math.sqrt(hr * hr - (yl - hy) ** 2);
+      bottom = `L${f(px)} ${f(py)}A${hr} ${hr} 0 0 1 ${f(cx)} ${yl}L${m(cx)} ${yl}A${hr} ${hr} 0 0 1 ${m(px)} ${f(py)}L${m(ix)} ${f(iy)}`;
+    }
+    return `M${f(wl + dx)} 10.2L${f(wr - dx)} 10.2A${r} ${r} 0 0 1 ${f(ax)} ${y}` +
+      `L${f(lx)} ${f(ly)}A${rho} ${rho} 0 0 1 ${f(ix)} ${f(iy)}${bottom}` +
+      `A${rho} ${rho} 0 0 1 ${m(lx)} ${f(ly)}L${f(wl - r)} ${y}A${r} ${r} 0 0 1 ${f(wl + dx)} 10.2Z`;
+  };
+
+  // L1/R1, then the ledges they come out of (drawn before the body: the wings cover their lower part).
+  // On top of each wing, straight.
+  // An arc around (cx, cy), from angle a0 to a1 (degrees: 0 right, -90 up), clockwise.
+  const arcPath = (cx, cy, r, a0, a1) => {
+    const p = (deg) => [cx + r * Math.cos(deg * Math.PI / 180), cy + r * Math.sin(deg * Math.PI / 180)];
+    const [x0, y0] = p(a0), [x1, y1] = p(a1);
+    return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+  };
+  // On top of each wing: the ledge (outlined), its sides straight up and its top a gentle arc around
+  // (x, PS_SH_Y) reaching 4.6; on it L1/R1, a band along a wider arc reaching 2.5. The wing covers their
+  // lower parts.
+  const PS_SH_Y = 23.1, PS_LEDGE_HW = 5.8;
+  const psShoulders = (button, fill, line, wl = PS_L, wr = PS_R) => [wl, wr].map((x) => {
+    const R = PS_SH_Y - 4.6, hw = PS_LEDGE_HW, ys = PS_SH_Y - Math.sqrt(R * R - hw * hw), yb = PS_Y - 5;
+    const ledge = `M${x - hw} ${yb}V${ys.toFixed(2)}A${R} ${R} 0 0 1 ${x + hw} ${ys.toFixed(2)}V${yb}Z`;
+    return `<path d="${arcPath(x, PS_SH_Y, 19.5, -103, -77)}" fill="none" stroke="${button}" stroke-width="2.2" stroke-linecap="round"/>` +
+      `<path d="${ledge}" fill="${fill}" stroke="${line}" stroke-width="1.3" stroke-linejoin="round"/>`;
+  }).join('');
+
+  // Four separate arrows pointing out of a round well.
+  // o: the well's middle (x, y), its radius (r) and the arrows' scale (k).
+  const psArrows = (well, fill, { x = PS_L, y = PS_Y, r = 6.6, k = 1 } = {}) => {
+    const a = (dx, dy) => { // an arrow 3 wide, its point 0.9 from the middle (at k 1)
+      const p = [[-1.5, -4.9], [1.5, -4.9], [1.5, -2.3], [0, -0.9], [-1.5, -2.3]].map(([u, v]) => [u * k, v * k]);
+      return '<path d="M' + p.map(([u, v]) => {
+        const px = x + (dx ? v * dx : u), py = y + (dy ? v * dy : u);
+        return px.toFixed(2) + ' ' + py.toFixed(2);
+      }).join('L') + 'Z" fill="' + fill + '" stroke-linejoin="round"/>';
+    };
+    return circle(x, y, r, well) + a(0, 1) + a(0, -1) + a(1, 0) + a(-1, 0);
+  };
+
+  // △ ○ × □ on four dark buttons in a round well.
+  // o: the well's middle (x, y), its radius (wr) and the buttons' scale (k).
+  const psButtons = (well, button, { x = PS_R, y = PS_Y, wr = 7.2, k = 1 } = {}) => {
+    const d = 4.35 * k, r = 2.45 * k, s = 1.27 * k, w = 0.55 * k;
+    return circle(x, y, wr, well) + circle(x, y - d, r, button) + circle(x + d, y, r, button) + circle(x, y + d, r, button) + circle(x - d, y, r, button) +
+      `<g fill="none" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">` +
+      `<path stroke="${C.teal}" d="M${x} ${(y - d - s).toFixed(2)}l${s} ${(s * 1.75).toFixed(2)}h${(-2 * s).toFixed(2)}z"/>` +
+      `<circle stroke="${C.red}" cx="${x + d}" cy="${y}" r="${s}"/>` +
+      `<path stroke="${C.blue}" d="M${(x - s * 0.85).toFixed(2)} ${(y + d - s * 0.85).toFixed(2)}l${(s * 1.7).toFixed(2)} ${(s * 1.7).toFixed(2)}m0 ${(-s * 1.7).toFixed(2)}l${(-s * 1.7).toFixed(2)} ${(s * 1.7).toFixed(2)}"/>` +
+      `<rect stroke="${C.pink}" x="${(x - d - s * 0.85).toFixed(2)}" y="${(y - s * 0.85).toFixed(2)}" width="${(s * 1.7).toFixed(2)}" height="${(s * 1.7).toFixed(2)}"/></g>`;
+  };
+
+  // The DualShock's sticks: a dark well with the stick's rim and top.
+  // The DualShocks' sticks: big, in round housings that bulge out of the body's bottom edge.
+  const PS_HOUSINGS = [[20.1, 25.8, 6.2], [39.9, 25.8, 6.2]];
+  // The body's bottom edge between them: the PS2's at the sticks' centres, the PS3's a bit lower.
+  const PS2_LOW = 25.8, PS3_LOW = 27.3;
+  const psSticks = (rim) => PS_HOUSINGS.map(([x, y]) => ring(x, y, 4.4, C.blackDeep, rim, 1.1) + circle(x, y, 2.5, C.mid)).join('');
+  // SELECT and START.
+  const psSelect = (x, y, fill) => `<rect x="${x - 1.6}" y="${y - 0.75}" width="3.2" height="1.5" rx=".35" fill="${fill}"/>`;
+  const psStart = (x, y, fill, k = 1) => `<path d="M${x - 1.2 * k} ${y - 1.25 * k}L${x + 1.5 * k} ${y}L${x - 1.2 * k} ${y + 1.25 * k}Z" fill="${fill}" stroke="${fill}" stroke-width=".5" stroke-linejoin="round"/>`;
+
+  // The other plastics: the PC Engine pad's panel, the CD-i pad's grey, the Amiga 500's and the C64's cases, an
+  // MSX's light keys, a PC's beige; the Wii Remote's keys and lights.
+  const PCE_PANEL = '#3B4152';
+  const CDI = { body: '#6A6D73', line: '#A6AAB1', deep: '#4E5156', key: '#3A3D42' };
+  const AMIGA = { body: '#D6D3C9', line: '#9A978D', well: '#A9A59A', key: '#ECEAE4' };
+  const C64 = { body: '#CDBE97', line: '#8C7F5F', well: '#2E2620', key: '#5C4B40', fkey: '#DCC9A0' };
+  const MSX_KEY = '#D6D6D1';
+  const PC = { body: '#D9D2C1', line: '#9D9684', deep: '#B3AC9B', screen: '#13202C' };
+  const WII_KEY = '#C3C6CC', WII_LED = '#4FA3F7';
+
+  const ICONS = {
+    nes: ['NES',
+      `<rect x="4" y="10" width="52" height="21" rx="2.2" fill="${C.grey}" stroke="${C.greyLine}" stroke-width="1.3"/>` +
+      `<rect x="6.6" y="12.6" width="46.8" height="15.8" rx="1.2" fill="${C.dark}"/>` +
+      dpad(14, 20.5, 4.6, '#45484F', 3) +
+      `<rect x="22" y="14.6" width="13.6" height="1.5" fill="${C.greyDeep}"/><rect x="22" y="17.4" width="13.6" height="1.5" fill="${C.greyDeep}"/>` +
+      `<rect x="22" y="20.6" width="13.6" height="5.4" rx="1" fill="${C.greyDeep}"/>` + pill(25.6, 23.3, 4.2, 2, C.dark) + pill(32, 23.3, 4.2, 2, C.dark) +
+      `<rect x="37.6" y="17" width="7" height="7" rx="1" fill="${C.greyDeep}"/><rect x="45.6" y="17" width="7" height="7" rx="1" fill="${C.greyDeep}"/>` +
+      circle(41.1, 20.5, 2.7, C.red) + circle(49.1, 20.5, 2.7, C.red)],
+
+    snes: ['SNES',
+      `<path d="M8.5 11.6a12.5 12.5 0 0 1 7.2-3M44.3 8.6a12.5 12.5 0 0 1 7.2 3" fill="none" stroke="${C.greyLine}" stroke-width="2.2" stroke-linecap="round"/>` +
+      body('M16 9h28a11 11 0 0 1 0 22H16a11 11 0 0 1 0-22z', C.grey, C.greyLine) +
+      circle(15.5, 20, 6.4, C.greyDeep) + dpad(15.5, 20, 4.7, C.ink, 3.2) +
+      pill(26.6, 21.6, 4, 1.8, C.mid, -30) + pill(32.6, 21.6, 4, 1.8, C.mid, -30) +
+      circle(44.5, 20, 8.3, C.greyDeep) + diamond(44.5, 20, 4.4, 2.45, [C.blue, C.red, C.yellow, C.green])],
+
+    n64: ['N64',
+      body('M7 9.5C12 6.5 22 7 30 7s18-.5 23 2.5c3.5 2 4 6 3 10.5l-2.5 12c-.7 3-4.3 3-5 0l-2.3-9c-.4-1.5-1.3-2-2.7-2h-4.3l-2.7 13c-.6 3-7.4 3-8 0L22.8 21.5h-4.3c-1.4 0-2.3.5-2.7 2l-2.3 9c-.7 3-4.3 3-5 0L6 20c-1-4.5-.5-8.5 1-10.5z', C.grey, C.greyLine) +
+      dpad(13, 15, 4, C.ink, 2.8) + stick(30, 18.3, 3.3, C.greyDeep, C.mid) + circle(30, 11.4, 1.7, C.red) +
+      circle(41.6, 19, 2.5, C.blue) + circle(38, 14.4, 2.2, C.green) + diamond(48.6, 14, 3, 1.45, [C.yellow, C.yellow, C.yellow, C.yellow])],
+
+    gamecube: ['GameCube',
+      body('M14 8c6-1 11 1.5 16 1.5S40 7 46 8c7.5 1.3 11.5 8 11 16-.4 6.5-3.5 10.5-8 10.3-4-.2-5.5-3.7-8-6.3-1-1-2-1.5-3.5-1.5h-15c-1.5 0-2.5.5-3.5 1.5-2.5 2.6-4 6.1-8 6.3-4.5.2-7.6-3.8-8-10.3-.5-8 3.5-14.7 11-16z', C.indigo, C.indigoLine) +
+      stick(13.6, 16.4, 4, '#C9CCD2', C.mid) + dpad(22, 23.2, 3.2, '#A39BDD', 2.2) + circle(30, 16.4, 1.3, '#C9CCD2') +
+      circle(44.4, 16.6, 3.9, C.green) + circle(38.9, 20.6, 2.1, C.red) + stick(36.4, 24.6, 2.4, C.yellow, '#B88C1E') +
+      `<path d="M50.2 12.4a6.2 6.2 0 0 1 .3 8.6M39.5 12.2a6.2 6.2 0 0 1 8.4-1.9" fill="none" stroke="#D9D9DE" stroke-width="2.4" stroke-linecap="round"/>`],
+
+    // The Wii Remote held sideways (its top to the left): the IR window's dark end, POWER, the d-pad, A, + HOME -,
+    // the speaker, 1 and 2, and the player lights (the first lit).
+    wii: ['Wii',
+      shell('M8 13.5h44a4.5 4.5 0 0 1 4.5 4.5v4a4.5 4.5 0 0 1-4.5 4.5H8A4.5 4.5 0 0 1 3.5 22v-4A4.5 4.5 0 0 1 8 13.5z', C.white, C.whiteLine,
+        `<path d="M5.3 14.4A4.5 4.5 0 0 0 3.5 18v4a4.5 4.5 0 0 0 1.8 3.6z" fill="#34363C"/>` +
+        circle(8.7, 23.3, 1.05, WII_KEY) + circle(8.7, 23.3, 0.45, C.red) +
+        dpad(14.4, 20, 4.2, WII_KEY, 2.75) + circle(23.6, 20, 2.9, WII_KEY) +
+        circle(31.2, 16.5, 1.05, WII_KEY) + circle(31.2, 20, 1.15, WII_KEY) + circle(31.2, 20, 0.5, WII_LED) + circle(31.2, 23.5, 1.05, WII_KEY) +
+        [35.4, 36.8].map((x) => [18.2, 19.4, 20.6, 21.8].map((y) => circle(x, y, 0.28, '#ABAEB4')).join('')).join('') +
+        circle(41.6, 20, 1.9, WII_KEY) + circle(47, 20, 1.9, WII_KEY) +
+        [23.4, 21.1, 18.9, 16.6].map((y, i) => `<rect x="52.35" y="${(y - 0.65).toFixed(2)}" width=".7" height="1.3" rx=".3" fill="${i ? '#C9CED6' : WII_LED}"/>`).join(''))],
+
+    // The Master System's pad: its cord out of the top, the red line round the panel, the square d-pad (round in the
+    // middle, four arrows), and 1 (START) and 2.
+    sms: ['Master System',
+      `<path d="M11.5 10.4V7.8c0-2 1.2-3 3.1-3h2.4" fill="none" stroke="${C.blackLine}" stroke-width="2.6" stroke-linecap="round"/>` +
+      `<path d="M11.5 10.4V7.8c0-2 1.2-3 3.1-3h2.4" fill="none" stroke="${C.black}" stroke-width="1.3" stroke-linecap="round"/>` +
+      body('M5 10h50a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2z', C.black, C.blackLine) +
+      `<rect x="5.2" y="12.2" width="49.6" height="16.6" rx=".8" fill="none" stroke="${C.red}" stroke-width=".5"/>` +
+      `<rect x="8.6" y="14.6" width="11.8" height="11.8" rx="2.4" fill="${C.blackDeep}" stroke="${C.blackKey}" stroke-width=".6"/>` +
+      ring(14.5, 20.5, 2.6, C.black, C.blackKey, 0.6) + arrows4(14.5, 20.5, 4.4, C.blackKey) +
+      ring(38.6, 21.8, 3.2, C.blackDeep, C.blackRing, 1.1) + ring(48.2, 21.8, 3.2, C.blackDeep, C.blackRing, 1.1)],
+
+    megadrive: ['Mega Drive',
+      body('M9 10.5c8-4 34-4 42 0 6.5 3.5 7 13 2 19-3.5 4-8 4-12 .5-3.5-3-7.5-4-11-4s-7.5 1-11 4c-4 3.5-8.5 3.5-12-.5-5-6-4.5-15.5 2-19z', C.black, C.blackLine) +
+      disc(15, 19, 5.8, C.blackKey, C.blackDeep) + pill(30, 15.6, 4, 1.8, C.blackKey) +
+      ring(37, 23, 2.8, C.blackDeep, C.blackRing, 1.2) + ring(43, 20.3, 2.8, C.blackDeep, C.blackRing, 1.2) + ring(49, 17.6, 2.8, C.blackDeep, C.blackRing, 1.2)],
+
+    saturn: ['Saturn',
+      `<path d="M7 10.6a10 10 0 0 1 7-3M46 7.6a10 10 0 0 1 7 3" fill="none" stroke="${C.blackLine}" stroke-width="2.2" stroke-linecap="round"/>` +
+      body('M11 9c9-2.5 29-2.5 38 0 7 2 8.5 12 6 18.5-2 5.5-8 6.5-12 2.5-2-2-4.5-3-6.5-3h-13c-2 0-4.5 1-6.5 3-4 4-10 3-12-2.5-2.5-6.5-1-16.5 6-18.5z', C.black, C.blackLine) +
+      disc(14.5, 18.5, 5.2, C.blackKey, C.blackDeep) + pill(30, 19, 3.8, 1.8, C.blackKey) +
+      ring(38.5, 22.6, 2.2, C.blackDeep, C.blackRing, 1.1) + ring(43.5, 21.1, 2.2, C.blackDeep, C.blackRing, 1.1) + ring(48.5, 19.6, 2.2, C.blackDeep, C.blackRing, 1.1) +
+      ring(38.6, 16.1, 1.55, C.blackDeep, C.blackRing, 0.9) + ring(43.1, 14.6, 1.55, C.blackDeep, C.blackRing, 0.9) + ring(47.6, 13.1, 1.55, C.blackDeep, C.blackRing, 0.9)],
+
+    dreamcast: ['Dreamcast',
+      body('M10 7h40c5 0 7.5 4 7 9l-2 13c-.8 5-5.5 6-8.5 2.5L42 26H18l-4.5 5.5C10.5 35 5.8 34 5 29L3 16c-.5-5 2-9 7-9z', C.white, C.whiteLine) +
+      `<rect x="22.6" y="8.4" width="14.8" height="10.6" rx="1.6" fill="${C.dark}"/><rect x="24.8" y="10.4" width="10.4" height="6.6" rx=".6" fill="#7C9A84"/>` +
+      stick(12.6, 14.4, 3.4, '#B5B8BF', C.soft) + dpad(15, 23.6, 3.9, C.ink, 2.7) +
+      // START, a small triangle between the grips.
+      `<path d="M28.7 22.6h2.6L30 24.6z" fill="#B5B8BF" stroke="#B5B8BF" stroke-width=".6" stroke-linejoin="round"/>` +
+      diamond(46, 15.6, 3.9, 1.95, [C.green, C.blue, C.red, C.yellow])],
+
+    ps1: ['PS1',
+      psShoulders('#7E828A', C.grey, C.greyLine, PS_WL, PS_WR) + `<path d="${psBody(25.6, PS_WL, PS_WR)}" fill="${C.grey}"/>` +
+      psArrows('#B2B5BB', '#4A4D54', { x: PS_WL, r: PS_WELL }) + psButtons('#B2B5BB', '#4A4D54', { x: PS_WR, wr: PS_WELL }) +
+      psSelect(26.8, 20.6, '#4A4D54') + psStart(33.2, 20.6, '#4A4D54', 0.78) +
+      `<path d="${psBody(25.6, PS_WL, PS_WR)}" fill="none" stroke="${C.greyLine}" stroke-width="1.3" stroke-linejoin="round"/>`],
+
+    ps2: ['PS2',
+      psShoulders(C.mid, C.black, C.blackLine, PS_WL, PS_WR) + `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS2_LOW)}" fill="${C.black}"/>` +
+      psArrows(C.blackDeep, C.blackKey, { x: PS_WL, r: PS_WELL }) + psButtons(C.blackDeep, '#4A4E56', { x: PS_WR, wr: PS_WELL }) +
+      psSelect(24, 17.4, C.blackKey) + psStart(36, 17.4, C.blackKey, 0.78) +
+      // ANALOG: a button like SELECT, its LED under it.
+      psSelect(30, 21.2, C.blackKey) + `<rect x="29.1" y="22.8" width="1.8" height=".8" rx=".25" fill="${C.red}"/>` + psSticks(C.blackRing) +
+      `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS2_LOW)}" fill="none" stroke="${C.blackLine}" stroke-width="1.3" stroke-linejoin="round"/>`],
+
+    ps3: ['PS3',
+      psShoulders(C.mid, C.black, C.blackLine, PS_WL, PS_WR) + `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS3_LOW)}" fill="${C.black}"/>` +
+      // The player lights: four small squares by the top edge, the first lit (a thin white edge).
+      [26.4, 28.8, 31.2, 33.6].map((x, i) => `<rect x="${x - 0.55}" y="11.25" width="1.1" height="1.1" rx=".15" fill="${i ? '#7A3A3D' : C.red}"` +
+        (i ? '' : ` stroke="${C.white}" stroke-width=".18"`) + '/>').join('') +
+      psArrows(C.blackDeep, C.blackKey, { x: PS_WL, r: PS_WELL }) + psButtons(C.blackDeep, '#4A4E56', { x: PS_WR, wr: PS_WELL }) +
+      psSelect(24, 17.4, C.blackKey) + psStart(36, 17.4, C.blackKey, 0.78) +
+      // The PS button: round, black.
+      circle(30, 21.2, 1.9, C.blackDeep) + psSticks(C.blackRing) +
+      `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS3_LOW)}" fill="none" stroke="${C.blackLine}" stroke-width="1.3" stroke-linejoin="round"/>`],
+
+    xbox: ['Xbox',
+      body('M12 5h36c6 0 10 5 10.5 12 .5 9-1 18-6 18-4 0-6-4-8-6.5H15.5c-2 2.5-4 6.5-8 6.5-5 0-6.5-9-6-18C2 10 6 5 12 5z', C.black, C.blackLine) +
+      ring(11.6, 13.5, 3.7, C.blackDeep, C.blackRing, 1.1) + circle(11.6, 13.5, 1.6, C.mid) + dpad(20.5, 23, 3.7, C.blackKey, 2.5) +
+      ring(39.5, 23, 3.5, C.blackDeep, C.blackRing, 1.1) + circle(39.5, 23, 1.5, C.mid) +
+      ring(30, 14, 5.3, C.blackDeep, C.blackKey, 1.2) + circle(30, 14, 3.5, C.green) +
+      diamond(48, 13.5, 3.8, 1.9, [C.yellow, C.red, C.green, C.blue]) + ring(52, 21.6, 1.35, C.dark, C.soft, 0.8) + circle(55, 18, 1.35, C.white) +
+      circle(26.8, 23, 1.05, C.blackKey) + circle(33.2, 23, 1.05, C.blackKey)],
+
+    xbox360: ['Xbox 360',
+      body('M14 8c6-1 11 1.5 16 1.5S40 7 46 8c7 1 11 7 11.5 14 .5 8-2.5 13-7 12.5-3.5-.4-5-4-8-6.5H18c-3 2.5-4.5 6.1-8 6.5-4.5.5-7.5-4.5-7-12.5C3.5 15 7.5 9 14 8z', C.white, C.whiteLine) +
+      stick(14, 16, 3.5, C.ink, C.dark) + dpad(22.5, 24, 3.5, C.mid, 2.4) + stick(37.6, 24, 3.3, C.ink, C.dark) +
+      ring(30, 15, 3, '#C9CCD2', C.green, 1) + circle(24.6, 15.6, 1, C.soft) + circle(35.4, 15.6, 1, C.soft) +
+      diamond(46, 16, 3.8, 1.95, [C.yellow, C.red, C.green, C.blue])],
+
+    // The PC Engine's pad: white, its cord out of a white hump over the dark panel; the d-pad on its round base,
+    // SELECT and RUN, and II and I rimmed in red.
+    pce: ['PC Engine',
+      `<path d="M30 11V6.6c0-1.6.8-2.4 2.4-2.4H35" fill="none" stroke="${C.blackLine}" stroke-width="2.6" stroke-linecap="round"/>` +
+      `<path d="M30 11V6.6c0-1.6.8-2.4 2.4-2.4H35" fill="none" stroke="#2A2C31" stroke-width="1.3" stroke-linecap="round"/>` +
+      shell('M9 11h42a6 6 0 0 1 6 6v10a6 6 0 0 1-6 6H9a6 6 0 0 1-6-6V17a6 6 0 0 1 6-6z', C.white, C.whiteLine,
+        `<rect x="5.6" y="14.2" width="48.8" height="16.2" rx="3.6" fill="${PCE_PANEL}"/>` +
+        `<path d="M22.6 11A7.4 7.4 0 0 0 37.4 11z" fill="${C.white}" stroke="${C.whiteLine}" stroke-width=".8"/>` +
+        circle(13.4, 22.4, 5.3, '#555B6E') + dpad(13.4, 22.4, 4.1, '#17191E', 2.7) +
+        [25.8, 31.8].map((x) => `<rect x="${x - 2}" y="25.7" width="4" height="1.8" rx=".9" fill="#2A2D38" stroke="#C9CCD2" stroke-width=".45"/>`).join('') +
+        ring(41.8, 23.2, 2.7, '#2A2D38', C.red, 1.2) + ring(48.8, 21.4, 2.7, '#2A2D38', C.red, 1.2))],
+
+    // The Neo Geo's (AES) stick: a black box, its front bevelled; the ball-top stick;
+    // SELECT and START; A B C D on an arc.
+    neogeo: ['Neo Geo',
+      shell('M5 9.5h50a2.5 2.5 0 0 1 2.5 2.5v19A2.5 2.5 0 0 1 55 33.5H5A2.5 2.5 0 0 1 2.5 31V12A2.5 2.5 0 0 1 5 9.5z', C.black, C.blackLine,
+        `<path d="M3 29.4h54" stroke="${C.blackDeep}" stroke-width=".7"/>` +
+        ring(14.5, 21.5, 5.8, C.blackDeep, C.blackKey, 0.7) + `<path d="M14.5 21.5v-4.6" stroke="#7E838B" stroke-width="1.4" stroke-linecap="round"/>` +
+        ring(14.5, 15.8, 3.5, '#202227', C.blackLine, 0.7) + circle(13.3, 14.6, 1.1, '#FFFFFF', ' fill-opacity=".3"') +
+        pill(28.4, 13.4, 3, 1.3, C.blackKey) + pill(33.6, 13.4, 3, 1.3, C.blackKey) +
+        [[31.6, 23.8], [38.6, 21.2], [45.6, 20.4], [52.4, 21.4]].map(([x, y]) => ring(x, y, 2.8, C.blackDeep, C.blackRing, 1.1)).join(''))],
+
+    // The Atari's CX40 joystick, three-quarters on: the base's top and front, the red button in its corner, the
+    // orange marks round the rubber boot, and the stick.
+    atari2600: ['Atari 2600',
+      shell('M17 17h26a3 3 0 0 1 3 3v13.5a2.5 2.5 0 0 1-2.5 2.5h-27a2.5 2.5 0 0 1-2.5-2.5V20a3 3 0 0 1 3-3z', C.black, C.blackLine,
+        `<path d="M14 31h32v2.5a2.5 2.5 0 0 1-2.5 2.5h-27a2.5 2.5 0 0 1-2.5-2.5z" fill="${C.blackDeep}"/>` +
+        ellipse(19.6, 21.3, 2.5, 1.5, '#A3333A') + ellipse(19.6, 20.5, 2.5, 1.5, C.red) +
+        ellipse(30, 24.6, 9.2, 5, 'none', ' stroke="#D9822B" stroke-width=".55" stroke-dasharray=".9 .65"') +
+        ellipse(30, 24.6, 6.2, 3.5, '#2A2C31') + ellipse(30, 24.6, 4.5, 2.5, 'none', ` stroke="${C.blackKey}" stroke-width=".45"`) +
+        ellipse(30, 24.6, 2.9, 1.6, 'none', ` stroke="${C.blackKey}" stroke-width=".45"`)) +
+      `<rect x="28.4" y="5.5" width="3.2" height="19.2" rx="1.6" fill="#2A2C31" stroke="${C.blackLine}" stroke-width="1"/>`],
+
+    // The Jaguar's pad: black and big; the d-pad in its well, PAUSE and OPTION, C B A in red, and the twelve keys
+    // in their frame.
+    jaguar: ['Jaguar',
+      body('M12 6h36c6 0 10 4.5 10 11s-3.5 11.5-8.5 11.5c-3 0-5-1.5-7-2l-.5 8c-.2 1.9-1.6 3-3.6 3H21.6c-2 0-3.4-1.1-3.6-3l-.5-8c-2 .5-4 2-7 2C5.5 28.5 2 23.5 2 17S6 6 12 6z', C.black, C.blackLine) +
+      circle(12.5, 16, 5.8, C.blackDeep) + dpad(12.5, 16, 4.3, C.blackKey, 2.8) +
+      pill(25, 12.4, 3.2, 1.3, C.blackKey, -20) + pill(32, 12.4, 3.2, 1.3, C.blackKey, -20) +
+      circle(43.4, 20.4, 2.4, C.red) + circle(48.6, 17.2, 2.4, C.red) + circle(53.6, 14, 2.4, C.red) +
+      `<rect x="20.4" y="16.8" width="19.2" height="17.6" rx="1.6" fill="${C.blackDeep}" stroke="${C.blackKey}" stroke-width=".6"/>` +
+      [0, 1, 2].map((c) => [0, 1, 2, 3].map((r) => `<rect x="${(22.1 + c * 5.8).toFixed(1)}" y="${(18.5 + r * 3.8).toFixed(1)}" width="4.2" height="2.4" rx="1" fill="#5A5E66"/>`).join('')).join('')],
+
+    // The 3DO's pad: L and R; the d-pad disc in its well; P and X; A B C.
+    '3do': ['3DO',
+      `<path d="M7.5 11.2a10 10 0 0 1 7-3.4M45.5 7.8a10 10 0 0 1 7 3.4" fill="none" stroke="${C.blackLine}" stroke-width="2.2" stroke-linecap="round"/>` +
+      body('M13 9h34c6 0 10 4 10 10.5 0 7-4 12.5-9.5 12.5-3.5 0-5.5-2-8-4.5-1.3-1.3-2.5-2-4.5-2h-10c-2 0-3.2.7-4.5 2C18 30 16 32 12.5 32 7 32 3 26.5 3 19.5 3 13 7 9 13 9z', C.black, C.blackLine) +
+      circle(14, 19.5, 6.3, C.blackDeep) + disc(14, 19.5, 5, C.blackKey, C.blackDeep) +
+      ring(26.8, 15.2, 1.3, C.blackDeep, C.blackRing, 0.8) + ring(33.2, 15.2, 1.3, C.blackDeep, C.blackRing, 0.8) +
+      ring(38.4, 23.2, 2.7, C.blackDeep, C.blackRing, 1.1) + ring(43.8, 20, 2.7, C.blackDeep, C.blackRing, 1.1) + ring(49.2, 16.8, 2.7, C.blackDeep, C.blackRing, 1.1)],
+
+    // The CD-i's gamepad, dark grey: the thumbpad in its well; three buttons in a slanted pill.
+    cdi: ['CD-i',
+      body('M11 9.5c6-1.2 12-1.6 19-1.6s13 .4 19 1.6c5 1 8.5 5 8.5 10.5 0 6.5-4 10.5-9 10.2-4.5-.3-8-3.6-18.5-3.6S16 29.9 11.5 30.2c-5 .3-9-3.7-9-10.2 0-5.5 3.5-9.5 8.5-10.5z', CDI.body, CDI.line) +
+      circle(15.4, 19.2, 6.3, CDI.deep) + ring(15.4, 19.2, 4.5, '#7C8087', '#9094A0', 0.5) + ring(15.4, 19.2, 1.7, '#696D74', '#9094A0', 0.5) +
+      pill(44, 19, 19, 6.8, CDI.deep, -22) + circle(37.6, 21.6, 2.4, CDI.key) + circle(44, 19, 2.4, CDI.key) + circle(50.4, 16.4, 2.4, CDI.key)],
+
+    // The Amiga 500 from above: the vents along its back, the power and drive lights, and the keyboard: the
+    // function keys, the main block, the space bar, the cursor keys and the keypad.
+    amiga: ['Amiga',
+      body('M5 6h50a2 2 0 0 1 2 2v26a2.5 2.5 0 0 1-2.5 2.5h-49A2.5 2.5 0 0 1 3 34V8a2 2 0 0 1 2-2z', AMIGA.body, AMIGA.line) +
+      `<path d="M7 8.6h46M7 10.2h46M7 11.8h46M7 13.4h46" stroke="${AMIGA.line}" stroke-width=".55"/>` +
+      `<rect x="48" y="15.4" width="1.8" height=".8" rx=".3" fill="${C.green}"/><rect x="51.2" y="15.4" width="1.8" height=".8" rx=".3" fill="${C.orange}"/>` +
+      `<rect x="4.8" y="17" width="50.4" height="17.6" rx="1" fill="${AMIGA.well}"/>` +
+      keys(5.6, 1, 18.6, AMIGA.key) + keys(8.8, 5, 18.6, AMIGA.key, 2.6, 2.2, 0.4) + keys(24.4, 5, 18.6, AMIGA.key, 2.6, 2.2, 0.4) + keys(42.2, 2, 18.6, AMIGA.key, 2.6, 2.2, 0.4) +
+      keys(5.6, 13, 21.5, AMIGA.key) + keys(6.4, 13, 24.4, AMIGA.key) + keys(7, 12, 27.3, AMIGA.key) + keys(7.8, 11, 30.2, AMIGA.key) +
+      keys(12, 1, 33.1, AMIGA.key, 21) +
+      keys(44.6, 1, 30.2, AMIGA.key, 2) + keys(42.3, 3, 33.1, AMIGA.key, 2, 2.2, 0.3) +
+      [21.5, 24.4, 27.3, 30.2, 33.1].map((y) => keys(50, 3, y, AMIGA.key, 1.5, 2.2, 0.25)).join('')],
+
+    // The C64, the breadbin, from above: the power light, the dark brown keys, and the
+    // function keys, lighter, down the right.
+    c64: ['C64',
+      body('M6 7.5h48a3 3 0 0 1 3 3v22a2.5 2.5 0 0 1-2.5 2.5h-49A2.5 2.5 0 0 1 3 32.5v-22a3 3 0 0 1 3-3z', C64.body, C64.line) +
+      `<rect x="50.8" y="10.2" width="1.8" height=".8" rx=".3" fill="${C.red}"/>` +
+      `<rect x="5.4" y="13.2" width="40.8" height="19.6" rx="1" fill="${C64.well}"/>` +
+      keys(6.3, 13, 15.2, C64.key, 2.5, 2.9, 0.55) + keys(7.4, 12, 19, C64.key, 2.5, 2.9, 0.55) + keys(8, 12, 22.8, C64.key, 2.5, 2.9, 0.55) + keys(8.9, 11, 26.6, C64.key, 2.5, 2.9, 0.55) +
+      keys(14, 1, 30.4, C64.key, 22, 2.9) +
+      `<rect x="47.6" y="13.2" width="7" height="19.6" rx="1" fill="${C64.well}"/>` +
+      [0, 1, 2, 3].map((r) => `<rect x="48.5" y="${(14.2 + r * 4.6).toFixed(1)}" width="5.2" height="3.8" rx=".6" fill="${C64.fkey}"/>`).join('')],
+
+    // A black MSX (the Talent DPC-200's look): the vents back left, the cartridge slot back right, light keys, grey
+    // function keys, and the cursor keys in a cross.
+    msx: ['MSX',
+      body('M5 7h50a2.5 2.5 0 0 1 2.5 2.5v23A2.5 2.5 0 0 1 55 35H5a2.5 2.5 0 0 1-2.5-2.5v-23A2.5 2.5 0 0 1 5 7z', C.black, C.blackLine) +
+      `<path d="M5.4 10.9h24" stroke="${C.blackDeep}" stroke-width="4" stroke-dasharray=".6 .55"/>` +
+      `<rect x="33" y="8.8" width="21.4" height="4.2" rx=".6" fill="${C.blackDeep}"/><rect x="35" y="10.4" width="17.4" height="1" rx=".3" fill="${C.black}"/>` +
+      `<rect x="4.6" y="14.6" width="50.8" height="18.6" rx="1" fill="${C.blackDeep}"/>` +
+      keys(5.6, 5, 16.6, '#959AA2', 3, 2, 0.5) + keys(34, 4, 16.6, MSX_KEY, 2.4, 2, 0.5) +
+      keys(5.6, 14, 19.7, MSX_KEY, 2.3, 2.3, 0.55) + keys(6.4, 13, 22.6, MSX_KEY, 2.3, 2.3, 0.55) + keys(7, 13, 25.5, MSX_KEY, 2.3, 2.3, 0.55) + keys(7.8, 12, 28.4, MSX_KEY, 2.3, 2.3, 0.55) +
+      keys(13, 1, 31.3, MSX_KEY, 21, 2.3) +
+      keys(50.5, 1, 22.6, MSX_KEY) + keys(48.1, 1, 25.5, MSX_KEY) + keys(52.9, 1, 25.5, MSX_KEY) + keys(50.5, 1, 28.4, MSX_KEY)],
+
+    // An upright arcade cabinet: the lit marquee, the screen, the control panel with its stick and buttons, the
+    // coin door.
+    supergun: ['Arcade',
+      body('M17 2.5h26v7l-1.4 1.2v10.8l3.4 3.6v2.4h-2v10H17v-10h-2v-2.4l3.4-3.6V10.7L17 9.5z', C.black, C.blackLine) +
+      `<rect x="18.6" y="3.8" width="22.8" height="4.6" rx=".6" fill="#F0B44C"/>` +
+      `<rect x="19.6" y="11" width="20.8" height="9.8" rx="1" fill="${C.blackDeep}"/><rect x="21" y="12.2" width="18" height="7.4" rx="1.4" fill="#16233A"/>` +
+      [24.5, 27.5, 30.5, 33.5].map((x) => `<rect x="${x}" y="13.8" width="1.2" height=".9" fill="#7FD08A"/>`).join('') + `<rect x="29.4" y="17.6" width="1.6" height=".9" fill="${C.yellow}"/>` +
+      `<path d="M18.4 21.5h23.2l3.4 3.6H15z" fill="${C.mid}"/>` +
+      `<path d="M22.6 23.6v-1.8" stroke="${C.blackDeep}" stroke-width=".8"/>` + circle(22.6, 21.4, 1.5, C.red) +
+      ellipse(30.6, 23.4, 1.2, 0.7, C.blue) + ellipse(34.2, 23.4, 1.2, 0.7, C.yellow) + ellipse(37.8, 23.4, 1.2, 0.7, C.green) +
+      `<rect x="25" y="28.6" width="10" height="6.6" rx=".6" fill="${C.blackDeep}" stroke="${C.blackKey}" stroke-width=".5"/>` +
+      `<rect x="27.4" y="30" width="1" height="2.2" rx=".3" fill="${C.orange}"/><rect x="31.6" y="30" width="1" height="2.2" rx=".3" fill="${C.orange}"/>`],
+
+    // A beige CRT on its stand: a prompt on the screen, the power light.
+    pc: ['PC',
+      body('M26.6 28.6h6.8l.8 4.6h-8.4z', PC.body, PC.line) +
+      body('M19.2 33h21.6a1.7 1.7 0 0 1 0 3.4H19.2a1.7 1.7 0 0 1 0-3.4z', PC.body, PC.line) +
+      body('M13.5 3h33a2 2 0 0 1 2 2v22a2 2 0 0 1-2 2h-33a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', PC.body, PC.line) +
+      `<rect x="14.6" y="5.2" width="30.8" height="19.8" rx="1.2" fill="${PC.deep}"/><rect x="16.2" y="6.6" width="27.6" height="17" rx="2.6" fill="${PC.screen}"/>` +
+      `<rect x="18.4" y="9" width="6" height="1.1" rx=".2" fill="#BFC6CE"/><rect x="25.2" y="9" width="1.6" height="1.1" fill="#BFC6CE"/>` +
+      circle(44.6, 27, 0.65, C.green)],
+  };
+  // A console Cruller has no drawing of (a newer bridge's list, or only a name): a plain grey pad.
+  const PAD = body('M16 10h28c7 0 11 5 12 11.5.8 5.5-1 10.5-5.5 10.5-3.5 0-5-3-7.5-5.5H17c-2.5 2.5-4 5.5-7.5 5.5C5 32 3.2 27 4 21.5 5 15 9 10 16 10z', C.mid, C.blackLine) +
+    dpad(15.5, 19.5, 4, C.blackDeep, 2.8) + diamond(44.5, 19.5, 3.6, 1.7, [C.blackDeep, C.blackDeep, C.blackDeep, C.blackDeep]) +
+    pill(26.5, 18, 3, 1.4, C.blackDeep) + pill(33.5, 18, 3, 1.4, C.blackDeep);
+  return { CONSOLES: ICONS, PAD };
+})();
+// overflow: the outlines of the widest grips reach a hair past the grid.
+const svgCon = (body, cls = 'con') => `<svg class="${cls}" viewBox="0 0 60 40" overflow="visible" fill="currentColor" aria-hidden="true">${body}</svg>`;
 // An input with nothing on it: the icon's place, outlined.
 const EMPTY_ICON = svgCon('<rect x="8" y="8" width="44" height="24" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3.5 3"/>');
 const consoleIcon = (id) => svgCon(CONSOLES[id] ? CONSOLES[id][1] : PAD);
 
-async function svsLoad(seq) {
-  if (svsSw.loading === seq) return;
-  svsSw.loading = seq;
+async function svsLoad(key) {
+  if (svsSw.loading === key) return;
+  svsSw.loading = key;
   try {
     const v = await (await fetch('/api/v1/svs')).json();
     svsSw.data = v.switch || null;
     svsSw.seq = v.switch_seq || 0;
+    svsSw.pseq = v.profiles_seq || 0;
+    if (window.profSvsKept) window.profSvsKept(v.profiles);
   } catch (e) { /* the next status tries again */ }
   svsSw.loading = 0;
   if (svsSw.last) showSvs(svsSw.last);
@@ -272,7 +564,9 @@ async function svsLoad(seq) {
 function showSvs(v) {
   svsSw.last = v;
   const paired = v && v.paired, known = v && v.known, live = known && v.heard_s < 150;
-  if (known && v.switch_seq && v.switch_seq !== svsSw.seq) svsLoad(v.switch_seq);
+  if (known && ((v.switch_seq && v.switch_seq !== svsSw.seq) || (v.profiles_seq || 0) !== svsSw.pseq)) {
+    svsLoad((v.switch_seq || 0) + '/' + (v.profiles_seq || 0));
+  }
   const sw = known && v.switch_seq ? svsSw.data : null;
   const ins = sw ? sw.inputs : [], out = sw ? sw.output : null;
   const port = (n) => ins[n - 1] || {};
@@ -295,16 +589,30 @@ function showSvs(v) {
     : 'No input active' + (v.since_s < 5 ? '' : ' for ' + duration(v.since_s))) + (total ? ' · ' + total + ' inputs' : ''));
   $('v-grid').hidden = !total;
   $('v-nogrid').hidden = !!total || (!paired && !known);
-  $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
-    // The console's icon and short name when the bridge says which it is, else the name given.
-    // Nothing picked on it: the same tile, with an empty slot for the icon.
-    const n = i + 1, p = port(n), on = v.input === n, what = short(p);
-    const icon = what ? consoleIcon(p.device) : EMPTY_ICON;
-    return '<div class="' + (on ? 'on' : '') + (what ? '' : ' empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
-      (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + '<span>' + (what ? esc(what) : 'Empty') + '</span>' +
-      '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small></div>';
-  }).join('');
+  // The cards: drawn again only when the switch or the profiles' combos change (every status would
+  // close a combo that's open), else only the one on screen lit.
+  const shape = JSON.stringify([total, ins, window.profSvsKey ? window.profSvsKey() : '']);
+  if (shape !== svsSw.cards) {
+    svsSw.cards = shape;
+    $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
+      // The console's icon and short name when the bridge says which it is, else the name given.
+      // Nothing picked on it: the same tile, with an empty slot for the icon. Under it, its profile
+      // (profiles.js).
+      const n = i + 1, p = port(n), what = short(p);
+      const icon = what ? consoleIcon(p.device) : EMPTY_ICON;
+      return '<div data-n="' + n + '" class="' + (what ? '' : 'empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
+        (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + '<span>' + (what ? esc(what) : 'Empty') + '</span>' +
+        '<small></small>' + (window.profSvsSelect ? window.profSvsSelect(n) : '') + '</div>';
+    }).join('');
+  }
+  $('v-grid').querySelectorAll(':scope > div').forEach((d) => {
+    const n = +d.dataset.n, lit = v.input === n;
+    d.classList.toggle('on', lit);
+    d.querySelector('small').textContent = lit ? 'ON SCREEN' : kindName(port(n).kind) || 'S' + n;
+  });
   $('v-noname').hidden = !total || ins.some((p) => p.name || p.device);
+  // Each input's profile (profiles.js): which is on screen, read once there are inputs.
+  if (window.profSvsSwitch) window.profSvsSwitch({ total, input: on ? v.input : 0 });
   // The output that goes to the RetroTINK.
   text('v-out', out ? [out.name, kindName(out.kind)].filter(Boolean).join(' · ') || '–' : '–');
   text('v-paired', paired || '–');
@@ -317,6 +625,9 @@ function showSvs(v) {
     (i === 0 ? ' <span class="small">(now)</span>' : '') + '</td><td class="r">' + ago(s) + '</td></tr>').join('') ||
     '<tr><td colspan="2" class="small">None yet</td></tr>';
 }
+
+// profiles.js: the profiles' combos changed (read, picked, the RT4K asleep), so the cards are drawn again.
+window.svsRedraw = () => { if (svsSw.last) showSvs(svsSw.last); };
 
 async function unpair() {
   if (!(await askUser('Unpair the SVS Bridge?', 'Cruller forgets it; the next SVS Bridge that reports pairs instead.', 'Unpair', true))) return;

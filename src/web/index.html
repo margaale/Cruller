@@ -65,7 +65,7 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .upd{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px}
 @media (max-width:1000px){.upd{grid-template-columns:minmax(0,1fr)}}
 /* SVS tab */
-.svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(156px,1fr));gap:8px}
 .svs-grid div{min-height:64px;padding:6px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--faint);min-width:0}
 .svs-grid div b{font:700 15px/1 var(--head);color:var(--muted)}
 .svs-grid div>span{font:600 14px/1.2 var(--sans);color:var(--soft);overflow-wrap:anywhere}
@@ -73,12 +73,16 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .svs-grid div.on{background:#3A1E2A;border-color:var(--accent);color:var(--text)}
 .svs-grid div.on>span{color:var(--text)}
 .svs-grid .con{width:84px;height:56px;color:var(--soft)}
-.con .b{fill-opacity:.14;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round}
-.con .k{fill-opacity:.3;stroke:currentColor;stroke-width:1}
-.con .l{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
 .svs-grid div.on .con{color:var(--text)}
 .svs-grid div.empty .con,.svs-grid div.empty>span{color:var(--faint)}
 .svs-grid div.empty>span{font-weight:500}
+/* SVS tab: each input's profile, in its card (profiles.js) */
+.svs-grid select{margin-top:6px;height:34px;padding:0 8px;font-size:13px}
+.svs-grid div.on select{border-color:#6A3448}
+.svs-grid small.svp-warn{color:var(--warn)}
+#vps:empty{display:none}#vps.bad{color:#F07A74}
+.svp-asleep{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;font-size:14px;color:var(--soft)}
+@media (max-width:640px){.svs-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.svs-grid select{height:44px}}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
 dialog#ask p:empty{display:none}
@@ -90,8 +94,6 @@ a.more{color:var(--accent);text-decoration:none;font-weight:500;font-size:14px}
 .sub{display:flex;gap:6px;margin-bottom:16px}
 .sub a{padding:7px 14px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;border:1px solid transparent}
 .sub a[aria-current]{background:var(--raised);color:var(--text);border-color:var(--line)}
-.sub span.soon{padding:7px 14px;color:#6B6F76;font-size:14px}
-.soon b{font-size:10px;letter-spacing:.06em;color:var(--warn);border:1px dashed var(--warn);border-radius:999px;padding:1px 6px;margin-left:6px}
 /* RetroTINK: screen, console, remote */
 /* The remote sits next to the screen panel, scaled (app.js fitRemote) to exactly its height. */
 .stage{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"screen remote" "console console";gap:16px}
@@ -163,13 +165,21 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .files .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .files .ico{display:inline-flex;margin-right:10px;color:var(--warn);flex:none}.files .ico.f{color:var(--faint)}
 .files tr.up a{display:flex;align-items:center;color:var(--muted);text-decoration:none;height:40px;font-family:var(--mono)}
-#sde{color:var(--faint);text-align:center;padding:20px 0;border-top:1px solid var(--rule);margin-top:-12px}
+#sde,#pfe{color:var(--faint);text-align:center;padding:20px 0;border-top:1px solid var(--rule);margin-top:-12px}
+/* Profiles (profiles.js): the SD card's table, with what's loaded on top */
+#pfs.bad{color:#F07A74}
+.pfl{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:12px 14px;background:var(--raised);border-radius:10px}
+.pfl .pfn{font:600 18px var(--sans);overflow-wrap:anywhere}
+.files.pft col.ca{width:120px}
+@media (max-width:640px){.files.pft col.ca{width:84px}}
+.files tr.cur td{background:#3A1E2A}.files tr.cur .ico{color:var(--accent)}
+.files .pfload{height:32px;padding:0 14px}
 .files td.act{text-align:right;padding-right:4px;text-overflow:clip}
 .files .ib{width:34px;height:34px;padding:0;border-color:transparent;color:var(--soft)}.files .ib:hover:not(:disabled){border-color:var(--line);color:var(--text)}
 .files .ib.del:hover:not(:disabled){border-color:#5A2A28;color:#F07A74}
 .files .msz{display:none}
 /* Narrow screens: no date, the size under the name, names wrap instead of being cut. */
-@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:98px}.files td{padding:0 4px}.files .ib{width:30px}.sub a{white-space:nowrap}.sub span.soon{display:none}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
+@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:98px}.files td{padding:0 4px}.files .ib{width:30px}.sub a{white-space:nowrap;padding:7px 10px}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
 .files td.n{white-space:normal;overflow-wrap:break-word;height:auto;padding-top:6px;padding-bottom:6px}.files td.n a,.files .fn{height:auto;min-height:28px}
 .files .msz{display:block;font:12px var(--mono);color:var(--faint)}}
 /* setup wizard (portal) */
@@ -212,7 +222,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <main>
 <!-- RetroTINK -->
 <section data-view="rt4k">
-<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><a href="#rt4k/sd" data-sub="sd">SD card</a><span class="soon">Profiles<b>SOON</b></span></div>
+<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><a href="#rt4k/profiles" data-sub="profiles">Profiles</a><a href="#rt4k/sd" data-sub="sd">SD card</a></div>
 
 <div data-subview="live" class="stage">
 <div class="panel" style="grid-area:screen">
@@ -235,6 +245,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 </div>
 
 <div data-subview="firmware" id="fw"></div>
+<div data-subview="profiles" id="pf"></div>
 <div data-subview="sd" id="sd"></div>
 </section>
 
@@ -310,14 +321,14 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <!-- SVS: the Scalable Video Switch, through its bridge (docs/SVS.md) -->
 <section data-view="svs" class="grid3">
 <div class="panel span3">
-<div class="row"><h2 class="grow">Inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
+<div class="row"><h2 class="grow">Inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span>
+<button class="refresh svs-more" id="vpr" title="Read /profile/SVS again" aria-label="Read /profile/SVS again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
 <div class="small" id="v-since"></div>
 <div class="small svs-wait">The SVS Bridge finds this Cruller on the network by itself and starts reporting the switch's input. Nothing to set up here.</div>
 <div class="svs-grid svs-more" id="v-grid" hidden></div>
 <div class="small svs-more" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
 <div class="small" id="v-noname" hidden>Pick each input's module and the console on it in the SVS Bridge's SVS tab: they show up here.</div>
-<div class="small svs-more">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
-</div>
+<div class="svs-more" id="v-prof" style="display:flex;flex-direction:column;gap:8px"></div></div>
 
 <div class="panel svs-more">
 <h2>SVS Bridge</h2>
@@ -478,6 +489,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <script src="/sha256.js" defer></script>
 <script src="/fw.js" defer></script>
 <script src="/sd.js" defer></script>
+<script src="/profiles.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>

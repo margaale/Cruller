@@ -7,6 +7,7 @@
 #include "task.h"
 
 #include "platform.h"
+#include "store.h"
 
 static svs_state_t now_state;
 static svs_switch_t now_switch;
@@ -64,4 +65,43 @@ uint32_t svs_get_switch(svs_switch_t *out) {
 
 uint32_t svs_version(void) {
     return version;
+}
+
+// --- each input's profile ----------------------------------------------------------------------------
+// The HTTP task sets and gets them; the WebSocket's asks for profiles_seq (with the status).
+
+static char profiles[SVS_PROFILES_MAX]; // the record (store.h): the text, zeros after it
+static bool unsaved;                    // it didn't reach the flash: written again with the next set
+static volatile uint32_t profiles_seq;
+
+void svs_profiles_start(void) {
+    if (!store_load(STORE_SVS_PROFILES, profiles, sizeof(profiles)) || !memchr(profiles, 0, sizeof(profiles))) {
+        memset(profiles, 0, sizeof(profiles));
+    }
+    profiles_seq = profiles[0] ? 1 : 0;
+}
+
+const char *svs_profiles_text(void) {
+    return profiles;
+}
+
+uint32_t svs_profiles_seq(void) {
+    return profiles_seq;
+}
+
+bool svs_profiles_set(const char *text, bool *changed) {
+    *changed = strcmp(profiles, text) != 0;
+    if (*changed) {
+        memset(profiles, 0, sizeof(profiles));
+        snprintf(profiles, sizeof(profiles), "%s", text);
+        plat_critical_enter();
+        profiles_seq++;
+        version++;
+        plat_critical_exit();
+    } else if (!unsaved) {
+        return true;
+    }
+    unsaved = !store_save(STORE_SVS_PROFILES, profiles, sizeof(profiles));
+    printf("svs: profiles %s\n", unsaved ? "NOT kept (flash write failed)" : "kept");
+    return !unsaved;
 }

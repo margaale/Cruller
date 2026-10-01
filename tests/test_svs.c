@@ -155,6 +155,42 @@ static void test_json_out(void) {
     CHECK(svs_switch_json(&none, out, sizeof(out)) && strstr(out, "\"name\":\"a\\\"b\\\\c\""));
 }
 
+// Each input's profile (POST /api/v1/svs/profiles): the page's lines in, kept in input order; JSON out.
+static void test_profiles(void) {
+    char text[SVS_PROFILES_MAX], out[2048];
+    CHECK(svs_profiles_parse("3\tS3_PS1.rt4\r\n1\tS1_SNES 240p.rt4\n\n", text, sizeof(text), &err));
+    CHECK(!strcmp(text, "1\tS1_SNES 240p.rt4\n3\tS3_PS1.rt4\n"));
+    CHECK(svs_profiles_json(text, out, sizeof(out)) && !strcmp(out, "{\"1\":\"S1_SNES 240p.rt4\",\"3\":\"S3_PS1.rt4\"}"));
+    // None anywhere: "", "{}".
+    CHECK(svs_profiles_parse("", text, sizeof(text), &err) && !text[0]);
+    CHECK(svs_profiles_json(text, out, sizeof(out)) && !strcmp(out, "{}"));
+    CHECK(svs_profiles_parse("32\tS32_Last.rt6", text, sizeof(text), &err) && !strcmp(text, "32\tS32_Last.rt6\n"));
+
+    // Turned away: not an input, no tab, no name, twice, a control character, a name too long.
+    CHECK(!svs_profiles_parse("0\tS0_A.rt4", text, sizeof(text), &err) && err);
+    CHECK(!svs_profiles_parse("33\tS33_A.rt4", text, sizeof(text), &err));
+    CHECK(!svs_profiles_parse("1 S1_A.rt4", text, sizeof(text), &err));
+    CHECK(!svs_profiles_parse("1\t", text, sizeof(text), &err));
+    CHECK(!svs_profiles_parse("x\tS1_A.rt4", text, sizeof(text), &err));
+    CHECK(!svs_profiles_parse("2\tS2_A.rt4\n2\tS2_B.rt4", text, sizeof(text), &err) && strstr(err, "twice"));
+    CHECK(!svs_profiles_parse("1\tS1_\x01.rt4", text, sizeof(text), &err));
+    char line[200];
+    memset(line, 'a', sizeof(line));
+    memcpy(line, "1\t", 2);
+    line[2 + SVS_PROFILE_MAX] = 0;
+    CHECK(svs_profiles_parse(line, text, sizeof(text), &err));
+    line[2 + SVS_PROFILE_MAX] = 'a';
+    line[3 + SVS_PROFILE_MAX] = 0;
+    CHECK(!svs_profiles_parse(line, text, sizeof(text), &err));
+    // More than Cruller keeps.
+    CHECK(!svs_profiles_parse("1\tS1_SNES.rt4", text, 10, &err) && strstr(err, "too long"));
+
+    // Names escaped; too small: 0, not half a JSON.
+    CHECK(svs_profiles_parse("1\tS1_\"Q\\.rt4", text, sizeof(text), &err));
+    CHECK(svs_profiles_json(text, out, sizeof(out)) && !strcmp(out, "{\"1\":\"S1_\\\"Q\\\\.rt4\"}"));
+    CHECK(svs_profiles_json(text, out, 8) == 0);
+}
+
 #define RUN(t) do { current = #t; t(); } while (0)
 
 int main(void) {
@@ -167,6 +203,7 @@ int main(void) {
     RUN(test_limits);
     RUN(test_escapes);
     RUN(test_json_out);
+    RUN(test_profiles);
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

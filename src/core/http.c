@@ -99,6 +99,8 @@ extern const unsigned char web_fw_js[];
 extern const size_t web_fw_js_len;
 extern const unsigned char web_sd_js[];
 extern const size_t web_sd_js_len;
+extern const unsigned char web_profiles_js[];
+extern const size_t web_profiles_js_len;
 extern const unsigned char web_app_js[];
 extern const size_t web_app_js_len;
 extern const unsigned char web_index_html[];
@@ -1221,9 +1223,19 @@ static void handle_api_command(request_t *r) {
 // every name full of quotes to escape.
 static char svs_buf[8192];
 
-// The "svs" object. full: with the switch's description ("switch":{...}, for GET /api/v1/svs); else
-// just its "switch_seq" (the status, which the page gets every few seconds: it fetches the rest on a
-// change).
+// ,"profiles":{"1":"S1_PS1.rt4",...} (each input's profile, as kept) at out + n, if it fits; the new n.
+static int svs_profiles_part(char *out, size_t size, int n) {
+    const char key[] = ",\"profiles\":";
+    if (n < 0 || (size_t)n + sizeof(key) >= size) return n;
+    const size_t w = svs_profiles_json(svs_profiles_text(), out + n + sizeof(key) - 1, size - (size_t)n - sizeof(key));
+    if (!w) return n; // doesn't fit: left out (not half of it)
+    memcpy(out + n, key, sizeof(key) - 1);
+    return n + (int)(sizeof(key) - 1 + w);
+}
+
+// The "svs" object. full: with the switch's description ("switch":{...}) and each input's profile
+// ("profiles":{...}), for GET /api/v1/svs; else just their "switch_seq" and "profiles_seq" (the status,
+// which the page gets every few seconds: it fetches the rest on a change).
 static void svs_json(char *out, size_t size, bool full) {
     settings_t set;
     settings_get(&set);
@@ -1231,16 +1243,19 @@ static void svs_json(char *out, size_t size, bool full) {
     json_escape(paired, sizeof(paired), set.svs_bridge);
     svs_state_t s;
     if (!svs_get(&s)) {
-        snprintf(out, size, "{\"known\":false,\"paired\":\"%s\"}", paired);
+        int n = snprintf(out, size, "{\"known\":false,\"paired\":\"%s\",\"profiles_seq\":%lu", paired,
+            (unsigned long)svs_profiles_seq());
+        if (full) n = svs_profiles_part(out, size, n);
+        if (n > 0 && (size_t)n + 1 < size) snprintf(out + n, size - (size_t)n, "}");
         return;
     }
     char name[2 * SVS_NAME_MAX + 2], id[2 * SVS_NAME_MAX + 2];
     json_escape(name, sizeof(name), s.name);
     json_escape(id, sizeof(id), s.id);
     const uint32_t now = plat_ms();
-    int n = snprintf(out, size, "{\"known\":true,\"input\":%d,\"total\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu,\"switch_seq\":%lu,\"history\":[",
+    int n = snprintf(out, size, "{\"known\":true,\"input\":%d,\"total\":%d,\"name\":\"%s\",\"id\":\"%s\",\"paired\":\"%s\",\"heard_s\":%lu,\"since_s\":%lu,\"switch_seq\":%lu,\"profiles_seq\":%lu,\"history\":[",
         s.input, s.total, name, id, paired, (unsigned long)((now - s.at_ms) / 1000), (unsigned long)((now - s.changed_ms) / 1000),
-        (unsigned long)s.switch_seq);
+        (unsigned long)s.switch_seq, (unsigned long)svs_profiles_seq());
     // The last input changes, newest first: [[input, seconds ago], ...].
     for (int i = 0; i < s.history_n && n > 0 && (size_t)n < size; i++) {
         n += snprintf(out + n, size - (size_t)n, "%s[%d,%lu]", i ? "," : "", s.history[i].input,
@@ -1255,6 +1270,7 @@ static void svs_json(char *out, size_t size, bool full) {
         n = w ? n + (int)w : n - 10; // doesn't fit: left out (not half of it)
         out[n] = 0;
     }
+    if (full) n = svs_profiles_part(out, size, n);
     if ((size_t)n + 1 < size) snprintf(out + n, size - (size_t)n, "}");
 }
 
@@ -1321,6 +1337,38 @@ static void handle_svs(request_t *r, bool post) {
         printf("http: paired with SVS Bridge %s: %s\n", m.id, settings_save(&s) ? "saved" : "NOT saved");
     }
     const bool changed = svs_report(&m);
+    snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
+    respond(r->fd, 200, "OK", "application/json", out);
+}
+
+// POST /api/v1/svs/profiles: each input's profile as the page read the RT4K's card, a line each:
+// "<input>\t<its file in /profile/SVS>" (svs_proto.h; none: no profile anywhere). Kept across restarts,
+// the flash written only when they changed; GET /api/v1/svs gives them ("profiles") while the RT4K
+// sleeps.
+static void handle_svs_profiles(request_t *r) {
+    svs_body_t body = {0};
+    if (r->content_length < 0 || r->content_length >= SVS_PROFILES_MAX || (r->content_length > 0 && !read_body(r, svs_sink, &body))) {
+        const bool big = r->content_length >= SVS_PROFILES_MAX;
+        respond(r->fd, big ? 413 : 400, big ? "Payload Too Large" : "Bad Request", "application/json",
+            "{\"ok\":false,\"error\":\"send the profiles as the body, a line each (1 KB at most)\"}");
+        return;
+    }
+    svs_buf[body.len] = 0;
+    char *text = svs_buf + SVS_PROFILES_MAX; // in order, after the body (smaller than that)
+    const char *error;
+    char out[200];
+    if (!svs_profiles_parse(svs_buf, text, SVS_PROFILES_MAX, &error)) {
+        char esc[160];
+        json_escape(esc, sizeof(esc), error);
+        snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\"}", esc);
+        respond(r->fd, 400, "Bad Request", "application/json", out);
+        return;
+    }
+    bool changed;
+    if (!svs_profiles_set(text, &changed)) {
+        respond(r->fd, 500, "Internal Server Error", "application/json", "{\"ok\":false,\"error\":\"could not save\"}");
+        return;
+    }
     snprintf(out, sizeof(out), "{\"ok\":true,\"changed\":%s}", changed ? "true" : "false");
     respond(r->fd, 200, "OK", "application/json", out);
 }
@@ -1441,6 +1489,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/sha256.js")) respond_asset(r->fd, "application/javascript", web_sha256_js, web_sha256_js_len);
     else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
     else if (get && !strcmp(r->path, "/sd.js")) respond_asset(r->fd, "application/javascript", web_sd_js, web_sd_js_len);
+    else if (get && !strcmp(r->path, "/profiles.js")) respond_asset(r->fd, "application/javascript", web_profiles_js, web_profiles_js_len);
     else if (get && !strcmp(r->path, "/app.js")) respond_asset(r->fd, "application/javascript", web_app_js, web_app_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
@@ -1540,6 +1589,7 @@ static void handle(request_t *r) {
     else if (post && !strcmp(r->path, "/wifi")) handle_wifi(r);
     else if ((get || post) && (!strcmp(r->path, "/api/v1/svs") || !strcmp(r->path, "/api/svs"))) handle_svs(r, post);
     else if (post && (!strcmp(r->path, "/api/v1/svs/unpair") || !strcmp(r->path, "/api/svs/unpair"))) handle_svs_unpair(r);
+    else if (post && !strcmp(r->path, "/api/v1/svs/profiles")) handle_svs_profiles(r);
     else if ((get || post) && !strcmp(r->path, "/setup")) handle_setup(r, post);
     else if (post && !strcmp(r->path, "/settings")) handle_settings(r);
     else if (post && !strcmp(r->path, "/restart")) handle_restart(r, false);
@@ -1654,6 +1704,7 @@ static void http_task(void *param) {
 }
 
 void http_start(void) {
+    svs_profiles_start(); // before the tasks that give them out
     xfer_queue = xQueueCreate(XFER_QUEUE, sizeof(request_t *));
     xTaskCreate(xfer_task, "xfer", PLAT_STACK(XFER_TASK_STACK), NULL, HTTP_TASK_PRIORITY, NULL);
     xTaskCreate(http_task, "http", PLAT_STACK(HTTP_TASK_STACK), NULL, HTTP_TASK_PRIORITY, NULL);

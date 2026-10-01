@@ -90,6 +90,8 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 
 `src/core/rt4k_info_core.c` (pure, host-tested) reads the RT4K's firmware version (`ver`'s `FW Version:`) and model (`model=`) from every reply, whoever asked: the power probe that notices it's on is a `ver`, so usually only `model` is left. Each time the RT4K comes on it asks what it hasn't heard since, one question at a time, 3 tries each. `rt4k_info.c` keeps them in `store.h` (`STORE_RT4K`, sectors 4 and 5 of the data partition on the Pico), written only once both answers are in and only when they differ from the kept copy: a restart, or the same firmware again, writes nothing. So the page (the firmware view, the header chip) and `/api/v1/state` have them while the RT4K sleeps; the page's status says whether they're from since it last came on (`rt4k_fw_fresh`). The firmware updater still asks `model` itself before writing: the kept copy is for showing, not for picking the `.rbf`.
 
+`store.h` keeps small records (2 KB at most) across restarts, and a save that changes nothing writes nothing (`store_save` compares the kept copy first), so its callers save whenever they like without wearing the flash. On the Pico each record takes two alternating sectors of the data partition in its key's order (`STORE_SECTOR_OFFSET`): a new record is a key at the end and a magic. `svs.c` keeps each SVS input's profile there (`STORE_SVS_PROFILES`, sectors 6 and 7): the page sends them after each read of `/profile/SVS` (`POST /api/v1/svs/profiles`), and `GET /api/v1/svs` gives them back, so the SVS tab shows them while the RT4K sleeps.
+
 ## Interfaces
 
 - **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, the RT4K's SD card (browse, download, upload, new folders, rename, delete), Cruller updates (from its GitHub releases, or a file). Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
@@ -166,7 +168,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
 3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI. Not started.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, the API (`/api/v1`), RFC 2217. LED patterns still to do.
-5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete) and firmware updates from RetroTINK's repository. Still to do: Extron/TESmart/MT-VIKI serial, IR, profiles.
+5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete), firmware updates from RetroTINK's repository, the profiles view (the loaded profile, loading one, saving the current settings as a new one) and each SVS input's profile (the RT4K's /profile/SVS/S<n>_ files). Still to do: Extron/TESmart/MT-VIKI serial, IR, editing profiles.
 
 ### M0 results (2026-09-25)
 
