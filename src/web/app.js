@@ -145,7 +145,7 @@ function st(s) {
 const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
 
 // The switch as the bridge describes it (GET /api/v1/svs "switch"): fetched when its switch_seq changes.
-const svsSw = { seq: 0, loading: 0, data: null, last: null };
+const svsSw = { seq: 0, loading: 0, data: null, last: null, cards: '' }; // cards: what the grid was drawn for
 const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
 const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
 
@@ -298,18 +298,30 @@ function showSvs(v) {
     : 'No input active' + (v.since_s < 5 ? '' : ' for ' + duration(v.since_s))) + (total ? ' · ' + total + ' inputs' : ''));
   $('v-grid').hidden = !total;
   $('v-nogrid').hidden = !!total || (!paired && !known);
-  $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
-    // The console's icon and short name when the bridge says which it is, else the name given.
-    // Nothing picked on it: the same tile, with an empty slot for the icon.
-    const n = i + 1, p = port(n), on = v.input === n, what = short(p);
-    const icon = what ? consoleIcon(p.device) : EMPTY_ICON;
-    return '<div class="' + (on ? 'on' : '') + (what ? '' : ' empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
-      (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + '<span>' + (what ? esc(what) : 'Empty') + '</span>' +
-      '<small>' + (on ? 'ON SCREEN' : esc(kindName(p.kind)) || 'S' + n) + '</small></div>';
-  }).join('');
+  // The cards: drawn again only when the switch or the profiles' combos change (every status would
+  // close a combo that's open), else only the one on screen lit.
+  const shape = JSON.stringify([total, ins, window.profSvsKey ? window.profSvsKey() : '']);
+  if (shape !== svsSw.cards) {
+    svsSw.cards = shape;
+    $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
+      // The console's icon and short name when the bridge says which it is, else the name given.
+      // Nothing picked on it: the same tile, with an empty slot for the icon. Under it, its profile
+      // (profiles.js).
+      const n = i + 1, p = port(n), what = short(p);
+      const icon = what ? consoleIcon(p.device) : EMPTY_ICON;
+      return '<div data-n="' + n + '" class="' + (what ? '' : 'empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
+        (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + '<span>' + (what ? esc(what) : 'Empty') + '</span>' +
+        '<small></small>' + (window.profSvsSelect ? window.profSvsSelect(n) : '') + '</div>';
+    }).join('');
+  }
+  $('v-grid').querySelectorAll(':scope > div').forEach((d) => {
+    const n = +d.dataset.n, lit = v.input === n;
+    d.classList.toggle('on', lit);
+    d.querySelector('small').textContent = lit ? 'ON SCREEN' : kindName(port(n).kind) || 'S' + n;
+  });
   $('v-noname').hidden = !total || ins.some((p) => p.name || p.device);
-  // Each input's profile, picked in its combo (profiles.js).
-  if (window.profSvsSwitch) window.profSvsSwitch({ total, input: on ? v.input : 0, names: Array.from({ length: total }, (_, i) => short(port(i + 1))) });
+  // Each input's profile (profiles.js): which is on screen, read once there are inputs.
+  if (window.profSvsSwitch) window.profSvsSwitch({ total, input: on ? v.input : 0 });
   // The output that goes to the RetroTINK.
   text('v-out', out ? [out.name, kindName(out.kind)].filter(Boolean).join(' · ') || '–' : '–');
   text('v-paired', paired || '–');
@@ -322,6 +334,9 @@ function showSvs(v) {
     (i === 0 ? ' <span class="small">(now)</span>' : '') + '</td><td class="r">' + ago(s) + '</td></tr>').join('') ||
     '<tr><td colspan="2" class="small">None yet</td></tr>';
 }
+
+// profiles.js: the profiles' combos changed (read, picked, the RT4K asleep), so the cards are drawn again.
+window.svsRedraw = () => { if (svsSw.last) showSvs(svsSw.last); };
 
 async function unpair() {
   if (!(await askUser('Unpair the SVS Bridge?', 'Cruller forgets it; the next SVS Bridge that reports pairs instead.', 'Unpair', true))) return;

@@ -356,15 +356,12 @@
   }
 
   const sv = {
-    total: 0, input: 0, names: [], // the switch, as the SVS tab shows it (app.js)
-    files: null,                   // the SVS folder's profiles in the card's order (null: not read; none: no folder)
-    none: false,                   // the card has no /profile/SVS
+    input: 0, total: 0,  // the switch: the input on screen (0: none), how many it has (app.js)
+    files: null,         // the SVS folder's profiles in the card's order (null: not read)
+    none: false,         // the card has no /profile/SVS
     reading: false, busy: false, failed: false, waking: false,
-    shape: '',                     // what the rows were built for (rebuilt when it changes)
+    key: '',             // what the cards' combos were drawn for (app.js draws them again when it changes)
   };
-
-  const REFRESH_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" ' +
-    'stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>';
 
   const svsShowing = () => q('v-prof') && !q('v-prof').hidden && !q('v-prof').closest('[data-view]').hidden;
   const svsPath = (name) => ROOT + '/' + SVS_DIR + '/' + name;
@@ -394,15 +391,13 @@
     svsRender();
     try {
       await svsList();
-      const n = sv.files.length;
-      svsStatus(sv.none ? 'The SD card has no /profile/SVS folder.' : n ? n + (n === 1 ? ' profile' : ' profiles') + ' in /profile/SVS' : '/profile/SVS has no profiles.');
+      svsStatus(sv.none ? 'The SD card has no /profile/SVS folder: make it and save profiles there from the Profiles view.' : '');
     } catch (e) {
       sv.files = null;
       sv.failed = true;
       svsStatus(e.message === 'Failed to fetch' ? 'Cruller did not answer.' : 'Could not read /profile/SVS: ' + e.message, true);
     }
     sv.reading = false;
-    sv.shape = '';
     svsRender();
   }
 
@@ -424,61 +419,67 @@
     return { name: mine.length ? mine[0] : '', count: mine.length };
   };
 
-  function svsRender() {
+  // What the cards' combos show ('' for no combos: the RT4K asleep, the folder not read or missing).
+  const svsKey = () => (sv.files && !sv.none && !asleep() ? sv.files.join('/') : '');
+
+  // Input n's combo, for its card in the SVS tab's grid (app.js); '' while there's none to show.
+  function svsSelect(n) {
+    if (!svsKey()) return '';
+    const cur = svsCurrent(n);
+    return '<select data-n=' + n + ' aria-label="Profile for input ' + n + '"' + (sv.busy || sv.reading ? ' disabled' : '') + '>' +
+      svsOptions(n, cur.name) + '</select>' +
+      (cur.count > 1 ? '<small class=svp-warn title="The RT4K loads the first it finds: this one. Pick it again to leave it alone.">' +
+        cur.count + ' S' + n + '_ files</small>' : '');
+  }
+
+  // Back to what input n has (a pick that changed nothing).
+  function svsRevert(n) {
+    const sel = q('v-grid') && q('v-grid').querySelector('select[data-n="' + n + '"]');
+    if (sel) sel.value = svsCurrent(n).name;
+  }
+
+  // Under the grid: how it went, the RT4K asleep, how it works.
+  function svsBuild() {
     const box = q('v-prof');
-    if (!box) return;
-    if (!q('vpl')) {
-      box.innerHTML = '<div class=row><h2 class=grow>Profile for each input</h2>' +
-        '<button id=vpr class=refresh title="Read /profile/SVS again" aria-label="Read /profile/SVS again">' + REFRESH_ICON + '</button></div>' +
-        '<div id=vps class=small></div><div id=vpl class=svp></div>' +
-        '<div id=vpz class=asleep hidden><p id=vpzt></p><button id=vpzb class=primary>Turn the RT4K on</button></div>' +
-        '<div class=small>With Auto Load SVS on, the RT4K loads an input\'s profile from <span class=mono>/profile/SVS</span> when the switch ' +
-        'changes to it: the one named S1_… for input 1, S2_… for input 2, and on. Picking an unassigned one renames it so, and another input\'s ' +
-        'is copied. The one the input had becomes unassigned: X_ in front of its name, in the same folder. New profiles go there from the ' +
-        '<a class=more href="#rt4k/profiles/SVS">Profiles</a> view.</div>';
-      q('vpr').onclick = svsRead;
-      q('vpzb').onclick = () => {
-        if (!window.rt4kWake()) return svsStatus('Cruller did not answer.', true);
-        sv.waking = true;
-        svsRender();
-        setTimeout(() => { if (sv.waking) { sv.waking = false; svsRender(); } }, 10000);
-      };
-      q('vpl').onchange = (ev) => {
-        const sel = ev.target.closest('select[data-n]');
-        if (sel) svsChoose(+sel.dataset.n, sel.value);
-      };
-    }
+    if (!box || q('vps')) return;
+    box.innerHTML = '<div id=vps class=small></div>' +
+      '<div id=vpz class=svp-asleep hidden><span id=vpzt></span><button id=vpzb class=primary>Turn the RT4K on</button></div>' +
+      '<div class=small>Each input\'s profile is its file in <span class=mono>/profile/SVS</span> (S1_…, S2_…): with Auto Load SVS on, ' +
+      'the RT4K loads it when the switch changes to that input. Picking an unassigned one renames it so, and another input\'s is copied; ' +
+      'the one the input had becomes unassigned (X_ in front of its name). New profiles go there from the ' +
+      '<a class=more href="#rt4k/profiles/SVS">Profiles</a> view.</div>';
+    q('vpr').onclick = svsRead;
+    q('vpzb').onclick = () => {
+      if (!window.rt4kWake()) return svsStatus('Cruller did not answer.', true);
+      sv.waking = true;
+      svsRender();
+      setTimeout(() => { if (sv.waking) { sv.waking = false; svsRender(); } }, 10000);
+    };
+    q('v-grid').addEventListener('change', (ev) => {
+      const sel = ev.target.closest('select[data-n]');
+      if (sel) svsChoose(+sel.dataset.n, sel.value);
+    });
+  }
+
+  function svsRender() {
+    svsBuild();
+    if (!q('vps')) return;
     const sleeping = asleep() && !sv.busy;
     q('vpz').hidden = !sleeping;
-    q('vpl').hidden = sleeping;
     q('vpr').disabled = sv.busy || sv.reading || asleep();
     if (sleeping) {
       const starting = power === 'starting' || sv.waking;
-      q('vpzt').textContent = starting ? 'The RT4K is starting. Its profiles show up as soon as it answers.' :
-        'The RT4K is in standby. Its profiles can only be read with it on.';
+      q('vpzt').textContent = starting ? 'The RT4K is starting: the profiles show up as soon as it answers.' :
+        'The RT4K is in standby: each input\'s profile shows up once it\'s on.';
       q('vpzb').hidden = starting;
       svsStatus('');
-      return;
     }
-    if (!sv.files || sv.none) { q('vpl').innerHTML = ''; sv.shape = ''; return; }
-    // The rows: rebuilt when the switch or the folder changes, else only the names and the input on screen.
-    const shape = sv.total + '|' + sv.files.join('/');
-    if (shape !== sv.shape) {
-      sv.shape = shape;
-      q('vpl').innerHTML = sv.total ? Array.from({ length: sv.total }, (_, i) => {
-        const n = i + 1, cur = svsCurrent(n);
-        return '<div class=svp-row data-n=' + n + '><b>' + n + '</b><span class=svp-name></span>' +
-          '<select data-n=' + n + ' aria-label="Profile for input ' + n + '">' + svsOptions(n, cur.name) + '</select>' +
-          (cur.count > 1 ? '<span class=svp-warn>' + cur.count + ' profiles start with S' + n + '_ and the RT4K loads only one: this one. ' +
-            'Pick it again to leave it alone.</span>' : '') + '</div>';
-      }).join('') : '<div class=small>The inputs show up once the SVS Bridge says how many this switch has.</div>';
+    // The combos: drawn again when what they list changes (app.js, with the cards), else only on or off.
+    if (svsKey() !== sv.key) {
+      sv.key = svsKey();
+      if (window.svsRedraw) window.svsRedraw();
     }
-    q('vpl').querySelectorAll('.svp-row').forEach((row) => {
-      const n = +row.dataset.n;
-      row.classList.toggle('on', n === sv.input);
-      row.querySelector('.svp-name').textContent = (sv.names[n - 1] || 'Empty') + (n === sv.input ? ' · on screen' : '');
-      row.querySelector('select').disabled = sv.busy || sv.reading;
-    });
+    q('v-grid').querySelectorAll('select[data-n]').forEach((s) => { s.disabled = sv.busy || sv.reading; });
   }
 
   async function svsStep(s) {
@@ -497,14 +498,13 @@
   const stepText = (s) => (s.op === 'mv' ? 'renaming ' + plain(s.from) + ' to ' + plain(s.to) : 'copying ' + plain(s.from) + ' to ' + plain(s.to));
 
   async function svsChoose(n, name) {
-    if (sv.busy || !sv.files) return;
+    if (sv.busy || !sv.files) return svsRevert(n);
     const p = plan(sv.files, n, name);
-    if (!p.steps.length) { sv.shape = ''; return svsRender(); }
+    if (!p.steps.length) return svsRevert(n);
     const long = p.steps.find((s) => sd.utf8Length(svsPath(s.to)) > PATH_MAX);
     if (long) {
       svsStatus(long.to + ': the path is too long for Cruller (' + PATH_MAX + ' bytes at most).', true);
-      sv.shape = '';
-      return svsRender();
+      return svsRevert(n);
     }
     sv.busy = true;
     svsRender();
@@ -535,17 +535,14 @@
       note = [note[0] + ' Could not read /profile/SVS again: use the refresh button.', true];
     }
     sv.busy = false;
-    sv.shape = '';
     svsRender();
     svsStatus(...note);
   }
 
-  // The SVS tab's switch (app.js, with every status): how many inputs, which is on screen, their names.
+  // The SVS tab's switch (app.js, with every status): which input is on screen, how many there are.
   function svsSwitch(info) {
-    sv.total = info.total;
     sv.input = info.input;
-    sv.names = info.names;
-    svsRender();
+    sv.total = info.total;
     if (!sv.files && !sv.reading && !sv.failed && power === 'on' && sv.total && svsShowing()) svsRead();
   }
 
@@ -586,5 +583,7 @@
   window.profStatus = onStatus;
   window.profSvsSwitch = svsSwitch;
   window.profSvsOpen = svsOpen;
+  window.profSvsSelect = svsSelect;
+  window.profSvsKey = svsKey;
   window.profInternals = { parseLoaded, isProfile, extFor, withExt, plain, hrefFor, dirOf, slotOf, baseName, freeName, plan }; // tests/test_profiles.js
 })();
