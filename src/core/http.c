@@ -99,6 +99,8 @@ extern const unsigned char web_fw_js[];
 extern const size_t web_fw_js_len;
 extern const unsigned char web_sd_js[];
 extern const size_t web_sd_js_len;
+extern const unsigned char web_profiles_js[];
+extern const size_t web_profiles_js_len;
 extern const unsigned char web_app_js[];
 extern const size_t web_app_js_len;
 extern const unsigned char web_index_html[];
@@ -1441,6 +1443,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/sha256.js")) respond_asset(r->fd, "application/javascript", web_sha256_js, web_sha256_js_len);
     else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
     else if (get && !strcmp(r->path, "/sd.js")) respond_asset(r->fd, "application/javascript", web_sd_js, web_sd_js_len);
+    else if (get && !strcmp(r->path, "/profiles.js")) respond_asset(r->fd, "application/javascript", web_profiles_js, web_profiles_js_len);
     else if (get && !strcmp(r->path, "/app.js")) respond_asset(r->fd, "application/javascript", web_app_js, web_app_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);

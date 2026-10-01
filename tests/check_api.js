@@ -56,7 +56,7 @@ else if (![...routes.keys()].some((p) => p.startsWith(`/api/v${version}/`))) fai
 
 // The page: every path it fetches (fetch('/x...'), xhr.open('POST', '/x...')) is a route.
 let fetched = 0;
-for (const f of ['app.js', 'fw.js', 'sd.js']) {
+for (const f of ['app.js', 'fw.js', 'sd.js', 'profiles.js']) {
     const js = read(path.join('src', 'web', f));
     for (const [, p] of js.matchAll(/(?:fetch\(|\.open\('\w+',\s*)'(\/[^'?]*)/g)) {
         fetched++;

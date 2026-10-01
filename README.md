@@ -31,10 +31,13 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 - **RT4K firmware updates without the SD card**: pick a release or experimental version from
   [RetroTINK's firmware repository](https://github.com/RetroTINK-LLC/firmware). It's checked
   against its SHA-256, written to the RT4K's card and installed by the RT4K itself.
+- **Profiles**: the ones in the SD card's `/profile` folder, which one is loaded, load one with a
+  click, or save the RT4K's current settings as a new one.
 - **The SD card, over the network**: browse it, download, upload, make folders, rename and delete.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
-  screen and the console on each input.
+  screen and the console on each input, and each input's profile picked from a list (the RT4K's
+  own `/profile/SVS/S<n>_….rt4`, which it loads with Auto Load SVS).
 - **Home Assistant and scripts**: a [Home Assistant integration](https://github.com/margaale/cruller-hacs)
   that finds Cruller by itself, a versioned JSON API, and the RT4K's serial port on the network
   (RFC 2217), where each client gets only the replies to its own commands.
