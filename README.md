@@ -36,8 +36,8 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 - **The SD card, over the network**: browse it, download, upload, make folders, rename and delete.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
-  screen and the console on each input, and each input's profile picked from a list (the RT4K's
-  own `/profile/SVS/S<n>_….rt4`, which it loads with Auto Load SVS).
+  screen and the console on each input, and each input's profile picked from the RT4K's
+  `/profile/SVS` (its `S<n>_….rt4`, which it loads with Auto Load SVS).
 - **Home Assistant and scripts**: a [Home Assistant integration](https://github.com/margaale/cruller-hacs)
   that finds Cruller by itself, a versioned JSON API, and the RT4K's serial port on the network
   (RFC 2217), where each client gets only the replies to its own commands.

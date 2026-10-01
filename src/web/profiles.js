@@ -154,14 +154,14 @@
   function render() {
     crumbs();
     ['pfn', 'pfr'].forEach((id) => { q(id).disabled = !!busy || asleep(); });
-    const up = dir ? '<tr class=up><td class=n><a href="' + hrefFor(dirOf(dir)) + '"><span class=ico>' + ICON.dir + '</span>..</a></td><td></td></tr>' : '';
+    const up = dir ? '<tr class=up><td class=n colspan=2><a href="' + hrefFor(dirOf(dir)) + '"><span class=ico>' + ICON.dir + '</span>..</a></td></tr>' : '';
     q('pfe').hidden = entries.length > 0 || failed; // a listing that failed says why instead
     const off = busy ? ' disabled' : '';
     q('pft').innerHTML = up + sd.sortEntries(entries, 'name', false).map((e) => {
       const path = join(dir, e.name);
       if (e.dir) {
-        return '<tr class=d><td class=n title="' + esc(e.name) + '"><a href="' + hrefFor(path) + '"><span class=ico>' + ICON.dir + '</span>' +
-          '<span class=nm>' + esc(e.name) + '</span></a></td><td></td></tr>';
+        return '<tr class=d><td class=n colspan=2 title="' + esc(e.name) + '"><a href="' + hrefFor(path) + '"><span class=ico>' + ICON.dir + '</span>' +
+          '<span class=nm>' + esc(e.name) + '</span></a></td></tr>';
       }
       const on = sameLoaded(path);
       const act = on ? '<span class="pill on">Loaded</span>' :
@@ -302,14 +302,16 @@
   // --- each SVS input's profile (the SVS tab) ---------------------------------------------------------
   //
   // The RT4K's own way (Auto Load SVS): when the switch tells it input n is on, it loads the first
-  // /profile/SVS/S<n>_<anything>.rt4 it finds. Each input gets a combo with every profile on the card:
-  // picking one makes it that file. One already in the folder without an S<k>_ is renamed, any other
-  // is copied in, and the files the input had lose their S<n>_ (they stay in the folder, out of the
-  // way, to be picked again).
+  // /profile/SVS/S<n>_<anything>.rt4 it finds, and only from that folder. Each input gets a combo with
+  // the profiles there; picking one makes it the input's file: renamed to S<n>_<name>, or copied when
+  // it's another input's (each input keeps its own). The files the input had become unassigned: X_ in
+  // front of their whole name (S1_SNES: X_S1_SNES, which no other file has), kept in the folder to be
+  // picked again.
 
-  const SVS_DIR = 'SVS';  // the folder the RT4K looks in, when the card has none yet
-  const SCAN_FOLDERS = 64; // folders read at most, SCAN_DEPTH deep under /profile
-  const SCAN_DEPTH = 3;
+  const SVS_DIR = 'SVS'; // under /profile (FAT: whatever its case on the card)
+  // An unassigned profile's prefix. Not an S: were the RT4K to read the input with atoi(), "SX_"
+  // would read as input 0 (and "S0_" is a real one, for no input).
+  const UNSET = 'X_';
 
   // The input a file in the SVS folder is for: n for "S<n>_<anything>.rt4" (0: none).
   function slotOf(name) {
@@ -317,8 +319,8 @@
     return m && isProfile(name) ? +m[1] : 0;
   }
 
-  // A profile's name without its S<n>_ and extension ("S3_PS1 480i.rt4": "PS1 480i").
-  const baseName = (name) => plain(name).replace(/^S\d+_/i, '');
+  // A profile's name without its X_, S<n>_ and extension ("X_S3_PS1 480i.rt4": "PS1 480i").
+  const baseName = (name) => plain(name).replace(/^(X_)?(S\d+_)?/i, '');
   const extOf = (name) => (/\.rt[46]$/i.exec(name) || ['.rt4'])[0];
 
   // A name that isn't in taken (lower case: FAT): base + ext, else "base (2)" + ext, and on.
@@ -329,49 +331,43 @@
     }
   }
 
-  // What makes choice (a profile's path under /profile; '' for none) input n's profile. svs: the SVS
-  // folder's name as on the card ('' when it has none) and its profiles in the card's order. Returns
-  // the steps in order ({op: 'mkdir', path} | {op: 'mv' | 'cp', from, to}, paths under /profile) and
-  // where the profile ends up ('' for none). The input's other files lose their S<n>_ first, so a
-  // failure halfway loses nothing; a choice that already is the input's file only drops the others.
-  function plan(svs, n, choice) {
-    const dir = svs.dir || SVS_DIR;
-    const mine = svs.files.filter((f) => slotOf(f) === n);
-    const inFolder = choice && svs.dir && sd.sameName(dirOf(choice), svs.dir) ? choice.split('/').pop() : '';
-    const keep = inFolder ? mine.find((f) => sd.sameName(f, inFolder)) : undefined;
+  // What makes name (a profile in the SVS folder; '' for none) input n's profile. files: the folder's
+  // profiles in the card's order. Returns the steps in order ({op: 'mv' | 'cp', from, to}, names in
+  // the folder) and the name it ends up with ('' for none). The input's other files become X_ first,
+  // so a failure halfway loses nothing; picking the input's own file only drops the others.
+  function plan(files, n, name) {
+    const mine = files.filter((f) => slotOf(f) === n);
+    const keep = name ? mine.find((f) => sd.sameName(f, name)) : undefined;
     const steps = [];
-    const taken = new Set(svs.files.map((f) => f.toLowerCase()));
+    const taken = new Set(files.map((f) => f.toLowerCase()));
     for (const f of mine) {
       if (f === keep) continue;
-      const to = freeName(taken, baseName(f), extOf(f));
+      const to = freeName(taken, UNSET + plain(f), extOf(f));
       taken.delete(f.toLowerCase());
       taken.add(to.toLowerCase());
-      steps.push({ op: 'mv', from: dir + '/' + f, to: dir + '/' + to });
+      steps.push({ op: 'mv', from: f, to });
     }
-    if (!choice) return { steps, target: '' };
-    if (keep) return { steps, target: dir + '/' + keep };
+    if (!name) return { steps, target: '' };
+    if (keep) return { steps, target: keep };
     // Free: every file named S<n>_... was the input's, and was renamed above.
-    const name = 'S' + n + '_' + baseName(choice.split('/').pop()) + extOf(choice);
-    if (!svs.dir) steps.unshift({ op: 'mkdir', path: dir });
-    if (inFolder && !slotOf(inFolder)) steps.push({ op: 'mv', from: dir + '/' + inFolder, to: dir + '/' + name });
-    else steps.push({ op: 'cp', from: choice, to: dir + '/' + name });
-    return { steps, target: dir + '/' + name };
+    const to = 'S' + n + '_' + baseName(name) + extOf(name);
+    steps.push({ op: slotOf(name) ? 'cp' : 'mv', from: name, to });
+    return { steps, target: to };
   }
 
   const sv = {
     total: 0, input: 0, names: [], // the switch, as the SVS tab shows it (app.js)
-    tree: null,                    // every profile on the card: [{path, name, dir}] (null: not read)
-    svs: null,                     // the SVS folder: {dir: its name ('' none), files: its profiles in the card's order}
-    readAt: 0,
+    files: null,                   // the SVS folder's profiles in the card's order (null: not read; none: no folder)
+    none: false,                   // the card has no /profile/SVS
     reading: false, busy: false, failed: false, waking: false,
     shape: '',                     // what the rows were built for (rebuilt when it changes)
   };
-  const SVS_FRESH = 30000; // ms: opening the SVS tab reads the profiles again after this (other views change them)
 
   const REFRESH_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" ' +
     'stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>';
 
   const svsShowing = () => q('v-prof') && !q('v-prof').hidden && !q('v-prof').closest('[data-view]').hidden;
+  const svsPath = (name) => ROOT + '/' + SVS_DIR + '/' + name;
 
   function svsStatus(text, bad) {
     const s = q('vps');
@@ -380,87 +376,52 @@
     s.classList.toggle('bad', !!bad);
   }
 
-  async function lsProfiles(d) {
-    const r = await fetch('/rt4k/ls?dir=' + encodeURIComponent(d ? ROOT + '/' + d : ROOT));
+  // The SVS folder's profiles, in the card's order (macOS's ._ files aside).
+  async function svsList() {
+    const r = await fetch('/rt4k/ls?dir=' + encodeURIComponent(ROOT + '/' + SVS_DIR));
     const body = await r.text();
-    if (r.status === 404) return null;
-    if (!r.ok) throw new Error(body.trim() || 'HTTP ' + r.status);
-    return sd.parseList(body).filter((e) => !e.name.startsWith('.')); // macOS leaves ._ files
+    sv.none = r.status === 404;
+    if (!r.ok && !sv.none) throw new Error(body.trim() || 'HTTP ' + r.status);
+    sv.files = sv.none ? [] : sd.parseList(body).filter((e) => !e.dir && isProfile(e.name) && !e.name.startsWith('.')).map((e) => e.name);
   }
 
-  // Reads every folder under /profile (SCAN_DEPTH deep, SCAN_FOLDERS at most), one listing each.
+  // Reads the SVS folder (one listing): on opening the tab, with the refresh button, when the RT4K comes on.
   async function svsRead() {
-    if (sv.reading || asleep()) return;
+    if (sv.reading || sv.busy || asleep()) return;
     sv.reading = true;
     sv.failed = false;
-    svsStatus('Reading the profiles on the SD card…');
+    svsStatus('Reading /profile/SVS…');
     svsRender();
-    const tree = [];
-    let svs = { dir: '', files: [] };
-    const folders = [''];
     try {
-      for (let i = 0; i < folders.length && i < SCAN_FOLDERS; i++) {
-        const d = folders[i];
-        const list = await lsProfiles(d);
-        if (!list) {
-          if (!d) break; // no /profile at all
-          continue;      // gone meanwhile
-        }
-        for (const e of list) {
-          if (e.dir) { if (d.split('/').length < SCAN_DEPTH) folders.push(join(d, e.name)); }
-          else if (isProfile(e.name)) tree.push({ path: join(d, e.name), name: e.name, dir: d });
-        }
-        if (d && !d.includes('/') && sd.sameName(d, SVS_DIR)) svs = { dir: d, files: list.filter((e) => !e.dir && isProfile(e.name)).map((e) => e.name) };
-      }
-      sv.tree = tree;
-      sv.svs = svs;
-      sv.readAt = Date.now();
-      svsStatus(tree.length ? tree.length + (tree.length === 1 ? ' profile' : ' profiles') + ' on the SD card' +
-        (folders.length > SCAN_FOLDERS ? ' (the first ' + SCAN_FOLDERS + ' folders)' : '') : 'The SD card has no profiles under /profile yet.');
+      await svsList();
+      const n = sv.files.length;
+      svsStatus(sv.none ? 'The SD card has no /profile/SVS folder.' : n ? n + (n === 1 ? ' profile' : ' profiles') + ' in /profile/SVS' : '/profile/SVS has no profiles.');
     } catch (e) {
+      sv.files = null;
       sv.failed = true;
-      svsStatus(e.message === 'Failed to fetch' ? 'Cruller did not answer.' : 'Could not read the profiles: ' + e.message, true);
+      svsStatus(e.message === 'Failed to fetch' ? 'Cruller did not answer.' : 'Could not read /profile/SVS: ' + e.message, true);
     }
     sv.reading = false;
     sv.shape = '';
     svsRender();
   }
 
-  // After a change: the SVS folder again (the rest of the card is as it was).
-  async function svsReread() {
-    const d = sv.svs.dir || SVS_DIR;
-    const list = await lsProfiles(d);
-    const files = list ? list.filter((e) => !e.dir && isProfile(e.name)) : [];
-    sv.svs = { dir: list ? d : '', files: files.map((e) => e.name) };
-    sv.tree = sv.tree.filter((p) => !sd.sameName(p.dir, d)).concat(files.map((e) => ({ path: join(d, e.name), name: e.name, dir: d })));
-    sv.readAt = Date.now();
-  }
-
-  // The combo's options for input n: none, then the profiles by folder (the SVS folder first, its files
-  // named for their input; then /profile itself; then the rest by name).
+  // The combo's options for input n: none, its own, the unassigned ones (renamed when picked), and the
+  // other inputs' (copied).
   function svsOptions(n, current) {
-    const groups = new Map();
-    for (const p of sv.tree) {
-      if (!groups.has(p.dir)) groups.set(p.dir, []);
-      groups.get(p.dir).push(p);
-    }
-    const isSvs = (d) => !!sv.svs.dir && sd.sameName(d, sv.svs.dir);
-    const order = [...groups.keys()].sort((a, b) => (isSvs(b) - isSvs(a)) || ((a !== '') - (b !== '')) ||
-      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-    const label = (p) => {
-      if (!isSvs(p.dir)) return plain(p.name);
-      const k = slotOf(p.name);
-      return k === n ? baseName(p.name) : k ? baseName(p.name) + ' (input ' + k + ')' : plain(p.name);
-    };
-    return '<option value="">None</option>' + order.map((d) => '<optgroup label="' + esc(d ? d : '/profile') + '">' +
-      sd.sortEntries(groups.get(d), 'name', false).map((p) => '<option value="' + esc(p.path) + '"' + (p.path === current ? ' selected' : '') + '>' +
-        esc(label(p)) + '</option>').join('') + '</optgroup>').join('');
+    const opt = (f, label) => '<option value="' + esc(f) + '"' + (f === current ? ' selected' : '') + '>' + esc(label) + '</option>';
+    const group = (label, list, text) => (list.length ? '<optgroup label="' + label + '">' + list.map((f) => opt(f, text(f))).join('') + '</optgroup>' : '');
+    const files = sd.sortEntries(sv.files.map((name) => ({ name, dir: false })), 'name', false).map((e) => e.name);
+    return '<option value="">None</option>' + files.filter((f) => slotOf(f) === n).map((f) => opt(f, baseName(f))).join('') +
+      group('Unassigned', files.filter((f) => !slotOf(f)), (f) => plain(f).replace(/^X_/i, '')) +
+      group('Copy another input\'s', files.filter((f) => slotOf(f) && slotOf(f) !== n).sort((a, b) => slotOf(a) - slotOf(b)),
+        (f) => baseName(f) + ' (input ' + slotOf(f) + ')');
   }
 
   // Input n's file: the first of its files in the card's order, the one the RT4K finds.
   const svsCurrent = (n) => {
-    const mine = sv.svs ? sv.svs.files.filter((f) => slotOf(f) === n) : [];
-    return { path: mine.length ? sv.svs.dir + '/' + mine[0] : '', count: mine.length };
+    const mine = sv.files ? sv.files.filter((f) => slotOf(f) === n) : [];
+    return { name: mine.length ? mine[0] : '', count: mine.length };
   };
 
   function svsRender() {
@@ -468,13 +429,14 @@
     if (!box) return;
     if (!q('vpl')) {
       box.innerHTML = '<div class=row><h2 class=grow>Profile for each input</h2>' +
-        '<button id=vpr class=refresh title="Read the profiles again" aria-label="Read the profiles again">' + REFRESH_ICON + '</button></div>' +
+        '<button id=vpr class=refresh title="Read /profile/SVS again" aria-label="Read /profile/SVS again">' + REFRESH_ICON + '</button></div>' +
         '<div id=vps class=small></div><div id=vpl class=svp></div>' +
         '<div id=vpz class=asleep hidden><p id=vpzt></p><button id=vpzb class=primary>Turn the RT4K on</button></div>' +
-        '<div class=small>The RT4K keeps each input\'s profile in <span class=mono>/profile/SVS</span>, named S1_…, S2_… With Auto Load SVS on, ' +
-        'it loads it when the switch changes to that input. Picking another one copies it in (or renames it, when it\'s in that folder already); ' +
-        'the one the input had stays in the folder without its S1_.</div>';
-      q('vpr').onclick = () => { if (!sv.busy) svsRead(); };
+        '<div class=small>With Auto Load SVS on, the RT4K loads an input\'s profile from <span class=mono>/profile/SVS</span> when the switch ' +
+        'changes to it: the one named S1_… for input 1, S2_… for input 2, and on. Picking an unassigned one renames it so, and another input\'s ' +
+        'is copied. The one the input had becomes unassigned: X_ in front of its name, in the same folder. New profiles go there from the ' +
+        '<a class=more href="#rt4k/profiles/SVS">Profiles</a> view.</div>';
+      q('vpr').onclick = svsRead;
       q('vpzb').onclick = () => {
         if (!window.rt4kWake()) return svsStatus('Cruller did not answer.', true);
         sv.waking = true;
@@ -498,15 +460,15 @@
       svsStatus('');
       return;
     }
-    if (!sv.tree) { q('vpl').innerHTML = ''; sv.shape = ''; return; }
-    // The rows: rebuilt when the switch or the profiles change, else only the names and the input on screen.
-    const shape = sv.total + '|' + JSON.stringify(sv.svs) + '|' + sv.tree.length;
+    if (!sv.files || sv.none) { q('vpl').innerHTML = ''; sv.shape = ''; return; }
+    // The rows: rebuilt when the switch or the folder changes, else only the names and the input on screen.
+    const shape = sv.total + '|' + sv.files.join('/');
     if (shape !== sv.shape) {
       sv.shape = shape;
       q('vpl').innerHTML = sv.total ? Array.from({ length: sv.total }, (_, i) => {
         const n = i + 1, cur = svsCurrent(n);
         return '<div class=svp-row data-n=' + n + '><b>' + n + '</b><span class=svp-name></span>' +
-          '<select data-n=' + n + ' aria-label="Profile for input ' + n + '">' + svsOptions(n, cur.path) + '</select>' +
+          '<select data-n=' + n + ' aria-label="Profile for input ' + n + '">' + svsOptions(n, cur.name) + '</select>' +
           (cur.count > 1 ? '<span class=svp-warn>' + cur.count + ' profiles start with S' + n + '_ and the RT4K loads only one: this one. ' +
             'Pick it again to leave it alone.</span>' : '') + '</div>';
       }).join('') : '<div class=small>The inputs show up once the SVS Bridge says how many this switch has.</div>';
@@ -520,31 +482,27 @@
   }
 
   async function svsStep(s) {
-    if (s.op === 'mkdir') {
-      const r = await ask('mkdir ' + ROOT + '/' + s.path, 'mkdir');
-      if (!r.startsWith('mkdir ok')) throw new Error('/profile/' + s.path + ': ' + r);
-    } else if (s.op === 'mv') {
-      const r = await ask('mv ' + ROOT + '/' + s.from + '|' + ROOT + '/' + s.to, 'mv');
-      if (!r.startsWith('mv ok')) throw new Error(s.from.split('/').pop() + ': ' + r);
-    } else {
-      const g = await fetch('/rt4k/get?path=' + encodeURIComponent(ROOT + '/' + s.from));
-      if (!g.ok) throw new Error(s.from + ': ' + ((await g.text()).trim() || 'HTTP ' + g.status));
-      const data = new Uint8Array(await g.arrayBuffer());
-      const p = await fetch('/rt4k/put?path=' + encodeURIComponent(ROOT + '/' + s.to) + '&sha=' + window.sha256(data), { method: 'POST', body: data });
-      if (!p.ok) throw new Error(s.to.split('/').pop() + ': ' + ((await p.text()).trim() || 'HTTP ' + p.status));
+    if (s.op === 'mv') {
+      const r = await ask('mv ' + svsPath(s.from) + '|' + svsPath(s.to), 'mv');
+      if (!r.startsWith('mv ok')) throw new Error(s.from + ': ' + r);
+      return;
     }
+    const g = await fetch('/rt4k/get?path=' + encodeURIComponent(svsPath(s.from)));
+    if (!g.ok) throw new Error(s.from + ': ' + ((await g.text()).trim() || 'HTTP ' + g.status));
+    const data = new Uint8Array(await g.arrayBuffer());
+    const p = await fetch('/rt4k/put?path=' + encodeURIComponent(svsPath(s.to)) + '&sha=' + window.sha256(data), { method: 'POST', body: data });
+    if (!p.ok) throw new Error(s.to + ': ' + ((await p.text()).trim() || 'HTTP ' + p.status));
   }
 
-  const stepText = (s) => (s.op === 'mkdir' ? 'making /profile/' + s.path :
-    s.op === 'mv' ? 'renaming ' + plain(s.from.split('/').pop()) + ' to ' + plain(s.to.split('/').pop()) : 'copying ' + plain(s.from.split('/').pop()) + ' in');
+  const stepText = (s) => (s.op === 'mv' ? 'renaming ' + plain(s.from) + ' to ' + plain(s.to) : 'copying ' + plain(s.from) + ' to ' + plain(s.to));
 
-  async function svsChoose(n, choice) {
-    if (sv.busy || !sv.svs) return;
-    const p = plan(sv.svs, n, choice);
-    if (!p.steps.length) return svsRender();
-    const long = p.steps.find((s) => (s.to || s.path) && sd.utf8Length(ROOT + '/' + (s.to || s.path)) > PATH_MAX);
+  async function svsChoose(n, name) {
+    if (sv.busy || !sv.files) return;
+    const p = plan(sv.files, n, name);
+    if (!p.steps.length) { sv.shape = ''; return svsRender(); }
+    const long = p.steps.find((s) => sd.utf8Length(svsPath(s.to)) > PATH_MAX);
     if (long) {
-      svsStatus((long.to || long.path).split('/').pop() + ': the path is too long for Cruller (' + PATH_MAX + ' bytes at most).', true);
+      svsStatus(long.to + ': the path is too long for Cruller (' + PATH_MAX + ' bytes at most).', true);
       sv.shape = '';
       return svsRender();
     }
@@ -556,13 +514,13 @@
         svsStatus('Input ' + n + ': ' + stepText(s) + '…');
         await svsStep(s);
       }
-      const away = p.steps.filter((s) => s.op === 'mv' && slotOf(s.from.split('/').pop()) === n).map((s) => plain(s.to.split('/').pop()));
-      const said = [p.target ? 'Input ' + n + ': ' + baseName(p.target.split('/').pop()) : 'Input ' + n + ' has no profile now'];
-      if (away.length) said.push('The one it had stays in the folder as ' + away.join(', '));
+      const away = p.steps.filter((s) => s.op === 'mv' && slotOf(s.from) === n).map((s) => plain(s.to));
+      const said = [p.target ? 'Input ' + n + ': ' + baseName(p.target) : 'Input ' + n + ' has no profile now'];
+      if (away.length) said.push('The one it had is unassigned now: ' + away.join(', '));
       // The input on screen: loaded now, as the RT4K would on switching to it.
       if (p.target && n === sv.input && power === 'on') {
-        svsStatus('Input ' + n + ': loading ' + baseName(p.target.split('/').pop()) + '…');
-        const r = await ask('prof load ' + p.target, 'prof', 15000);
+        svsStatus('Input ' + n + ': loading ' + baseName(p.target) + '…');
+        const r = await ask('prof load ' + SVS_DIR + '/' + p.target, 'prof', 15000);
         said.push(r === 'prof load ok' ? 'Loaded, as it\'s on screen' : 'Loading it failed: ' + r);
       }
       note = [said.join('. ') + '.'];
@@ -570,9 +528,9 @@
       note = ['Input ' + n + ': ' + (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message), true];
     }
     try {
-      await svsReread();
-    } catch (e) { // what's on the card now isn't known: nothing to pick from until it's read again
-      sv.tree = null;
+      await svsList();
+    } catch (e) { // what's in the folder now isn't known: nothing to pick from until it's read again
+      sv.files = null;
       sv.failed = true;
       note = [note[0] + ' Could not read /profile/SVS again: use the refresh button.', true];
     }
@@ -588,22 +546,22 @@
     sv.input = info.input;
     sv.names = info.names;
     svsRender();
-    if (!sv.tree && !sv.reading && !sv.failed && power === 'on' && sv.total && svsShowing()) svsRead();
+    if (!sv.files && !sv.reading && !sv.failed && power === 'on' && sv.total && svsShowing()) svsRead();
   }
 
-  // The SVS tab opens: the profiles are read then (and again with its refresh button).
+  // The SVS tab opens: the folder is read again (the Profiles and SD card views may have changed it).
   function svsOpen() {
     svsRender();
-    if (!sv.reading && !sv.busy && power === 'on' && svsShowing() && (!sv.tree || Date.now() - sv.readAt > SVS_FRESH)) svsRead();
+    if (power === 'on' && svsShowing()) svsRead();
   }
 
   // The RT4K asleep or waking up: what was read may not hold once it's back (its card can change).
   function svsPower(was) {
     if (power !== 'standby') sv.waking = false;
     if (was === power) return;
-    if (asleep()) { sv.tree = null; sv.failed = false; }
+    if (asleep()) { sv.files = null; sv.failed = false; }
     svsRender();
-    if (power === 'on' && !sv.reading && !sv.busy && sv.total && svsShowing()) svsRead();
+    if (power === 'on' && sv.total && svsShowing()) svsRead();
   }
 
   // Every status: the RT4K going to sleep or waking up (both read again once it's on), and while the

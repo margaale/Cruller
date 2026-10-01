@@ -49,35 +49,38 @@ check(pf.baseName('S3_PS1 480i.rt4') === 'PS1 480i' && pf.baseName('Maverick.rt4
 const taken = new Set(['snes.rt4', 'snes (2).rt4']);
 check(pf.freeName(taken, 'SNES', '.rt4') === 'SNES (3).rt4' && pf.freeName(taken, 'PS1', '.rt4') === 'PS1.rt4', 'free names, without case');
 
-const steps = (p) => p.steps.map((s) => s.op + ' ' + (s.path || s.from + ' > ' + s.to)).join(' ; ');
-const svs = { dir: 'SVS', files: ['S1_SNES.rt4', 'S2_Genesis.rt4', 'Spare.rt4', 'S10_Neo.rt4'] };
-let p = pf.plan(svs, 1, 'Sony PS2/GT4.rt4');
-check(steps(p) === 'mv SVS/S1_SNES.rt4 > SVS/SNES.rt4 ; cp Sony PS2/GT4.rt4 > SVS/S1_GT4.rt4' && p.target === 'SVS/S1_GT4.rt4',
-  'from another folder: the old one loses its S1_, the new one is copied in: ' + steps(p));
-p = pf.plan(svs, 1, 'SVS/Spare.rt4');
-check(steps(p) === 'mv SVS/S1_SNES.rt4 > SVS/SNES.rt4 ; mv SVS/Spare.rt4 > SVS/S1_Spare.rt4' && p.target === 'SVS/S1_Spare.rt4',
-  'one in the folder without an input: renamed, not copied: ' + steps(p));
-p = pf.plan(svs, 1, 'SVS/S2_Genesis.rt4');
-check(steps(p) === 'mv SVS/S1_SNES.rt4 > SVS/SNES.rt4 ; cp SVS/S2_Genesis.rt4 > SVS/S1_Genesis.rt4' && p.target === 'SVS/S1_Genesis.rt4',
+// The SVS folder's own files only: the RT4K loads input n's profile from nowhere else. Unassigned
+// ones get X_ in front of their whole name.
+check(pf.baseName('X_S1_SNES.rt4') === 'SNES' && pf.baseName('X_Spare.rt4') === 'Spare' && pf.slotOf('X_S1_SNES.rt4') === 0 && pf.slotOf('SX_SNES.rt4') === 0,
+  'unassigned: X_ in front');
+const steps = (p) => p.steps.map((s) => s.op + ' ' + s.from + ' > ' + s.to).join(' ; ');
+const files = ['S2_Genesis.rt4', 'S1_SNES.rt4', 'X_S4_Spare.rt4', 'Loose.rt4', 'S10_Neo.rt4']; // the card's order, as the real one
+let p = pf.plan(files, 1, 'X_S4_Spare.rt4');
+check(steps(p) === 'mv S1_SNES.rt4 > X_S1_SNES.rt4 ; mv X_S4_Spare.rt4 > S1_Spare.rt4' && p.target === 'S1_Spare.rt4',
+  'an unassigned one: renamed for the input, and the input\'s old one gets X_: ' + steps(p));
+p = pf.plan(files, 1, 'Loose.rt4');
+check(steps(p) === 'mv S1_SNES.rt4 > X_S1_SNES.rt4 ; mv Loose.rt4 > S1_Loose.rt4' && p.target === 'S1_Loose.rt4', 'one with no prefix: the same: ' + steps(p));
+p = pf.plan(files, 1, 'S2_Genesis.rt4');
+check(steps(p) === 'mv S1_SNES.rt4 > X_S1_SNES.rt4 ; cp S2_Genesis.rt4 > S1_Genesis.rt4' && p.target === 'S1_Genesis.rt4',
   'another input\'s: copied, that input keeps it: ' + steps(p));
-p = pf.plan(svs, 1, 'SVS/S1_SNES.rt4');
-check(p.steps.length === 0 && p.target === 'SVS/S1_SNES.rt4', 'the one it has: nothing to do');
-p = pf.plan(svs, 1, '');
-check(steps(p) === 'mv SVS/S1_SNES.rt4 > SVS/SNES.rt4' && p.target === '', 'none: it only loses its S1_');
-p = pf.plan(svs, 3, '');
-check(p.steps.length === 0, 'none for an input with nothing: nothing to do');
-p = pf.plan(svs, 3, 'SVS/S10_Neo.rt4');
-check(steps(p) === 'cp SVS/S10_Neo.rt4 > SVS/S3_Neo.rt4', 'S10_ isn\'t input 1\'s, and copies keep their name past the S<n>_: ' + steps(p));
-p = pf.plan({ dir: 'SVS', files: ['S1_A.rt4', 'S1_B.rt4', 'C.rt4'] }, 1, 'SVS/S1_B.rt4');
-check(steps(p) === 'mv SVS/S1_A.rt4 > SVS/A.rt4' && p.target === 'SVS/S1_B.rt4', 'two for one input: the one picked stays, alone: ' + steps(p));
-p = pf.plan({ dir: 'SVS', files: ['S1_SNES.rt4', 'SNES.rt4'] }, 1, 'SVS/SNES.rt4');
-check(steps(p) === 'mv SVS/S1_SNES.rt4 > SVS/SNES (2).rt4 ; mv SVS/SNES.rt4 > SVS/S1_SNES.rt4', 'a name taken: the old one gets "(2)": ' + steps(p));
-p = pf.plan({ dir: '', files: [] }, 2, 'Sega/Saturn.rt6');
-check(steps(p) === 'mkdir SVS ; cp Sega/Saturn.rt6 > SVS/S2_Saturn.rt6' && p.target === 'SVS/S2_Saturn.rt6', 'no SVS folder yet: made first: ' + steps(p));
-p = pf.plan({ dir: 'svs', files: ['s1_snes.RT4', 'spare.rt4'] }, 1, 'svs/spare.rt4');
-check(steps(p) === 'mv svs/s1_snes.RT4 > svs/snes.RT4 ; mv svs/spare.rt4 > svs/S1_spare.rt4', 'the folder and files as named on the card, without case: ' + steps(p));
-p = pf.plan(svs, 2, 'SVS/old/Genesis.rt4');
-check(steps(p) === 'mv SVS/S2_Genesis.rt4 > SVS/Genesis.rt4 ; cp SVS/old/Genesis.rt4 > SVS/S2_Genesis.rt4', 'a folder inside SVS is another folder: ' + steps(p));
+p = pf.plan(files, 1, 'S1_SNES.rt4');
+check(p.steps.length === 0 && p.target === 'S1_SNES.rt4', 'the one it has: nothing to do');
+p = pf.plan(files, 1, 's1_snes.RT4');
+check(p.steps.length === 0 && p.target === 'S1_SNES.rt4', 'names compare without case (FAT)');
+p = pf.plan(files, 1, '');
+check(steps(p) === 'mv S1_SNES.rt4 > X_S1_SNES.rt4' && p.target === '', 'none: it gets X_');
+p = pf.plan(['X_S1_SNES.rt4'], 1, 'X_S1_SNES.rt4');
+check(steps(p) === 'mv X_S1_SNES.rt4 > S1_SNES.rt4', 'and picked again, it\'s back as it was: ' + steps(p));
+p = pf.plan(files, 3, '');
+check(p.steps.length === 0 && p.target === '', 'none for an input with nothing: nothing to do');
+p = pf.plan(files, 3, 'S10_Neo.rt4');
+check(steps(p) === 'cp S10_Neo.rt4 > S3_Neo.rt4', 'S10_ isn\'t input 1\'s, and a copy keeps the name past the S<n>_: ' + steps(p));
+p = pf.plan(['S1_A.rt4', 'S1_B.rt4', 'C.rt4'], 1, 'S1_B.rt4');
+check(steps(p) === 'mv S1_A.rt4 > X_S1_A.rt4' && p.target === 'S1_B.rt4', 'two for one input: the one picked stays, alone: ' + steps(p));
+p = pf.plan(['S1_SNES.rt4', 'X_S1_SNES.rt4'], 1, '');
+check(steps(p) === 'mv S1_SNES.rt4 > X_S1_SNES (2).rt4', 'the same name unassigned twice: "(2)": ' + steps(p));
+p = pf.plan(['s1_snes.RT4', 'spare.rt6'], 1, 'spare.rt6');
+check(steps(p) === 'mv s1_snes.RT4 > X_s1_snes.RT4 ; mv spare.rt6 > S1_spare.rt6', 'names and extensions kept as on the card: ' + steps(p));
 
 console.log(failures ? `profiles.js: ${failures} of ${checks} checks failed` : `profiles.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);
