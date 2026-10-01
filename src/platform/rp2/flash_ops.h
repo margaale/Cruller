@@ -18,6 +18,10 @@ void flash_ops_init(void);
 bool flash_quiet_begin(void);
 void flash_quiet_end(void);
 
-// Offsets are physical flash offsets; data must be in RAM.
+// Offsets are physical flash offsets; data must be in RAM. Each write turns interrupts off on both
+// cores; the FreeRTOS ticks lost meanwhile are made up afterwards.
 bool flash_erase_safe(uint32_t offset, size_t count);
 bool flash_program_safe(uint32_t offset, const void *data, size_t count);
+
+// The ticks made up so far (ms), for the log.
+uint32_t flash_ticks_restored_ms(void);

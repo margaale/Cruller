@@ -28,6 +28,7 @@ static struct {
     uint32_t part_start;     // physical offset of the target partition
     uint32_t part_size;
     int32_t sector;          // sector (relative to the partition) being assembled in sector_buf, -1 if none
+    uint32_t ticks_restored; // flash_ticks_restored_ms() at the start
 } ota;
 
 // Pages are collected per sector and written with one erase and one program. Every flash_safe_execute()
@@ -77,6 +78,7 @@ void ota_begin(void) {
     ota_abort();
     memset(&ota, 0, sizeof(ota));
     ota.sector = -1;
+    ota.ticks_restored = flash_ticks_restored_ms();
 }
 
 static bool flush_sector(void) {
@@ -169,7 +171,8 @@ bool ota_finish(void) {
     if (ota.failed) return false;
     if (!ota.started || ota.fill != 0 || ota.blocks_done != ota.num_blocks) return fail("incomplete UF2 image");
     if (!flush_sector()) return false;
-    printf("ota: image complete\n");
+    printf("ota: image complete, %lu ms of ticks made up after the flash writes\n",
+        (unsigned long)(flash_ticks_restored_ms() - ota.ticks_restored));
     return true;
 }
 
