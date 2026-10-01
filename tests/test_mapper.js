@@ -55,6 +55,12 @@ check(line(' • Scaling/Cropping') === '{"label":"Scaling/Cropping","value":nul
 check(line(' • Masking Color:') === '{"label":"Masking Color","value":null}', 'a heading with a colon');
 check(line(' • HDMI• Output:      4K60') === '{"label":"HDMI• Output","value":"4K60"}', 'a label with a symbol in it');
 
+// A box asking first (Black Frame Insertion's Min. BFI Limit): nothing selected, its text read.
+const BOX = [['••••••••', false], ['Warning! Flicker may induce epilepsy.', false], ['Proceed at your own risk!!', false], ['', false], ['[Cancel]      [OK]', false], ['••••••••', false]];
+const box = plane(BOX);
+check(m.dialogOf(m.readPlane(box.data, box.ready)) === 'Warning! Flicker may induce epilepsy. Proceed at your own risk!!', 'a box asking first: ' + m.dialogOf(m.readPlane(box.data, box.ready)));
+check(m.dialogOf(r) === null, 'a menu is not one');
+
 const a = Uint8Array.from([0, 1, 2, 3, 4, 5, 6, 7]);
 const b = Uint8Array.from([0, 9, 9, 3, 4, 9, 6, 7]);
 check(JSON.stringify(m.diff(a, b)) === '[{"off":1,"len":2},{"off":5,"len":1}]', 'diff: ' + JSON.stringify(m.diff(a, b)));
@@ -95,15 +101,16 @@ check(JSON.stringify(m.compact(rec)) === '{"path":"Advanced › Scaling/Crop Set
 
 // --- a setting walked on a simulated RT4K ------------------------------------------------------------------
 // "Top Trim" from 0 to 300 at 0x524 (two bytes), a counter at 0x5810 that every change moves; the remote's
-// keys through /api/v1/command, one or several; the menu and the settings as the RT4K sends them.
+// keys through /api/v1/command, one or several; the menu and the settings as the RT4K sends them. asks: a
+// change past asksPast asks first (a box until back or ok; ok goes on).
 
-function rt4k(min, max) {
-  const s = { v: 0, counter: 0, keys: 0, requests: 0 };
+function rt4k(min, max, asksPast) {
+  const s = { v: 0, counter: 0, keys: 0, requests: 0, box: false, oks: 0 };
   const label = () => ' • Top Trim:          ' + (s.v >= 0 ? '+' : '') + s.v;
   const respond = (body, headers = {}) => ({ ok: true, status: 200, headers: { get: (h) => headers[h] || null }, arrayBuffer: async () => body.buffer, json: async () => JSON.parse(body), text: async () => String(body) });
   s.fetch = async (url, o) => {
     if (url === '/rt4k/xfer?cmd=osd') {
-      const p = plane([['Scaling/Crop Setup', false], ['', false], [label(), true]]);
+      const p = s.box ? plane(BOX) : plane([['Scaling/Crop Setup', false], ['', false], [label(), true]]);
       return respond(p.data, { 'X-Ready': p.ready });
     }
     if (url === '/rt4k/xfer?cmd=sget') {
@@ -118,7 +125,16 @@ function rt4k(min, max) {
       const b = JSON.parse(o.body), cmds = b.commands || [b.command];
       for (const c of cmds) {
         s.keys++;
+        if (s.box) {
+          if (c === 'remote ok') s.oks++;
+          if (c === 'remote back' || c === 'remote ok') s.box = false;
+          continue;
+        }
         const before = s.v;
+        if (asksPast !== undefined && (c === 'remote right' ? s.v + 1 : s.v - 1) > asksPast) {
+          s.box = true;
+          continue;
+        }
         if (c === 'remote right') s.v = Math.min(max, s.v + 1);
         if (c === 'remote left') s.v = Math.max(min, s.v - 1);
         if (s.v !== before) s.counter++;
@@ -130,8 +146,8 @@ function rt4k(min, max) {
   return s;
 }
 
-async function walked() {
-  const sim = rt4k(0, 300);
+// mapper.js on a simulated RT4K, every value walked.
+function on(sim) {
   const ids = {};
   const ctx = {
     window: {}, console, setTimeout, Blob: class {}, URL: {},
@@ -143,6 +159,12 @@ async function walked() {
   const w = ctx.window.mapperInternals;
   w.sleepless();
   w.opts({ all: true, risky: false });
+  return w;
+}
+
+async function walked() {
+  const sim = rt4k(0, 300);
+  const w = on(sim);
   await w.mapSetting(['Scaling/Crop Setup'], { label: 'Top Trim', value: '+0' });
   const rec = w.st.results[0];
   check(sim.v === 0, 'walked to both ends and back to +0: ' + sim.v);
@@ -153,7 +175,27 @@ async function walked() {
   check(!rec.backNote, 'came back: ' + rec.backNote);
 }
 
-walked().then(() => {
+// A setting that asks first: right away (none of it walked), and past +2 (up to it walked).
+async function asked() {
+  let sim = rt4k(0, 300, 0), w = on(sim);
+  await w.mapSetting(['Black Frame Insertion Setup'], { label: 'Top Trim', value: '+0' });
+  let rec = w.st.results[0];
+  check(!sim.box && sim.oks === 0 && sim.v === 0, 'the box cancelled, never OK, the setting as it was: ' + JSON.stringify([sim.box, sim.oks, sim.v]));
+  check(rec && /^asks first, cancelled: "Warning! Flicker/.test(rec.backNote), 'noted: ' + (rec && rec.backNote));
+  sim = rt4k(0, 300, 2);
+  w = on(sim);
+  await w.mapSetting(['Black Frame Insertion Setup'], { label: 'Top Trim', value: '+0' });
+  rec = w.st.results[0];
+  check(!sim.box && sim.oks === 0 && sim.v === 0 && rec.min === 0 && rec.max === 2, 'walked up to the box, cancelled, back: ' + JSON.stringify([sim.box, sim.oks, sim.v, rec.min, rec.max]));
+  check(/^past \+2 it asks first/.test(rec.backNote), 'noted where: ' + rec.backNote);
+  sim = rt4k(0, 300, 20); // eight keys at a time by then: the box comes up in the middle of them
+  w = on(sim);
+  await w.mapSetting(['Black Frame Insertion Setup'], { label: 'Top Trim', value: '+0' });
+  rec = w.st.results[0];
+  check(!sim.box && sim.oks === 0 && sim.v === 0 && rec.max === 20 && /^past \+20 it asks/.test(rec.backNote), 'the box in a batch: ' + JSON.stringify([sim.box, sim.oks, sim.v, rec.max, rec.backNote]));
+}
+
+walked().then(asked).then(() => {
   console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
   process.exit(failures ? 1 : 0);
 }, (e) => {

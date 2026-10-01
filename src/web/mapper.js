@@ -54,6 +54,14 @@
     return m ? { label: m[1].trim(), value: m[2].trim() } : { label: t.replace(/:$/, '').trim(), value: null };
   }
 
+  // A box asking first, nothing selected under it ("Warning! Flicker may induce epilepsy. Proceed at your
+  // own risk!!", "[Cancel]  [OK]"): its text, or null. The map never says OK: back cancels it.
+  function dialogOf(screen) {
+    if (!screen || screen.selected || !screen.rows.some((r) => /\[[A-Za-z ]+\]/.test(r.text))) return null;
+    return screen.rows.map((r) => r.text.replace(/•/g, '').trim())
+      .filter((t) => t && !/^\[/.test(t) && !/^(Profile:|v\d+\.\d+)/.test(t)).join(' ');
+  }
+
   // Where two snapshots differ, as ranges of bytes: [{off, len}], neighbours within gap bytes merged.
   function diff(a, b, gap = 0) {
     const out = [];
@@ -134,9 +142,10 @@
   }).join(' | ');
 
   // What not to touch: lines without a value (submenus, but some are actions: "Check SD Card" looks for a
-  // firmware update), and settings by label. Actions with a value (<Start>) are never pressed.
+  // firmware update), and settings by label ("Output Factor" is a colour's, "LCD Saver" saves nothing).
+  // Actions with a value (<Start>) are never pressed.
   const SKIP_MENU = /profile|diagnostic|console|status|about|check sd|update|reset|default|factory|format|calibrat|save|load|banner/i;
-  const RISKY = /output|input source|resolution|safe ?mode|reset|default|factory|update|format|delete|save|load/i;
+  const RISKY = /output(?! factor)|input source|resolution|safe ?mode|reset|default|factory|update|format|delete|\bsave\b|\bload\b/i;
 
   // --- the map as shipped (a JSON in src/web, mapped here, merged by tools/merge-map.js) --------------------
   // {v: 1, maps: [{firmware, ver, size, settings}]}: one map per RT4K firmware mapped, each whole. A
@@ -312,26 +321,30 @@
   // Walks one way from the value on screen until it stops changing (its end) or comes back to from (a list
   // that goes round), limit steps at most. Snapshots the first snaps values, and the last. Once the values
   // are numbers a fixed step apart, it goes BATCH keys at a time (the ones past its end change nothing) and
-  // counts the steps from the values. Returns {values: [{value, snap}], steps, round}.
+  // counts the steps from the values. A box asking first is cancelled, and ends the walk (asks: its text).
+  // Returns {values: [{value, snap}], steps, round, asks}.
   async function walk(way, from, limit, snaps) {
     const out = [];
-    let prev = from, steps = 0, step = 0;
+    let prev = from, steps = 0, step = 0, asks = null;
     while (steps < limit && !st.stop) {
       if (!step && out.length >= 3) { // three steps alike from where it started: numbers, a fixed step
         const nums = [from, ...out.map((s) => s.value)].map(asNumber), d = nums[1] - nums[0];
         if (d && nums.every((n, i) => !isNaN(n) && (!i || Math.abs(n - nums[i - 1] - d) < 1e-9))) step = d;
       }
       if (step) {
-        const v = valueOf(await pressMany(way, BATCH)), moved = Math.round((asNumber(v) - asNumber(prev)) / step);
+        let screen = await pressMany(way, BATCH);
+        if ((asks = dialogOf(screen))) screen = await press('back'); // (the keys after it moved in the box)
+        const v = valueOf(screen), moved = Math.round((asNumber(v) - asNumber(prev)) / step);
         if (isNaN(moved) || moved <= 0) break; // its end (or it went round: walked again one at a time below)
         steps += moved;
         out.push({ value: v, snap: null });
         prev = v;
-        if (moved < BATCH) break;              // stopped short: its end
+        if (moved < BATCH || asks) break;      // stopped short: its end
         continue;
       }
       let v = valueOf(await press(way, true));
       if (v === prev) v = valueOf(await press(null)); // read settled: its end, or just slow?
+      if (v === null && (asks = dialogOf(await press(null)))) await press('back');
       if (v === prev || v === null) break;
       steps++;
       if (v === from) return { values: out, steps, round: true };
@@ -340,7 +353,7 @@
     }
     const last = out[out.length - 1];
     if (last && !last.snap) last.snap = await snap();
-    return { values: out, steps, round: false };
+    return { values: out, steps, round: false, asks };
   }
 
   // n steps the other way, back to where it was.
@@ -370,9 +383,10 @@
       if (back !== it.value) log(it.label + ' did not come back: ' + back + ', was ' + it.value, true);
       return showResults();
     }
+    const asks = right.asks || left.asks;
     if (!right.values.length && !left.values.length) {
-      rec.backNote = 'did not change: read only?';
-      log(path.join(' › ') + ' › ' + it.label + ': ' + it.value + ' (did not change)');
+      rec.backNote = asks ? 'asks first, cancelled: "' + asks + '"' : 'did not change: read only?';
+      log(path.join(' › ') + ' › ' + it.label + ': ' + it.value + ' (' + (asks ? rec.backNote : 'did not change') + ')');
       return showResults();
     }
     const order = [...left.values.slice().reverse(), { value: it.value, snap: before }, ...right.values];
@@ -382,6 +396,7 @@
     rec.ranges = union(order.filter((s) => s.snap && s.snap !== before).flatMap((s) => diff(before, s.snap)));
     rec.values = order.filter((s) => s.snap).map((s) => ({ value: s.value, at: takeAt(s.snap, rec.ranges) }));
     rec.leftover = diff(before, after);
+    if (asks) rec.backNote = 'past ' + rec.list[asks === left.asks ? 0 : rec.list.length - 1] + ' it asks first, cancelled: "' + asks + '"';
     if (back !== it.value) rec.backNote = 'did not come back: ' + back + ', was ' + it.value;
     if (!all) delete rec.list;
     showResults();
@@ -402,6 +417,11 @@
     let at = 0;
     for (let i = 0; i < items.length && !st.stop; i++) {
       for (; at < i; at++) screen = await press('down');
+      const box = dialogOf(screen);
+      if (box) { // (a walk's cancel lost on the way)
+        log(title + ': "' + box + '", cancelled', true);
+        screen = await press('back');
+      }
       const it = items[i], sel = screen.selected ? parseLine(screen.selected.text) : null;
       if (!sel || sel.label !== it.label) { log(title + ': lost the way at ' + it.label + ' (' + (sel ? sel.label : 'nothing selected') + ')', true); return; }
       const where = path.concat(title);
@@ -507,6 +527,6 @@
   }
 
   if (typeof document !== 'undefined' && document.getElementById) build();
-  window.mapperInternals = { fields, readPlane, parseLine, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
+  window.mapperInternals = { fields, readPlane, parseLine, dialogOf, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
     walk, mapSetting, st, opts: (o) => { optsOverride = o; }, sleepless: () => { sleepMs = 0; } };
 })();
