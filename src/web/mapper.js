@@ -76,8 +76,8 @@
   }
 
   // A value as a number ("+3", "-12", "1.5x", "+0 (Y Min: 32)": what follows in brackets is the RT4K's
-  // explanation); NaN when it isn't one.
-  const asNumber = (v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%]*(?:\s*\(.*\))?$/i.exec(String(v).trim()); return m ? +m[1] : NaN; };
+  // explanation; "+-100", the TW9912's negatives); NaN when it isn't one.
+  const asNumber = (v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%]*(?:\s*\(.*\))?$/i.exec(String(v).trim().replace(/^\+-/, '-')); return m ? +m[1] : NaN; };
 
   // A setting's values as numbers: its min, max and step; null when any isn't one.
   function numeric(list) {
