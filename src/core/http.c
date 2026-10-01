@@ -1280,8 +1280,9 @@ static void handle_api_command(request_t *r) {
         len += (size_t)snprintf(b->results + len, sizeof(b->results) - len, "],\"sent\":%s}", sent ? "true" : "false");
         all_sent &= sent;
     }
-    snprintf(b->out, sizeof(b->out), "{\"ok\":%s,\"power\":\"%s\",\"results\":[%s]}", all_sent ? "true" : "false",
-        power_state_name(power_state()), b->results);
+    // (results bounded: the compiler can't tell it ends inside its member of the shared buffers)
+    snprintf(b->out, sizeof(b->out), "{\"ok\":%s,\"power\":\"%s\",\"results\":[%.*s]}", all_sent ? "true" : "false",
+        power_state_name(power_state()), (int)strnlen(b->results, sizeof(b->results) - 1), b->results);
     respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", b->out);
 }
 
