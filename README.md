@@ -194,17 +194,18 @@ mirror, tasks), and the logs.
 
 **Home Assistant.** Install the [Cruller integration](https://github.com/margaale/cruller-hacs)
 through HACS (as a custom repository). Home Assistant finds Cruller on your network by itself, as
-"Cruller" or by its name. You get the RT4K as a remote (power it on and off, press its keys, send
-console commands), its power state, its firmware version and model, and whether it's plugged in,
-for your automations. The SVS
-switch's input comes from the [SVS Bridge's integration](https://github.com/margaale/svs-bridge-hacs).
+"Cruller" or by its name, with the RT4K as a device of its own behind it (its model and firmware in
+its info). You get the RT4K as a remote (power it on and off, press its keys, send console
+commands), its power state, whether a newer firmware is out on its channel (Release or
+Experimental), and whether it's plugged in, for your automations. The SVS switch's input comes from
+the [SVS Bridge's integration](https://github.com/margaale/svs-bridge-hacs).
 To load an SVS profile (`/profile/SVS/S3_….rt4`, with "Auto Load SVS" on), send the RT4K the same
 line the switch does:
 
 ```yaml
 action: remote.send_command
 target:
-  entity_id: remote.cruller_retrotink_4k
+  entity_id: remote.retrotink_4k
 data:
   command: SVS NEW INPUT=3
 ```
