@@ -438,16 +438,12 @@
     if (sel) sel.value = svsCurrent(n).name;
   }
 
-  // Under the grid: how it went, the RT4K asleep, how it works.
+  // Under the grid: how it went, the RT4K asleep.
   function svsBuild() {
     const box = q('v-prof');
     if (!box || q('vps')) return;
     box.innerHTML = '<div id=vps class=small></div>' +
-      '<div id=vpz class=svp-asleep hidden><span id=vpzt></span><button id=vpzb class=primary>Turn the RT4K on</button></div>' +
-      '<div class=small>Each input\'s profile is its file in <span class=mono>/profile/SVS</span> (S1_…, S2_…): with Auto Load SVS on, ' +
-      'the RT4K loads it when the switch changes to that input. Picking an unassigned one renames it so, and another input\'s is copied; ' +
-      'the one the input had becomes unassigned (X_ in front of its name). New profiles go there from the ' +
-      '<a class=more href="#rt4k/profiles/SVS">Profiles</a> view.</div>';
+      '<div id=vpz class=svp-asleep hidden><span id=vpzt></span><button id=vpzb class=primary>Turn the RT4K on</button></div>';
     q('vpr').onclick = svsRead;
     q('vpzb').onclick = () => {
       if (!window.rt4kWake()) return svsStatus('Cruller did not answer.', true);
