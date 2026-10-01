@@ -75,10 +75,13 @@
     return out;
   }
 
-  // A setting's values as numbers ("+3", "-12", "31", "1.5x"...): its min, max and step; null when any
-  // isn't one.
+  // A value as a number ("+3", "-12", "1.5x", "+0 (Y Min: 32)": what follows in brackets is the RT4K's
+  // explanation); NaN when it isn't one.
+  const asNumber = (v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%]*(?:\s*\(.*\))?$/i.exec(String(v).trim()); return m ? +m[1] : NaN; };
+
+  // A setting's values as numbers: its min, max and step; null when any isn't one.
   function numeric(list) {
-    const n = (list || []).map((v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%]*$/i.exec(String(v).trim()); return m ? +m[1] : NaN; });
+    const n = (list || []).map(asNumber);
     if (n.length < 2 || n.some(isNaN)) return null;
     const s = [...new Set(n)].sort((a, b) => a - b);
     let step = Infinity;
@@ -317,7 +320,6 @@
     return press(null);
   }
 
-  const asNumber = (v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%]*$/i.exec(String(v).trim()); return m ? +m[1] : NaN; };
 
   // Walks one way from the value on screen until it stops changing (its end) or comes back to from (a list
   // that goes round), limit steps at most. Snapshots the first snaps values, and the last. Once the values

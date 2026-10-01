@@ -83,6 +83,7 @@ check(JSON.stringify(m.numeric(['-2', '-1', '+0', '+1', '+2'])) === '{"min":-2,"
 check(JSON.stringify(m.numeric(['31', '30', '0'])) === '{"min":0,"max":31,"step":1}', 'numbers out of order');
 check(m.numeric(['Off', 'On']) === null && m.numeric(['1']) === null && m.numeric(['1', '2x', 'Auto']) === null, 'not numbers');
 check(JSON.stringify(m.numeric(['0.5x', '1x', '1.5x'])) === '{"min":0.5,"max":1.5,"step":0.5}', 'with a unit');
+check(JSON.stringify(m.numeric(['-1 (Y Min: 31)', '+0 (Y Min: 32)', '+1 (Y Min: 33)'])) === '{"min":-1,"max":1,"step":1}', 'with the RT4K\'s explanation in brackets');
 const at = m.takeAt(b, [{ off: 1, len: 2 }]);
 check(JSON.stringify(at) === '{"1":9,"2":9}' && m.hexAt(at, [{ off: 1, len: 2 }, { off: 6, len: 1 }]) === '09 09 | ??', 'bytes by offset, back as hex');
 
