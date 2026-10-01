@@ -28,5 +28,8 @@ static void led_task(void *param) {
 }
 
 void status_led_start(void) {
-    xTaskCreate(led_task, "led", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
+    // The CYW43's own task's stack: each write waits for the chip's answer, and the driver hands the
+    // packets that arrive meanwhile to lwIP on this task's stack (cyw43_do_ioctl). It writes every
+    // 500 ms in the setup portal.
+    xTaskCreate(led_task, "led", CYW43_TASK_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
 }
