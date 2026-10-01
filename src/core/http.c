@@ -155,6 +155,8 @@ extern const unsigned char web_profiles_js[];
 extern const size_t web_profiles_js_len;
 extern const unsigned char web_mapper_js[];
 extern const size_t web_mapper_js_len;
+extern const unsigned char web_rt4k_settings_json[]; // where each RT4K setting lives, per firmware (mapper.js)
+extern const size_t web_rt4k_settings_json_len;
 extern const unsigned char web_app_js[];
 extern const size_t web_app_js_len;
 extern const unsigned char web_index_html[];
@@ -1567,6 +1569,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/sd.js")) respond_asset(r->fd, "application/javascript", web_sd_js, web_sd_js_len);
     else if (get && !strcmp(r->path, "/profiles.js")) respond_asset(r->fd, "application/javascript", web_profiles_js, web_profiles_js_len);
     else if (get && !strcmp(r->path, "/mapper.js")) respond_asset(r->fd, "application/javascript", web_mapper_js, web_mapper_js_len);
+    else if (get && !strcmp(r->path, "/rt4k_settings.json")) respond_asset(r->fd, "application/json", web_rt4k_settings_json, web_rt4k_settings_json_len);
     else if (get && !strcmp(r->path, "/app.js")) respond_asset(r->fd, "application/javascript", web_app_js, web_app_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);

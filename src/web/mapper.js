@@ -142,15 +142,16 @@
   }).join(' | ');
 
   // What not to touch: lines without a value (submenus, but some are actions: "Check SD Card" looks for a
-  // firmware update), and settings by label ("Output Factor" is a colour's, "LCD Saver" saves nothing).
-  // Actions with a value (<Start>) are never pressed.
+  // firmware update), and settings by label ("Output Factor" is a colour's, "Output Pixels" the HDMI
+  // receiver's, "LCD Saver" saves nothing). Actions with a value (<Start>) are never pressed.
   const SKIP_MENU = /profile|diagnostic|console|status|about|check sd|update|reset|default|factory|format|calibrat|save|load|banner/i;
-  const RISKY = /output(?! factor)|input source|resolution|safe ?mode|reset|default|factory|update|format|delete|\bsave\b|\bload\b/i;
+  const RISKY = /output(?! factor| pixels)|input source|resolution|safe ?mode|reset|default|factory|update|format|delete|\bsave\b|\bload\b/i;
 
   // --- the map as shipped (a JSON in src/web, mapped here, merged by tools/merge-map.js) --------------------
   // {v: 1, maps: [{firmware, ver, size, settings}]}: one map per RT4K firmware mapped, each whole. A
   // setting: {path, label, bytes: [[offset, length]], values: [[shown, hex]] (each value seen, its own
-  // bytes), min, max, step (numbers), round (a list that goes round), note}.
+  // bytes), min, max, step (numbers), round (a list that goes round), asks (past its first or last value
+  // the RT4K warns first: what it says). How the run went (a setting not back as it was) stays out.
 
   function compact(r) {
     const c = { path: r.path.join(' › '), label: r.label };
@@ -160,7 +161,7 @@
     }
     if (r.min !== undefined) Object.assign(c, { min: r.min, max: r.max, step: r.step });
     if (r.round) c.round = true;
-    if (r.note) c.note = r.note;
+    if (r.asks) c.asks = r.asks;
     return c;
   }
 
@@ -384,6 +385,7 @@
       return showResults();
     }
     const asks = right.asks || left.asks;
+    if (asks) rec.asks = asks;
     if (!right.values.length && !left.values.length) {
       rec.backNote = asks ? 'asks first, cancelled: "' + asks + '"' : 'did not change: read only?';
       log(path.join(' › ') + ' › ' + it.label + ': ' + it.value + ' (' + (asks ? rec.backNote : 'did not change') + ')');

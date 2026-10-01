@@ -188,6 +188,8 @@ async function asked() {
   rec = w.st.results[0];
   check(!sim.box && sim.oks === 0 && sim.v === 0 && rec.min === 0 && rec.max === 2, 'walked up to the box, cancelled, back: ' + JSON.stringify([sim.box, sim.oks, sim.v, rec.min, rec.max]));
   check(/^past \+2 it asks first/.test(rec.backNote), 'noted where: ' + rec.backNote);
+  const kept = w.compact({ ...rec, own: [{ off: 0x524, len: 2 }], note: 'did not come back as it was' });
+  check(/^Warning! Flicker/.test(kept.asks) && kept.note === undefined, 'kept: what it asks, not how the run went: ' + JSON.stringify(kept));
   sim = rt4k(0, 300, 20); // eight keys at a time by then: the box comes up in the middle of them
   w = on(sim);
   await w.mapSetting(['Black Frame Insertion Setup'], { label: 'Top Trim', value: '+0' });

@@ -50,7 +50,7 @@ idf_component_get_property(freertos_dir freertos COMPONENT_DIR)
 target_include_directories(${COMPONENT_LIB} PRIVATE ${freertos_dir}/FreeRTOS-Kernel/include/freertos)
 
 # The web page, embedded as C arrays (the same as rp2, see src/web/embed.cmake).
-foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js app.js:web_app_js index.html:web_index_html)
+foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
     string(REPLACE ":" ";" asset ${asset})
     list(GET asset 0 file)
     list(GET asset 1 name)

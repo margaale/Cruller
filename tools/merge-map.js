@@ -28,5 +28,11 @@ for (const f of files) {
     console.log(path.basename(f) + ': ' + settingsOf(run, m.firmware).length + ' settings for ' + m.firmware);
   }
 }
-fs.writeFileSync(OUT, JSON.stringify(doc, null, 1) + '\n');
+// One setting a line: small to embed, and a firmware's changes read line by line in a diff.
+const text = '{"v": ' + doc.v + ', "maps": [\n' + doc.maps.map((m) => {
+  const { settings, ...head } = m;
+  return JSON.stringify(head).slice(0, -1) + ', "settings": [\n' + settings.map((c) => JSON.stringify(c)).join(',\n') + '\n]}';
+}).join(',\n') + '\n]}\n';
+JSON.parse(text);
+fs.writeFileSync(OUT, text);
 for (const m of doc.maps) console.log(m.firmware + ': ' + m.settings.length + ' settings');
