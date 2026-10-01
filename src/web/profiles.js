@@ -361,7 +361,33 @@
     none: false,         // the card has no /profile/SVS
     reading: false, busy: false, failed: false, waking: false,
     key: '',             // what the cards' combos were drawn for (app.js draws them again when it changes)
+    kept: null,          // each input's profile as Cruller keeps it ({"1": "S1_PS1.rt4"}; null: not known)
   };
+
+  // The folder read now: the combos change it. Else each input's profile as Cruller keeps it, only to
+  // show (the RT4K asleep, or the folder being read again).
+  const svsLive = () => !!sv.files && !sv.none && !asleep();
+
+  // Each input's profile as Cruller keeps it (GET /api/v1/svs "profiles", from app.js).
+  function svsKept(profiles) {
+    sv.kept = profiles && typeof profiles === 'object' ? profiles : null;
+    svsRender();
+  }
+
+  // The folder just read: each input's profile (its first S<n>_ file, the one the RT4K loads) to Cruller,
+  // when it isn't what it keeps (its flash is written only then).
+  function svsSend() {
+    const now = {};
+    for (const f of sv.files) {
+      const n = slotOf(f);
+      if (n && n <= 32 && !now[n]) now[n] = f;
+    }
+    const same = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
+    if (sv.kept && same(sv.kept, now)) return;
+    sv.kept = now;
+    const text = Object.keys(now).sort((a, b) => a - b).map((n) => n + '\t' + now[n]).join('\n');
+    fetch('/api/v1/svs/profiles', { method: 'POST', body: text }).catch(() => { /* sent again with the next read */ });
+  }
 
   const svsShowing = () => q('v-prof') && !q('v-prof').hidden && !q('v-prof').closest('[data-view]').hidden;
   const svsPath = (name) => ROOT + '/' + SVS_DIR + '/' + name;
@@ -380,6 +406,7 @@
     sv.none = r.status === 404;
     if (!r.ok && !sv.none) throw new Error(body.trim() || 'HTTP ' + r.status);
     sv.files = sv.none ? [] : sd.parseList(body).filter((e) => !e.dir && isProfile(e.name) && !e.name.startsWith('.')).map((e) => e.name);
+    svsSend();
   }
 
   // Reads the SVS folder (one listing): on opening the tab, with the refresh button, when the RT4K comes on.
@@ -416,19 +443,28 @@
         (f) => baseName(f) + ' (input ' + slotOf(f) + ')');
   }
 
-  // Input n's file: the first of its files in the card's order, the one the RT4K finds.
+  // Input n's file: the first of its files in the card's order, the one the RT4K finds (or as kept).
   const svsCurrent = (n) => {
-    const mine = sv.files ? sv.files.filter((f) => slotOf(f) === n) : [];
+    if (!svsLive()) return { name: (sv.kept && sv.kept[n]) || '', count: 0 };
+    const mine = sv.files.filter((f) => slotOf(f) === n);
     return { name: mine.length ? mine[0] : '', count: mine.length };
   };
 
-  // What the cards' combos show ('' for no combos: the RT4K asleep, the folder not read or missing).
-  const svsKey = () => (sv.files && !sv.none && !asleep() ? sv.files.join('/') : '');
+  // What the cards' combos show ('' for no combos: the folder missing or empty, or nothing kept).
+  const svsKey = () => {
+    if (svsLive()) return sv.files.length ? 'now/' + sv.files.join('/') : '';
+    return sv.kept && Object.keys(sv.kept).length ? 'kept/' + JSON.stringify(sv.kept) : '';
+  };
 
-  // Input n's combo, for its card in the SVS tab's grid (app.js); '' while there's none to show.
+  // Input n's combo, for its card in the SVS tab's grid (app.js); '' while there's none to show. As
+  // Cruller keeps it, it only shows.
   function svsSelect(n) {
     if (!svsKey()) return '';
     const cur = svsCurrent(n);
+    if (!svsLive()) {
+      return '<select data-n=' + n + ' aria-label="Profile for input ' + n + '" disabled title="Turn the RT4K on to change it">' +
+        '<option>' + esc(cur.name ? baseName(cur.name) : 'None') + '</option></select>';
+    }
     return '<select data-n=' + n + ' aria-label="Profile for input ' + n + '"' + (sv.busy || sv.reading ? ' disabled' : '') + '>' +
       svsOptions(n, cur.name) + '</select>' +
       (cur.count > 1 ? '<small class=svp-warn title="The RT4K loads the first it finds: this one. Pick it again to leave it alone.">' +
@@ -468,8 +504,11 @@
     q('vpr').disabled = sv.busy || sv.reading || asleep();
     if (sleeping) {
       const starting = power === 'starting' || sv.waking;
-      q('vpzt').textContent = starting ? 'The RT4K is starting: the profiles show up as soon as it answers.' :
-        'The RT4K is in standby: each input\'s profile shows up once it\'s on.';
+      q('vpzt').textContent = svsKey() ?
+        (starting ? 'The RT4K is starting: the profiles can be changed once it answers.' :
+          'The RT4K is in standby: each input\'s profile as Cruller kept it. Turn it on to change them.') :
+        (starting ? 'The RT4K is starting: the profiles show up as soon as it answers.' :
+          'The RT4K is in standby: each input\'s profile shows up once it\'s on.');
       q('vpzb').hidden = starting;
       svsStatus('');
     }
@@ -478,7 +517,7 @@
       sv.key = svsKey();
       if (window.svsRedraw) window.svsRedraw();
     }
-    q('v-grid').querySelectorAll('select[data-n]').forEach((s) => { s.disabled = sv.busy || sv.reading; });
+    q('v-grid').querySelectorAll('select[data-n]').forEach((s) => { s.disabled = sv.busy || sv.reading || !svsLive(); });
   }
 
   async function svsStep(s) {
@@ -497,7 +536,7 @@
   const stepText = (s) => (s.op === 'mv' ? 'renaming ' + plain(s.from) + ' to ' + plain(s.to) : 'copying ' + plain(s.from) + ' to ' + plain(s.to));
 
   async function svsChoose(n, name) {
-    if (sv.busy || !sv.files) return svsRevert(n);
+    if (sv.busy || !svsLive()) return svsRevert(n);
     const p = plan(sv.files, n, name);
     if (!p.steps.length) return svsRevert(n);
     const long = p.steps.find((s) => sd.utf8Length(svsPath(s.to)) > PATH_MAX);
@@ -513,7 +552,7 @@
         svsStatus('Input ' + n + ': ' + stepText(s) + '…');
         await svsStep(s);
       }
-      const away = p.steps.filter((s) => s.op === 'mv' && slotOf(s.from) === n).map((s) => plain(s.to));
+      const away = p.steps.filter((s) => s.op === 'mv' && slotOf(s.from) === n).map((s) => baseName(s.to));
       const said = [p.target ? 'Input ' + n + ': ' + baseName(p.target) : 'Input ' + n + ' has no profile now'];
       if (away.length) said.push('The one it had is unassigned now: ' + away.join(', '));
       // The input on screen: loaded now, as the RT4K would on switching to it.
@@ -584,5 +623,6 @@
   window.profSvsOpen = svsOpen;
   window.profSvsSelect = svsSelect;
   window.profSvsKey = svsKey;
+  window.profSvsKept = svsKept;
   window.profInternals = { parseLoaded, isProfile, extFor, withExt, plain, hrefFor, dirOf, slotOf, baseName, freeName, plan }; // tests/test_profiles.js
 })();

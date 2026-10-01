@@ -98,7 +98,9 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
   `X_SNES (2).rt4` when that's taken), kept in the folder to be picked again. Not an `S`: were the
   RT4K to read the input loosely, "SX_" could read as input 0. The combos show each by its name alone
   (`SNES`). When the input is on screen, Cruller loads it right away (`prof load`). It all runs in the
-  page, with the SD card routes (`ls`, `get`, `put`, `mv`).
+  page, with the SD card routes (`ls`, `get`, `put`, `mv`). After each read the page sends each
+  input's profile to Cruller (`POST /api/v1/svs/profiles`), which keeps it in flash (written only when
+  it changed): with the RT4K in standby the cards still show each input's profile, not to be changed.
 - gameID (coming): each console is assigned a switch input. Only the console on the active input
   changes the RT4K's profile, and switching inputs re-applies that console's game profile if it has
   one. Game profiles use their own SVS numbers (S100 and up) so they never overwrite the switch's

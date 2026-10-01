@@ -144,8 +144,9 @@ function st(s) {
 
 const ago = (s) => (s < 5 ? 'just now' : duration(s) + ' ago');
 
-// The switch as the bridge describes it (GET /api/v1/svs "switch"): fetched when its switch_seq changes.
-const svsSw = { seq: 0, loading: 0, data: null, last: null, cards: '' }; // cards: what the grid was drawn for
+// The switch as the bridge describes it (GET /api/v1/svs "switch"), and each input's profile as Cruller
+// keeps it ("profiles", for profiles.js): fetched when switch_seq or profiles_seq changes.
+const svsSw = { seq: 0, pseq: 0, loading: 0, data: null, last: null, cards: '' }; // cards: what the grid was drawn for
 const KINDS = { scart: 'SCART', component: 'Component', vga: 'VGA', svideo: 'S-Video', dterm: 'D-Terminal', bnc: 'BNC' };
 const kindName = (k) => KINDS[k] || (k ? k.toUpperCase() : '');
 
@@ -546,13 +547,15 @@ const svgCon = (body, cls = 'con') => `<svg class="${cls}" viewBox="0 0 60 40" o
 const EMPTY_ICON = svgCon('<rect x="8" y="8" width="44" height="24" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3.5 3"/>');
 const consoleIcon = (id) => svgCon(CONSOLES[id] ? CONSOLES[id][1] : PAD);
 
-async function svsLoad(seq) {
-  if (svsSw.loading === seq) return;
-  svsSw.loading = seq;
+async function svsLoad(key) {
+  if (svsSw.loading === key) return;
+  svsSw.loading = key;
   try {
     const v = await (await fetch('/api/v1/svs')).json();
     svsSw.data = v.switch || null;
     svsSw.seq = v.switch_seq || 0;
+    svsSw.pseq = v.profiles_seq || 0;
+    if (window.profSvsKept) window.profSvsKept(v.profiles);
   } catch (e) { /* the next status tries again */ }
   svsSw.loading = 0;
   if (svsSw.last) showSvs(svsSw.last);
@@ -561,7 +564,9 @@ async function svsLoad(seq) {
 function showSvs(v) {
   svsSw.last = v;
   const paired = v && v.paired, known = v && v.known, live = known && v.heard_s < 150;
-  if (known && v.switch_seq && v.switch_seq !== svsSw.seq) svsLoad(v.switch_seq);
+  if (known && ((v.switch_seq && v.switch_seq !== svsSw.seq) || (v.profiles_seq || 0) !== svsSw.pseq)) {
+    svsLoad((v.switch_seq || 0) + '/' + (v.profiles_seq || 0));
+  }
   const sw = known && v.switch_seq ? svsSw.data : null;
   const ins = sw ? sw.inputs : [], out = sw ? sw.output : null;
   const port = (n) => ins[n - 1] || {};

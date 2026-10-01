@@ -47,3 +47,17 @@ size_t svs_switch_json(const svs_switch_t *sw, char *out, size_t size);
 
 // JSON-escapes in (quotes, backslashes, control characters) into out, always terminated.
 void svs_json_escape(char *out, size_t size, const char *in);
+
+#define SVS_PROFILE_MAX  150  // a profile's file name, in bytes
+#define SVS_PROFILES_MAX 1024 // each input's profile as text, its terminator included
+
+// Each input's profile (the file in the RT4K's /profile/SVS it loads for that input), as the page last
+// read the card: "<input>\t<file name>\n" for each input that has one, in input order. Reads the
+// page's lines (the same, in any order; "\r\n" and blank lines taken) into that form. False, with
+// *error, on a line that isn't an input 1-32, a tab and a name (no control characters,
+// SVS_PROFILE_MAX bytes at most), an input given twice, or more than fits out.
+bool svs_profiles_parse(const char *body, char *out, size_t size, const char **error);
+
+// Writes them (svs_profiles_parse's form) as {"1":"S1_PS1.rt4",...}. Returns the length, or 0 if it
+// doesn't fit.
+size_t svs_profiles_json(const char *text, char *out, size_t size);
