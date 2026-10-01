@@ -240,7 +240,10 @@ static void sensors_task(void *param) {
 }
 
 void health_start_sensors(void) {
-    xTaskCreate(sensors_task, "sensors", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
+    // The CYW43's own task's stack: while cyw43_arch_gpio_get() waits for the chip's answer, the driver
+    // hands the packets that arrive meanwhile to lwIP on this task's stack (cyw43_do_ioctl). With 512
+    // words, 14 were left.
+    xTaskCreate(sensors_task, "sensors", CYW43_TASK_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
 }
 
 bool health_sensors(health_sensors_t *out) {
