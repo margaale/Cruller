@@ -64,5 +64,86 @@ check(JSON.stringify(m.union([[{ off: 5, len: 1 }], [{ off: 1, len: 2 }, { off: 
 check(m.bytesAt(b, [{ off: 1, len: 2 }, { off: 5, len: 1 }]) === '09 09 | 09', 'bytes at ranges');
 check(m.fields('sget ready size=22876 ver=110 nonce=0x12').ver === '110', 'ready fields');
 
-console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
-process.exit(failures ? 1 : 0);
+// Own and shared bytes: Top Trim and Bottom Trim each have theirs, and both move the scaler's factors.
+const recs = m.split([
+  { label: 'Top Trim', ranges: [{ off: 0x524, len: 1 }, { off: 0xcac, len: 2 }] },
+  { label: 'Bottom Trim', ranges: [{ off: 0x624, len: 1 }, { off: 0xcac, len: 2 }] },
+  { label: 'Left Trim', ranges: [{ off: 0x424, len: 1 }, { off: 0xcad, len: 2 }] },
+]);
+const txt = (r) => JSON.stringify([r.own, r.shared]);
+check(txt(recs[0]) === '[[{"off":1316,"len":1}],[{"off":3244,"len":2}]]', 'own and shared: ' + txt(recs[0]));
+check(txt(recs[2]) === '[[{"off":1060,"len":1},{"off":3246,"len":1}],[{"off":3245,"len":1}]]', 'shared byte by byte: ' + txt(recs[2]));
+check(JSON.stringify(m.numeric(['-2', '-1', '+0', '+1', '+2'])) === '{"min":-2,"max":2,"step":1}', 'numbers: min, max, step');
+check(JSON.stringify(m.numeric(['31', '30', '0'])) === '{"min":0,"max":31,"step":1}', 'numbers out of order');
+check(m.numeric(['Off', 'On']) === null && m.numeric(['1']) === null && m.numeric(['1', '2x', 'Auto']) === null, 'not numbers');
+check(JSON.stringify(m.numeric(['0.5x', '1x', '1.5x'])) === '{"min":0.5,"max":1.5,"step":0.5}', 'with a unit');
+const at = m.takeAt(b, [{ off: 1, len: 2 }]);
+check(JSON.stringify(at) === '{"1":9,"2":9}' && m.hexAt(at, [{ off: 1, len: 2 }, { off: 6, len: 1 }]) === '09 09 | ??', 'bytes by offset, back as hex');
+
+// --- a setting walked on a simulated RT4K ------------------------------------------------------------------
+// "Top Trim" from 0 to 300 at 0x524 (two bytes), a counter at 0x5810 that every change moves; the remote's
+// keys through /api/v1/command, one or several; the menu and the settings as the RT4K sends them.
+
+function rt4k(min, max) {
+  const s = { v: 0, counter: 0, keys: 0, requests: 0 };
+  const label = () => ' • Top Trim:          ' + (s.v >= 0 ? '+' : '') + s.v;
+  const respond = (body, headers = {}) => ({ ok: true, status: 200, headers: { get: (h) => headers[h] || null }, arrayBuffer: async () => body.buffer, json: async () => JSON.parse(body), text: async () => String(body) });
+  s.fetch = async (url, o) => {
+    if (url === '/rt4k/xfer?cmd=osd') {
+      const p = plane([['Scaling/Crop Setup', false], ['', false], [label(), true]]);
+      return respond(p.data, { 'X-Ready': p.ready });
+    }
+    if (url === '/rt4k/xfer?cmd=sget') {
+      const d = new Uint8Array(22876);
+      d[0x524] = s.v & 255;
+      d[0x525] = s.v >> 8;
+      d[0x5810] = s.counter & 255;
+      return respond(d, { 'X-Ready': 'sget ready size=22876 ver=109 nonce=0x1' });
+    }
+    if (url === '/api/v1/command') {
+      s.requests++;
+      const b = JSON.parse(o.body), cmds = b.commands || [b.command];
+      for (const c of cmds) {
+        s.keys++;
+        const before = s.v;
+        if (c === 'remote right') s.v = Math.min(max, s.v + 1);
+        if (c === 'remote left') s.v = Math.max(min, s.v - 1);
+        if (s.v !== before) s.counter++;
+      }
+      return respond(JSON.stringify({ ok: true, results: cmds.map((c) => ({ command: c, sent: true, reply: ['[COM] Serial Remote: x'] })) }));
+    }
+    throw new Error('no ' + url);
+  };
+  return s;
+}
+
+async function walked() {
+  const sim = rt4k(0, 300);
+  const ids = {};
+  const ctx = {
+    window: {}, console, setTimeout, Blob: class {}, URL: {},
+    fetch: (u, o) => sim.fetch(u, o),
+    document: { getElementById: (id) => ids[id] || (ids[id] = { textContent: '', innerHTML: '', disabled: false, checked: false, scrollTop: 0, scrollHeight: 0 }) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'mapper.js'), 'utf8'), ctx);
+  const w = ctx.window.mapperInternals;
+  w.sleepless();
+  w.opts({ all: true, risky: false });
+  await w.mapSetting(['Scaling/Crop Setup'], { label: 'Top Trim', value: '+0' });
+  const rec = w.st.results[0];
+  check(sim.v === 0, 'walked to both ends and back to +0: ' + sim.v);
+  check(rec && rec.min === 0 && rec.max === 300 && rec.step === 1, 'its range: ' + JSON.stringify(rec && [rec.min, rec.max, rec.step]));
+  // (With one setting, the counter can't be told from its own bytes: that takes two.)
+  check(rec && JSON.stringify(rec.ranges) === '[{"off":1316,"len":2},{"off":22544,"len":1}]', 'its bytes: ' + JSON.stringify(rec && rec.ranges));
+  check(sim.requests < 120, 'eight keys at a time once the step is known: ' + sim.requests + ' requests for ' + sim.keys + ' keys');
+  check(!rec.backNote, 'came back: ' + rec.backNote);
+}
+
+walked().then(() => {
+  console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
+  process.exit(failures ? 1 : 0);
+}, (e) => {
+  console.log('  FAIL the walk threw: ' + e.stack);
+  process.exit(1);
+});
