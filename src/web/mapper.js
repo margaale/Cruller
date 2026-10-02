@@ -473,7 +473,7 @@
       if (!left.round) await stepBack('right', left.steps);
     }
     let back = valueOf(await press(null));
-    if (!same(back, it.value) && !reading(back, it.value) && home >= 0 && !st.stop) { // keys lost on the way back
+    if (!same(back, it.value) && !isNaN(asNumber(it.value)) && home >= 0 && !st.stop) { // a number short of where it was
       const ok = await putBack(home, it.value, home);
       log(name + ' came back to ' + back + ': ' + (ok ? 'put back to ' : 'could not put it back to ') + it.value, !ok);
       back = valueOf(await press(null));
@@ -483,6 +483,9 @@
       if (y === home || !was || was.label !== l.label || same(l.value, was.value) || reading(l.value, was.value) || RISKY.test(l.label)) continue;
       const other = st.results.find((r) => r.label === l.label && r.path.join('\n') === path.join('\n'));
       if (other && /did not change/.test(other.backNote || '')) continue; // a reading (the audio levels)
+      // A list only if mapped with that value: Sample Rate Detection shows On as "Searching" or "Locked
+      // 84%" as it detects, and pressing to get those back turns them on and off.
+      if (isNaN(asNumber(was.value)) && !(other && (other.list || []).some((v) => same(v, was.value)))) continue;
       const ok = await putBack(y, was.value, home);
       log(it.label + ' moved ' + l.label + ' to ' + l.value + ': ' + (ok ? 'put back to ' : 'could not put it back to ') + was.value, !ok);
     }
