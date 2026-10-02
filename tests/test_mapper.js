@@ -54,6 +54,20 @@ check(line(' • Vertical Only:     <Start>') === '{"label":"Vertical Only","val
 check(line(' • Scaling/Cropping') === '{"label":"Scaling/Cropping","value":null}', 'a submenu');
 check(line(' • Masking Color:') === '{"label":"Masking Color","value":null}', 'a heading with a colon');
 check(line(' • HDMI• Output:      4K60') === '{"label":"HDMI• Output","value":"4K60"}', 'a label with a symbol in it');
+check(line(' • Enable 343.200     Off') === '{"label":"Enable 343.200","value":"Off"}' && line(' • Progressive Detection') === '{"label":"Progressive Detection","value":null}', 'no colon, the value in its column: ' + line(' • Enable 343.200     Off'));
+check(JSON.stringify(m.numeric(['3431 dots/line', '3432 dots/line'])) === '{"min":3431,"max":3432,"step":1}', 'a unit with a slash');
+
+// A label twice on one menu (Processing/Effects: Function, Strength): told apart by the heading above.
+const fx = plane([
+  ['Processing/Effects Setup', false], ['', false], [' • Scanline', false], [' • Function:          Off', true], [' • Strength:          Off', false],
+  [' • Mask', false], [' • Enable:            Off', false], [' • Strength:          N/A', false], [' • Horizontal Blur', false], [' • Function:          Off', false],
+]);
+const fxItems = [3, 4, 6, 7, 9].map((y) => ({ ...m.parseLine(m.readPlane(fx.data, fx.ready).rows[y].text), y }));
+m.sections(m.readPlane(fx.data, fx.ready).rows, fxItems);
+check(JSON.stringify(fxItems.map((it) => it.section || '-')) === '["Scanline","Scanline","-","Mask","Horizontal Blur"]', 'sections of labels seen twice: ' + JSON.stringify(fxItems.map((it) => it.section || '-')));
+check(JSON.stringify(m.compact({ path: ['Advanced', 'Processing/Effects Setup'], section: 'Horizontal Blur', label: 'Function' })) === '{"path":"Advanced › Processing/Effects Setup","section":"Horizontal Blur","label":"Function"}', 'a section kept');
+let twice = m.keep(null, '1.92.0', 109, 22876, [{ path: 'P', section: 'Scanline', label: 'Function' }, { path: 'P', section: 'Horizontal Blur', label: 'Function' }]);
+check(m.settingsOf(twice, '1.92.0').length === 2, 'both kept');
 
 // A box asking first (Black Frame Insertion's Min. BFI Limit): nothing selected, its text read.
 const BOX = [['••••••••', false], ['Warning! Flicker may induce epilepsy.', false], ['Proceed at your own risk!!', false], ['', false], ['[Cancel]      [OK]', false], ['••••••••', false]];
@@ -122,10 +136,14 @@ check(JSON.stringify(m.compact(rec)) === '{"path":"Advanced › Scaling/Crop Set
 // change past asksPast asks first (a box until back or ok; ok goes on).
 
 const respond = (body, headers = {}) => ({ ok: true, status: 200, headers: { get: (h) => headers[h] || null }, arrayBuffer: async () => body.buffer, json: async () => JSON.parse(body), text: async () => String(body) });
-const answered = (cmds) => respond(JSON.stringify({ ok: true, results: cmds.map((c) => ({ command: c, sent: true, reply: ['[COM] Serial Remote: x'] })) }));
+// /api/v1/command's answer: a 503 when Cruller couldn't hand the RT4K some ("sent": false).
+const answered = (cmds, sent) => {
+  const all = !sent || sent.every(Boolean);
+  return { ...respond(JSON.stringify({ ok: all, results: cmds.map((c, i) => ({ command: c, sent: !sent || sent[i], reply: !sent || sent[i] ? ['[COM] Serial Remote: x'] : [] })) })), ok: all, status: all ? 200 : 503 };
+};
 
-function rt4k(min, max, asksPast, live) {
-  const s = { v: 0, counter: 0, keys: 0, requests: 0, box: false, oks: 0 };
+function rt4k(min, max, asksPast, live, lossy) {
+  const s = { v: 0, counter: 0, keys: 0, requests: 0, box: false, oks: 0, lost: 0 };
   const label = () => ' • Top Trim:          ' + (s.v >= 0 ? '+' : '') + s.v + (live ? ' (Rmax: ' + (30 + (s.reads || 0) % 8) + ')' : '');
   s.fetch = async (url, o) => {
     if (url === '/rt4k/xfer?cmd=osd') {
@@ -142,9 +160,14 @@ function rt4k(min, max, asksPast, live) {
     }
     if (url === '/api/v1/command') {
       s.requests++;
-      const b = JSON.parse(o.body), cmds = b.commands || [b.command];
-      for (const c of cmds) {
+      const b = JSON.parse(o.body), cmds = b.commands || [b.command], sent = cmds.map(() => true);
+      for (const [i, c] of cmds.entries()) {
         s.keys++;
+        if (lossy && s.keys % lossy === 0) { // (Cruller couldn't hand it the RT4K)
+          s.lost++;
+          sent[i] = false;
+          continue;
+        }
         if (s.box) {
           if (c === 'remote ok') s.oks++;
           if (c === 'remote back' || c === 'remote ok') s.box = false;
@@ -159,7 +182,7 @@ function rt4k(min, max, asksPast, live) {
         if (c === 'remote left') s.v = Math.max(min, s.v - 1);
         if (s.v !== before) s.counter++;
       }
-      return answered(cmds);
+      return answered(cmds, sent);
     }
     throw new Error('no ' + url);
   };
@@ -237,6 +260,19 @@ async function long() {
   const rec = w.st.results[0];
   check(sim.v === 0 && rec.max === 1000 && !rec.backNote, 'walked to 1000 and back: ' + JSON.stringify([sim.v, rec.max, rec.backNote]));
   check(sim.reads < 120, 'up to 64 keys between reads: ' + sim.reads + ' reads');
+  // Past 16 times 400 steps (the colour matrix's ±0.001 coefficients): its ends left open.
+  const far = rt4k(-10000, 10000), wf = on(far);
+  await wf.mapSetting(['Color Correction Setup'], { label: 'Top Trim', value: '+0' });
+  const rf = wf.st.results[0];
+  check(far.v === 0 && JSON.stringify(rf.capped) === '["first","last"]' && wf.compact({ ...rf, own: [{ off: 0x524, len: 2 }] }).capped.length === 2, 'capped both ways: ' + JSON.stringify([far.v, rf.capped, rf.min, rf.max]));
+}
+
+// Keys Cruller couldn't hand the RT4K: one in 13, answered "sent": false. Sent again.
+async function lossy() {
+  const sim = rt4k(-200, 200, undefined, false, 13), w = on(sim);
+  await w.mapSetting(['Color Correction Setup'], { label: 'Top Trim', value: '+0' });
+  const rec = w.st.results[0];
+  check(sim.lost > 10 && sim.v === 0 && rec.min === -200 && rec.max === 200, 'its ends and back with keys lost: ' + JSON.stringify([sim.lost, sim.v, rec.min, rec.max, rec.backNote]));
 }
 
 // A reading in brackets that moves on its own (the ADC's gains: "1.000 (Rmax: 30)"): not a step.
@@ -279,7 +315,7 @@ async function movesAnother() {
   check(w.st.log.some((l) => /Native Sampling moved Samples per Line to 3509 .*: put back to 1716/.test(l[0])), 'said so: ' + JSON.stringify(w.st.log.map((l) => l[0])));
 }
 
-walked().then(asked).then(long).then(live).then(movesAnother).then(() => {
+walked().then(asked).then(long).then(live).then(movesAnother).then(lossy).then(() => {
   console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
   process.exit(failures ? 1 : 0);
 }, (e) => {

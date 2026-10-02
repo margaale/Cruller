@@ -46,12 +46,28 @@
     return { rows: out, title: title ? title.text.trim() : '', selected: body.find((r) => r.sel) || null };
   }
 
-  // A menu line: its label and value ("• Top Trim:          +0" -> {label: 'Top Trim', value: '+0'});
-  // value null for a submenu (or an action without one).
+  // A menu line: its label and value ("• Top Trim:          +0" -> {label: 'Top Trim', value: '+0'}; also
+  // without the colon, the value in its column: "• Enable 343.200     Off"); value null for a submenu (or
+  // an action without one).
   function parseLine(text) {
     const t = String(text || '').replace(/^[^A-Za-z0-9<]+/, '').trimEnd();
-    const m = /^(.*?):\s+(\S.*)$/.exec(t);
+    const m = /^(.*?):\s+(\S.*)$/.exec(t) || /^(.*?\S)\s{3,}(\S.*)$/.exec(t);
     return m ? { label: m[1].trim(), value: m[2].trim() } : { label: t.replace(/:$/, '').trim(), value: null };
+  }
+
+  // The section of each item whose label the menu has more than once ("Function" under Scanline and under
+  // Horizontal Blur): the heading above it, a line the cursor skips. items: [{label, y}], walking down.
+  function sections(rows, items) {
+    const ys = new Set(items.map((it) => it.y)), seen = new Map();
+    for (const it of items) seen.set(it.label, (seen.get(it.label) || 0) + 1);
+    for (const it of items) {
+      if (seen.get(it.label) < 2) continue;
+      for (let y = it.y - 1; y >= 0; y--) {
+        const t = rows[y] ? rows[y].text.trim() : '';
+        if (t && !ys.has(y) && parseLine(t).value === null) { it.section = parseLine(t).label; break; }
+      }
+    }
+    return items;
   }
 
   // A box asking first, nothing selected under it ("Warning! Flicker may induce epilepsy. Proceed at your
@@ -77,7 +93,7 @@
 
   // A value as a number ("+3", "-12", "1.5x", "+0 (Y Min: 32)": what follows in brackets is the RT4K's
   // explanation; "+-100", the TW9912's negatives); NaN when it isn't one.
-  const asNumber = (v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%]*(?:\s*\(.*\))?$/i.exec(String(v).trim().replace(/^\+-/, '-')); return m ? +m[1] : NaN; };
+  const asNumber = (v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%/]*(?:\s*\(.*\))?$/i.exec(String(v).trim().replace(/^\+-/, '-')); return m ? +m[1] : NaN; };
 
   // Whether two values shown are the same: numbers by their number (the brackets may hold a reading that
   // moves on its own: "1.000 (Rmax: 30)", then "(Rmax: 37)"; "-0.00" is 0.00), the rest as shown.
@@ -161,12 +177,16 @@
 
   // --- the map as shipped (a JSON in src/web, mapped here, merged by tools/merge-map.js) --------------------
   // {v: 1, maps: [{firmware, ver, size, settings}]}: one map per RT4K firmware mapped, each whole. A
-  // setting: {path, label, bytes: [[offset, length]], values: [[shown, hex]] (each value seen, its own
-  // bytes), min, max, step (numbers), round (a list that goes round), asks (past its first or last value
-  // the RT4K warns first: what it says). How the run went (a setting not back as it was) stays out.
+  // setting: {path, section (a label the menu has twice: the heading above it), label, bytes: [[offset,
+  // length]], values: [[shown, hex]] (each value seen, its own bytes), min, max, step (numbers), round (a
+  // list that goes round), asks (past its first or last value the RT4K warns first: what it says), capped
+  // (["first"], ["last"] or both: the walk stopped before that end, so min or max is only how far it got).
+  // How the run went (a setting not back as it was) stays out.
 
   function compact(r) {
-    const c = { path: r.path.join(' › '), label: r.label };
+    const c = { path: r.path.join(' › ') };
+    if (r.section) c.section = r.section;
+    c.label = r.label;
     if (r.own && r.own.length) {
       c.bytes = r.own.map((g) => [g.off, g.len]);
       c.values = r.values.filter((v) => v.at).map((v) => [v.value, hexAt(v.at, r.own).replace(/ /g, '')]);
@@ -174,10 +194,11 @@
     if (r.min !== undefined) Object.assign(c, { min: r.min, max: r.max, step: r.step });
     if (r.round) c.round = true;
     if (r.asks) c.asks = r.asks;
+    if (r.capped) c.capped = r.capped;
     return c;
   }
 
-  const settingKey = (c) => c.path + '\n' + c.label;
+  const settingKey = (c) => c.path + '\n' + (c.section || '') + '\n' + c.label;
 
   // The settings mapped for a firmware (null: none).
   function settingsOf(doc, fw) {
@@ -242,17 +263,27 @@
     return readPlane(x.data, x.ready);
   }
 
-  // (A key sent again after a dropped answer may go twice: the walk checks where it is, and each setting
-  // that it came back.)
-  async function command(c) {
-    return retried(async () => {
-      const r = await fetch('/api/v1/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: c }) });
-      if (!r.ok && r.status !== 503) throw await failed(r, c);
-      const v = await r.json();
-      if (!v.ok) throw new Error(c + ': the RT4K did not get it');
-      return (v.results && v.results[0] && v.results[0].reply || []).join(' ');
-    });
+  // Commands through /api/v1/command, up to BATCH at once; those Cruller couldn't hand the RT4K ("sent":
+  // false, a 503) sent again, twice at most. Their replies, joined. (A key sent again after a dropped
+  // answer may go twice: the walk checks where it is, and each setting that it came back.)
+  async function send(cmds) {
+    let left = cmds, replies = [];
+    for (let t = 0; t < 3 && left.length; t++) {
+      if (t) await sleep(500);
+      const v = await retried(async () => {
+        const r = await fetch('/api/v1/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(left.length === 1 ? { command: left[0] } : { commands: left }) });
+        if (!r.ok && r.status !== 503) throw await failed(r, left[0]);
+        return r.json();
+      });
+      const res = v.results || [];
+      replies = replies.concat(res.filter((x) => x.sent).flatMap((x) => x.reply || []));
+      left = left.filter((c, i) => !(res[i] && res[i].sent));
+    }
+    if (left.length) throw new Error(left[0] + ': the RT4K did not get it');
+    return replies.join(' ');
   }
+
+  const command = (c) => send([c]);
 
   // A key (none: just look again), then the menu once it settles (two reads alike); fast: one read, for
   // walking a long range (a value that seems not to have moved is read again settled, by walk()).
@@ -321,13 +352,7 @@
 
   // Several keys at once ("commands", up to 8), then the menu settled.
   async function pressMany(key, n) {
-    for (let left = n; left > 0; left -= BATCH) {
-      const c = Array(Math.min(BATCH, left)).fill('remote ' + key);
-      await retried(async () => {
-        const r = await fetch('/api/v1/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commands: c }) });
-        if (!r.ok && r.status !== 503) throw await failed(r, 'remote ' + key);
-      });
-    }
+    for (let left = n; left > 0; left -= BATCH) await send(Array(Math.min(BATCH, left)).fill('remote ' + key));
     return press(null);
   }
 
@@ -349,17 +374,27 @@
       if (step) {
         let screen = await pressMany(way, BATCH * stride);
         if ((asks = dialogOf(screen))) screen = await press('back'); // (the keys after it moved in the box)
-        const v = valueOf(screen), moved = Math.round((asNumber(v) - asNumber(prev)) / step);
+        let v = valueOf(screen), moved = Math.round((asNumber(v) - asNumber(prev)) / step);
+        if (!isNaN(moved) && moved < BATCH * stride && !asks) { // its end, or keys lost on the way: one more
+          const one = valueOf(await press(way));
+          const more = Math.round((asNumber(one) - asNumber(v)) / step);
+          if (more > 0) {
+            v = one;
+            moved += more;
+            stride = 0; // (back to BATCH keys below)
+          }
+        }
         if (isNaN(moved) || moved <= 0) break; // its end (or it went round: walked again one at a time below)
         steps += moved;
         out.push({ value: v, snap: null });
         prev = v;
-        if (moved < BATCH * stride || asks) break; // stopped short: its end
-        stride = Math.min(stride * 2, 8);
+        if ((stride && moved < BATCH * stride) || asks) break; // stopped short: its end
+        stride = Math.min(Math.max(stride * 2, 1), 8);
         continue;
       }
       let v = valueOf(await press(way, true));
       if (same(v, prev)) v = valueOf(await press(null)); // read settled: its end, or just slow?
+      if (same(v, prev)) v = valueOf(await press(way)); // or the key lost on the way: once more
       if (v === null && (asks = dialogOf(await press(null)))) await press('back');
       if (same(v, prev) || v === null) break;
       steps++;
@@ -369,7 +404,8 @@
     }
     const last = out[out.length - 1];
     if (last && !last.snap) last.snap = await snap();
-    return { values: out, steps, round: false, asks };
+    const capped = limit > 1 && !st.stop && steps >= (step ? limit * 16 : limit); // stopped before its end
+    return { values: out, steps, round: false, asks, capped };
   }
 
   // n steps the other way, back to where it was.
@@ -378,22 +414,22 @@
     else for (let i = 0; i < n; i++) await press(way, true);
   }
 
-  // The settings on the menu on screen: label -> value shown.
-  const valuesOn = (screen) => new Map(screen.rows.map((r) => parseLine(r.text)).filter((l) => l.value !== null).map((l) => [l.label, l.value]));
+  // The settings on the menu on screen (its bulleted lines with a value): line -> {label, value}.
+  const valuesOn = (screen) => new Map(screen.rows.filter((r) => /^\s*•/.test(r.text)).map((r) => [r.y, parseLine(r.text)]).filter(([, l]) => l.value !== null));
 
-  // The menu line label put back to value (another setting moved it: Native Sampling sets Samples per
-  // Line, and leaves it there turned off), then the cursor back on home. There with down (the menu goes
+  // The menu's line y put back to value (another setting moved it: Native Sampling sets Samples per Line,
+  // and leaves it there turned off), then the cursor back on line home. There with down (the menu goes
   // round); a number one key to learn its step, then the rest at once; a list round to it. False if not.
-  async function putBack(label, value, home) {
+  async function putBack(y, value, home) {
     const goTo = async (to) => {
       for (let i = 0; i < 48; i++) {
         const s = await press(null);
-        if (s.selected && parseLine(s.selected.text).label === to) return true;
+        if (s.selected && s.selected.y === to) return true;
         await press('down', true);
       }
       return false;
     };
-    if (!(await goTo(label))) return false;
+    if (!(await goTo(y))) return false;
     let now = valueOf(await press(null));
     const want = asNumber(value);
     for (let i = 0; i < 64 && !same(now, value); i++) {
@@ -418,9 +454,11 @@
   // menu's other settings it moved are put back.
   async function mapSetting(path, it) {
     const rec = { path, label: it.label, values: [], ranges: [] };
+    if (it.section) rec.section = it.section;
+    const name = path.concat(it.section || [], it.label).join(' › ');
     st.results.push(rec);
     const all = opts().all, limit = all ? 400 : 1, snaps = all ? 16 : 1;
-    const shown = valuesOn(await press(null));
+    const start = await press(null), shown = valuesOn(start), home = start.selected ? start.selected.y : -1;
     const before = await snap();
     const right = await walk('right', it.value, limit, snaps);
     if (!right.round) await stepBack('left', right.steps);
@@ -429,13 +467,19 @@
       left = await walk('left', it.value, limit, snaps);
       if (!left.round) await stepBack('right', left.steps);
     }
-    const back = valueOf(await press(null));
-    for (const [l, v] of valuesOn(await press(null))) {
-      if (l === it.label || !shown.has(l) || same(v, shown.get(l)) || RISKY.test(l)) continue;
-      const other = st.results.find((r) => r.label === l && r.path.join('\n') === path.join('\n'));
+    let back = valueOf(await press(null));
+    if (!same(back, it.value) && home >= 0 && !st.stop) { // keys lost on the way back
+      const ok = await putBack(home, it.value, home);
+      log(name + ' came back to ' + back + ': ' + (ok ? 'put back to ' : 'could not put it back to ') + it.value, !ok);
+      back = valueOf(await press(null));
+    }
+    for (const [y, l] of valuesOn(await press(null))) {
+      const was = shown.get(y);
+      if (y === home || !was || was.label !== l.label || same(l.value, was.value) || RISKY.test(l.label)) continue;
+      const other = st.results.find((r) => r.label === l.label && r.path.join('\n') === path.join('\n'));
       if (other && /did not change/.test(other.backNote || '')) continue; // a reading (the audio levels)
-      const ok = await putBack(l, shown.get(l), it.label);
-      log(it.label + ' moved ' + l + ' to ' + v + ': ' + (ok ? 'put back to ' : 'could not put it back to ') + shown.get(l), !ok);
+      const ok = await putBack(y, was.value, home);
+      log(it.label + ' moved ' + l.label + ' to ' + l.value + ': ' + (ok ? 'put back to ' : 'could not put it back to ') + was.value, !ok);
     }
     const after = await snap();
     if (st.stop) { // half walked: left out, so a run again maps it whole
@@ -445,9 +489,11 @@
     }
     const asks = right.asks || left.asks;
     if (asks) rec.asks = asks;
+    const capped = [left.capped && 'first', right.capped && 'last'].filter(Boolean);
+    if (capped.length) rec.capped = capped;
     if (!right.values.length && !left.values.length) {
       rec.backNote = asks ? 'asks first, cancelled: "' + asks + '"' : 'did not change: read only?';
-      log(path.join(' › ') + ' › ' + it.label + ': ' + it.value + ' (' + (asks ? rec.backNote : 'did not change') + ')');
+      log(name + ': ' + it.value + ' (' + (asks ? rec.backNote : 'did not change') + ')');
       return showResults();
     }
     const order = [...left.values.slice().reverse(), { value: it.value, snap: before }, ...right.values];
@@ -461,7 +507,7 @@
     if (!same(back, it.value)) rec.backNote = 'did not come back: ' + back + ', was ' + it.value;
     if (!all) delete rec.list;
     showResults();
-    log(path.join(' › ') + ' › ' + it.label + ': ' + valuesText(rec).slice(0, 160), !!rec.note);
+    log(name + ': ' + valuesText(rec).slice(0, 160), !!rec.note);
   }
 
   // The menu on screen, its submenus too: its items walking down until the first comes back, then each.
@@ -471,9 +517,10 @@
     if (!screen.selected) throw new Error('no menu open on the RT4K: open the one to map (Live screen, or the remote)');
     const items = [], first = screen.selected.text;
     do {
-      items.push(parseLine(screen.selected.text));
+      items.push({ ...parseLine(screen.selected.text), y: screen.selected.y });
       screen = await press('down');
     } while (screen.selected && screen.selected.text !== first && items.length < 48 && !st.stop);
+    sections(screen.rows, items);
     log(title + ': ' + items.length + ' items');
     let at = 0;
     for (let i = 0; i < items.length && !st.stop; i++) {
@@ -496,7 +543,7 @@
         continue;
       }
       if (/^<.*>$/.test(it.value)) { log(title + ' › ' + it.label + ': an action, left alone'); continue; }
-      if (st.results.some((r) => r.path.join('\n') === where.join('\n') && r.label === it.label)) continue; // done before a stop
+      if (st.results.some((r) => r.path.join('\n') === where.join('\n') && r.label === it.label && r.section === it.section)) continue; // done before a stop
       if (!opts().risky && RISKY.test(it.label)) { log(title + ' › ' + it.label + ': risky, left alone'); continue; }
       await mapSetting(where, it);
     }
@@ -588,6 +635,6 @@
   }
 
   if (typeof document !== 'undefined' && document.getElementById) build();
-  window.mapperInternals = { fields, readPlane, parseLine, dialogOf, same, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
+  window.mapperInternals = { fields, readPlane, parseLine, sections, dialogOf, same, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
     walk, mapSetting, st, opts: (o) => { optsOverride = o; }, sleepless: () => { sleepMs = 0; } };
 })();
