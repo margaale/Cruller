@@ -278,6 +278,7 @@ async function lossy() {
 // A reading in brackets that moves on its own (the ADC's gains: "1.000 (Rmax: 30)"): not a step.
 async function live() {
   check(m.same('1.000 (Rmax: 30)', '1.000 (Rmax: 37)') && m.same('-0.00', '0.00') && !m.same('Auto (PAL)', 'Auto (NTSC)') && !m.same('1.004', '1.000'), 'the same value shown');
+  check(m.reading('Locked 84%', 'Locked 86%') && m.reading('Auto (4)', 'Auto (5)') && !m.reading('Locked 84%', 'Off') && !m.reading('+3', '+4') && !m.same('1/2', '1/3'), 'a reading of its own');
   const sim = rt4k(-50, 50, undefined, true);
   const w = on(sim);
   await w.mapSetting(['RGB/Component ADC Setup'], { label: 'Top Trim', value: '+0 (Rmax: 30)' });

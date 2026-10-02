@@ -99,6 +99,11 @@
   // moves on its own: "1.000 (Rmax: 30)", then "(Rmax: 37)"; "-0.00" is 0.00), the rest as shown.
   const same = (a, b) => a === b || (!isNaN(asNumber(a)) && asNumber(a) === asNumber(b));
 
+  // Two values shown, not numbers, that differ only in their digits: a reading of its own ("Locked 84%",
+  // then "Locked 86%"; "Auto (4)"), not a setting another moved. (Not for walking: "1/2" and "1/3" are
+  // two values.)
+  const reading = (a, b) => isNaN(asNumber(a)) && String(a).replace(/\d+/g, '#') === String(b).replace(/\d+/g, '#');
+
   // A setting's values as numbers: its min, max and step; null when any isn't one.
   function numeric(list) {
     const n = (list || []).map(asNumber);
@@ -468,14 +473,14 @@
       if (!left.round) await stepBack('right', left.steps);
     }
     let back = valueOf(await press(null));
-    if (!same(back, it.value) && home >= 0 && !st.stop) { // keys lost on the way back
+    if (!same(back, it.value) && !reading(back, it.value) && home >= 0 && !st.stop) { // keys lost on the way back
       const ok = await putBack(home, it.value, home);
       log(name + ' came back to ' + back + ': ' + (ok ? 'put back to ' : 'could not put it back to ') + it.value, !ok);
       back = valueOf(await press(null));
     }
     for (const [y, l] of valuesOn(await press(null))) {
       const was = shown.get(y);
-      if (y === home || !was || was.label !== l.label || same(l.value, was.value) || RISKY.test(l.label)) continue;
+      if (y === home || !was || was.label !== l.label || same(l.value, was.value) || reading(l.value, was.value) || RISKY.test(l.label)) continue;
       const other = st.results.find((r) => r.label === l.label && r.path.join('\n') === path.join('\n'));
       if (other && /did not change/.test(other.backNote || '')) continue; // a reading (the audio levels)
       const ok = await putBack(y, was.value, home);
@@ -635,6 +640,6 @@
   }
 
   if (typeof document !== 'undefined' && document.getElementById) build();
-  window.mapperInternals = { fields, readPlane, parseLine, sections, dialogOf, same, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
+  window.mapperInternals = { fields, readPlane, parseLine, sections, dialogOf, same, reading, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
     walk, mapSetting, st, opts: (o) => { optsOverride = o; }, sleepless: () => { sleepMs = 0; } };
 })();
