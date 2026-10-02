@@ -111,6 +111,7 @@ function rt4k(min, max, asksPast) {
   const respond = (body, headers = {}) => ({ ok: true, status: 200, headers: { get: (h) => headers[h] || null }, arrayBuffer: async () => body.buffer, json: async () => JSON.parse(body), text: async () => String(body) });
   s.fetch = async (url, o) => {
     if (url === '/rt4k/xfer?cmd=osd') {
+      s.reads = (s.reads || 0) + 1;
       const p = s.box ? plane(BOX) : plane([['Scaling/Crop Setup', false], ['', false], [label(), true]]);
       return respond(p.data, { 'X-Ready': p.ready });
     }
@@ -176,6 +177,17 @@ async function walked() {
   check(!rec.backNote, 'came back: ' + rec.backNote);
 }
 
+// A long range (the ADC's Samples per Line, ~1716 of thousands): past the 400 steps a list gets, and more
+// keys between reads as it goes.
+async function long() {
+  const sim = rt4k(0, 1000);
+  const w = on(sim);
+  await w.mapSetting(['RGB/Component ADC Setup'], { label: 'Top Trim', value: '+0' });
+  const rec = w.st.results[0];
+  check(sim.v === 0 && rec.max === 1000 && !rec.backNote, 'walked to 1000 and back: ' + JSON.stringify([sim.v, rec.max, rec.backNote]));
+  check(sim.reads < 120, 'up to 64 keys between reads: ' + sim.reads + ' reads');
+}
+
 // A setting that asks first: right away (none of it walked), and past +2 (up to it walked).
 async function asked() {
   let sim = rt4k(0, 300, 0), w = on(sim);
@@ -198,7 +210,7 @@ async function asked() {
   check(!sim.box && sim.oks === 0 && sim.v === 0 && rec.max === 20 && /^past \+20 it asks/.test(rec.backNote), 'the box in a batch: ' + JSON.stringify([sim.box, sim.oks, sim.v, rec.max, rec.backNote]));
 }
 
-walked().then(asked).then(() => {
+walked().then(asked).then(long).then(() => {
   console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
   process.exit(failures ? 1 : 0);
 }, (e) => {

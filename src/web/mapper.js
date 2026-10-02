@@ -322,27 +322,29 @@
 
 
   // Walks one way from the value on screen until it stops changing (its end) or comes back to from (a list
-  // that goes round), limit steps at most. Snapshots the first snaps values, and the last. Once the values
-  // are numbers a fixed step apart, it goes BATCH keys at a time (the ones past its end change nothing) and
-  // counts the steps from the values. A box asking first is cancelled, and ends the walk (asks: its text).
+  // that goes round), limit steps at most (numbers: 16 times that). Snapshots the first snaps values, and
+  // the last. Once the values are numbers a fixed step apart, it goes BATCH keys at a time, then twice as
+  // many between reads up to 8 times (the keys past its end change nothing), and counts the steps from the
+  // values. A box asking first is cancelled, and ends the walk (asks: its text).
   // Returns {values: [{value, snap}], steps, round, asks}.
   async function walk(way, from, limit, snaps) {
     const out = [];
-    let prev = from, steps = 0, step = 0, asks = null;
-    while (steps < limit && !st.stop) {
+    let prev = from, steps = 0, step = 0, stride = 1, asks = null;
+    while (steps < (step ? limit * 16 : limit) && !st.stop) {
       if (!step && out.length >= 3) { // three steps alike from where it started: numbers, a fixed step
         const nums = [from, ...out.map((s) => s.value)].map(asNumber), d = nums[1] - nums[0];
         if (d && nums.every((n, i) => !isNaN(n) && (!i || Math.abs(n - nums[i - 1] - d) < 1e-9))) step = d;
       }
       if (step) {
-        let screen = await pressMany(way, BATCH);
+        let screen = await pressMany(way, BATCH * stride);
         if ((asks = dialogOf(screen))) screen = await press('back'); // (the keys after it moved in the box)
         const v = valueOf(screen), moved = Math.round((asNumber(v) - asNumber(prev)) / step);
         if (isNaN(moved) || moved <= 0) break; // its end (or it went round: walked again one at a time below)
         steps += moved;
         out.push({ value: v, snap: null });
         prev = v;
-        if (moved < BATCH || asks) break;      // stopped short: its end
+        if (moved < BATCH * stride || asks) break; // stopped short: its end
+        stride = Math.min(stride * 2, 8);
         continue;
       }
       let v = valueOf(await press(way, true));
