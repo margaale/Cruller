@@ -79,6 +79,22 @@ const recs = m.split([
 const txt = (r) => JSON.stringify([r.own, r.shared]);
 check(txt(recs[0]) === '[[{"off":1316,"len":1}],[{"off":3244,"len":2}]]', 'own and shared: ' + txt(recs[0]));
 check(txt(recs[2]) === '[[{"off":1060,"len":1},{"off":3246,"len":1}],[{"off":3245,"len":1}]]', 'shared byte by byte: ' + txt(recs[2]));
+// One setting in two menus (Decimation Factor, Input Pixels at 0xdf8): the one left without bytes of its
+// own keeps that one.
+const two = m.split([
+  { label: 'Decimation Factor', ranges: [{ off: 0xdf8, len: 1 }, { off: 0xcac, len: 2 }] },
+  { label: 'Input Pixels', ranges: [{ off: 0xdf8, len: 1 }, { off: 0x1808, len: 1 }, { off: 0xcac, len: 2 }] },
+  { label: 'Top Trim', ranges: [{ off: 0x524, len: 1 }, { off: 0xcac, len: 2 }] },
+]);
+check(txt(two[0]) === '[[{"off":3576,"len":1}],[{"off":3244,"len":2}]]' && txt(two[1]) === '[[{"off":6152,"len":1}],[{"off":3244,"len":2},{"off":3576,"len":1}]]',
+  'shared with just one other, kept by the one without its own: ' + txt(two[0]) + ' ' + txt(two[1]));
+// A reading (0x5843, its word left changed after two settings): no setting's own.
+const reading = m.split([
+  { label: 'Samples per Line', ranges: [{ off: 0xcf8, len: 2 }, { off: 0x5843, len: 1 }], leftover: [{ off: 0x5840, len: 1 }] },
+  { label: 'Native Sampling', ranges: [{ off: 0x23a0, len: 1 }, { off: 0xcf8, len: 2 }] },
+  { label: 'Pre-ADC', ranges: [{ off: 0x1178, len: 2 }], leftover: [{ off: 0x5840, len: 1 }] },
+]);
+check(txt(reading[0]) === '[[{"off":3320,"len":2}],[{"off":22595,"len":1}]]', 'a reading left out of own: ' + txt(reading[0]));
 check(JSON.stringify(m.numeric(['-2', '-1', '+0', '+1', '+2'])) === '{"min":-2,"max":2,"step":1}', 'numbers: min, max, step');
 check(JSON.stringify(m.numeric(['31', '30', '0'])) === '{"min":0,"max":31,"step":1}', 'numbers out of order');
 check(m.numeric(['Off', 'On']) === null && m.numeric(['1']) === null && m.numeric(['1', '2x', 'Auto']) === null, 'not numbers');

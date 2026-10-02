@@ -105,7 +105,10 @@
   }
 
   // Each setting's own bytes, and those it shares with others (worked out from settings, a scaler's
-  // factors...): a byte that changed for more than one setting is shared. Sets own and shared on each.
+  // factors...): a byte that changed for more than one setting is shared. A setting left without any
+  // owns those it shares with just one other: one setting in two menus (the ADC's Decimation Factor, the
+  // HDMI receiver's Input Pixels), or one another sets (Native Sampling, Samples per Line). What's
+  // volatile (readings) is no setting's own. Sets own and shared on each.
   function split(records) {
     const count = new Map();
     for (const r of records) {
@@ -113,6 +116,7 @@
       for (const g of r.ranges || []) for (let i = g.off; i < g.off + g.len; i++) mine.add(i);
       for (const i of mine) count.set(i, (count.get(i) || 0) + 1);
     }
+    for (const i of volatileBytes(records)) count.set(i, Infinity);
     const ranges = (bytes) => {
       const out = [];
       for (const i of bytes.sort((a, b) => a - b)) {
@@ -125,8 +129,9 @@
     for (const r of records) {
       const bytes = [];
       for (const g of r.ranges || []) for (let i = g.off; i < g.off + g.len; i++) bytes.push(i);
-      r.own = ranges(bytes.filter((i) => count.get(i) === 1));
-      r.shared = ranges(bytes.filter((i) => count.get(i) > 1));
+      const n = bytes.some((i) => count.get(i) === 1) ? 1 : 2;
+      r.own = ranges(bytes.filter((i) => count.get(i) <= n));
+      r.shared = ranges(bytes.filter((i) => count.get(i) > n));
     }
     return records;
   }
@@ -283,12 +288,14 @@
     box.scrollTop = box.scrollHeight;
   }
 
-  // Bytes that change with any setting and don't come back (a counter, a checksum: 0x5810.. on 1.92.0):
-  // those left changed after two settings or more. A setting's leftovers besides them mean it didn't.
+  // Bytes that change with any setting and don't come back (a counter, a checksum, readings: 0x57f4..
+  // on 1.92.0; the scaler's factors): those left changed after two settings or more, as whole 32-bit
+  // words. A setting's leftovers besides them mean it didn't.
   function volatileBytes(records) {
-    const count = new Map();
+    const count = new Map(), out = new Set();
     for (const r of records) for (const g of r.leftover || []) for (let i = g.off; i < g.off + g.len; i++) count.set(i, (count.get(i) || 0) + 1);
-    return new Set([...count].filter(([, n]) => n > 1).map(([i]) => i));
+    for (const [i, n] of count) if (n > 1) for (let j = i & ~3; j < (i & ~3) + 4; j++) out.add(j);
+    return out;
   }
 
   function valuesText(r) {
