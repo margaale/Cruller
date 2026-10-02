@@ -372,9 +372,10 @@
     const out = [];
     let prev = from, steps = 0, step = 0, stride = 1, asks = null;
     while (steps < (step ? limit * 16 : limit) && !st.stop) {
-      if (!step && out.length >= 3) { // three steps alike from where it started: numbers, a fixed step
-        const nums = [from, ...out.map((s) => s.value)].map(asNumber), d = nums[1] - nums[0];
-        if (d && nums.every((n, i) => !isNaN(n) && (!i || Math.abs(n - nums[i - 1] - d) < 1e-9))) step = d;
+      if (!step && out.length >= 3) { // the last steps alike: numbers, a fixed step (not counting where it
+        // started: a float stepped there and back may sit a little off, 0.41218 for 0.41239)
+        const nums = out.slice(-3).map((s) => asNumber(s.value)), d = nums[1] - nums[0];
+        if (d && nums.every((n, i) => !isNaN(n) && (!i || Math.abs(n - nums[i - 1] - d) < Math.abs(d) * 1e-3))) step = d;
       }
       if (step) {
         let screen = await pressMany(way, BATCH * stride);
@@ -447,10 +448,13 @@
       }
       const way = want > a ? 'right' : 'left', one = valueOf(await press(way)), d = Math.abs(asNumber(one) - a);
       if (!d) break; // it doesn't move
-      const n = Math.round(Math.abs(want - asNumber(one)) / d);
-      now = n ? valueOf(await pressMany(way, n)) : one;
+      now = one;
+      if (Math.abs(asNumber(now) - want) < d / 2) break; // as near as its steps get
+      const n = Math.round(Math.abs(want - asNumber(now)) / d);
+      if (n) now = valueOf(await pressMany(want > asNumber(now) ? 'right' : 'left', n));
+      if (Math.abs(asNumber(now) - want) < d / 2) break;
     }
-    const ok = same(now, value);
+    const ok = same(now, value) || Math.abs(asNumber(now) - want) < 1e-3 * Math.max(1, Math.abs(want));
     return (await goTo(home)) && ok;
   }
 

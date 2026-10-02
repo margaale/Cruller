@@ -142,9 +142,10 @@ const answered = (cmds, sent) => {
   return { ...respond(JSON.stringify({ ok: all, results: cmds.map((c, i) => ({ command: c, sent: !sent || sent[i], reply: !sent || sent[i] ? ['[COM] Serial Remote: x'] : [] })) })), ok: all, status: all ? 200 : 503 };
 };
 
-function rt4k(min, max, asksPast, live, lossy) {
+function rt4k(min, max, asksPast, live, lossy, scale) {
   const s = { v: 0, counter: 0, keys: 0, requests: 0, box: false, oks: 0, lost: 0 };
-  const label = () => ' • Top Trim:          ' + (s.v >= 0 ? '+' : '') + s.v + (live ? ' (Rmax: ' + (30 + (s.reads || 0) % 8) + ')' : '');
+  const shown = () => (scale ? (s.v >= 0 ? '+' : '') + (s.v * scale).toFixed(5) : (s.v >= 0 ? '+' : '') + s.v);
+  const label = () => ' • Top Trim:          ' + shown() + (live ? ' (Rmax: ' + (30 + (s.reads || 0) % 8) + ')' : '');
   s.fetch = async (url, o) => {
     if (url === '/rt4k/xfer?cmd=osd') {
       s.reads = (s.reads || 0) + 1;
@@ -275,6 +276,16 @@ async function lossy() {
   check(sim.lost > 10 && sim.v === 0 && rec.min === -200 && rec.max === 200, 'its ends and back with keys lost: ' + JSON.stringify([sim.lost, sim.v, rec.min, rec.max, rec.backNote]));
 }
 
+// A float a little off where it starts (0.00021 from its steps, as the colour matrix after a walk): the
+// step still found from the steps taken, eight keys at a time; and back as near as its steps get.
+async function drift() {
+  const sim = rt4k(-3000, 3000, undefined, false, 0, 0.001), w = on(sim);
+  await w.mapSetting(['Color Correction Setup'], { label: 'Top Trim', value: '+0.00021' });
+  const rec = w.st.results[0];
+  check(sim.v === 0 && rec.min === -3 && rec.max === 3 && sim.requests < 1700, 'stepped by 0.001 from 0.00021 off: ' + JSON.stringify([sim.v, rec.min, rec.max, sim.requests]));
+  check(w.st.log.some((l) => /came back to \+0\.00000: put back to \+0\.00021/.test(l[0])), 'as near as it gets: ' + JSON.stringify(w.st.log.map((l) => l[0]).slice(-2)));
+}
+
 // A reading in brackets that moves on its own (the ADC's gains: "1.000 (Rmax: 30)"): not a step.
 async function live() {
   check(m.same('1.000 (Rmax: 30)', '1.000 (Rmax: 37)') && m.same('-0.00', '0.00') && !m.same('Auto (PAL)', 'Auto (NTSC)') && !m.same('1.004', '1.000'), 'the same value shown');
@@ -316,7 +327,7 @@ async function movesAnother() {
   check(w.st.log.some((l) => /Native Sampling moved Samples per Line to 3509 .*: put back to 1716/.test(l[0])), 'said so: ' + JSON.stringify(w.st.log.map((l) => l[0])));
 }
 
-walked().then(asked).then(long).then(live).then(movesAnother).then(lossy).then(() => {
+walked().then(asked).then(long).then(live).then(movesAnother).then(lossy).then(drift).then(() => {
   console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
   process.exit(failures ? 1 : 0);
 }, (e) => {
