@@ -67,6 +67,7 @@
     dir: svg('<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>', true),
     prof: svg('<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>'),
     copy: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>'),
+    edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   };
 
   // --- Cruller ----------------------------------------------------------------------------------------
@@ -178,7 +179,8 @@
       const on = sameLoaded(path);
       const act = (on ? '<span class="pill on">Loaded</span>' :
         '<button class=pfload data-p="' + esc(path) + '"' + off + ' aria-label="Load ' + esc(plain(e.name)) + '">' + (busy === path ? 'Loading…' : 'Load') + '</button>') +
-        '<button class="ib pfcopy" data-n="' + esc(e.name) + '"' + off + ' title="Copy" aria-label="Copy ' + esc(plain(e.name)) + '">' + ICON.copy + '</button>';
+        '<button class="ib pfcopy" data-n="' + esc(e.name) + '"' + off + ' title="Copy" aria-label="Copy ' + esc(plain(e.name)) + '">' + ICON.copy + '</button>' +
+        '<a class="ib pfedit" href="#rt4k/editor/' + path.split('/').map(encodeURIComponent).join('/') + '" title="Edit" aria-label="Edit ' + esc(plain(e.name)) + '">' + ICON.edit + '</a>';
       return '<tr' + (on ? ' class=cur' : '') + '><td class=n title="' + esc(e.name) + '"><span class=fn><span class="ico f">' + ICON.prof + '</span>' +
         '<span class=nm>' + esc(plain(e.name)) + '</span></span></td><td class=act>' + act + '</td></tr>';
     }).join('');

@@ -66,7 +66,7 @@ function route() {
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
   document.querySelectorAll('nav.tabs a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.tab === tab));
-  const view = ['firmware', 'profiles', 'sd'].includes(sub) ? sub : 'live';
+  const view = ['firmware', 'profiles', 'sd', 'editor'].includes(sub) ? sub : 'live';
   document.querySelectorAll('[data-subview]').forEach((e) => { e.hidden = e.dataset.subview !== view; });
   document.querySelectorAll('.sub a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.sub === view));
   $('chip-rt4k').hidden = tab !== 'rt4k';
@@ -74,6 +74,7 @@ function route() {
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
   if (tab === 'rt4k' && view === 'profiles' && window.profOpen) window.profOpen(rest); // rest: the folder under /profile (profiles.js)
+  if (tab === 'rt4k' && view === 'editor' && window.peOpen) window.peOpen(rest); // rest: a profile's path under /profile (editor.js)
   if (tab === 'rt4k' && view === 'live') fit();
   if (tab === 'svs' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
   tellVisibility();
@@ -94,6 +95,7 @@ function st(s) {
   if (window.sdStatus) window.sdStatus(s); // the SD card view reads the folder again once the RT4K is on
   if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power
   if (window.profStatus) window.profStatus(s); // profiles: read again once the RT4K is on, the loaded one now and then
+  if (window.peStatus) window.peStatus(s); // the editor: the RT4K's power and firmware
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;
   // Its firmware as it last said it, which Cruller keeps while it sleeps.
