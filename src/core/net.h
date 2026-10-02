@@ -1,4 +1,5 @@
-// Wi-Fi: station mode with stored credentials, falling back to a setup access point.
+// Wi-Fi: station mode with stored credentials, falling back to a setup access point, which keeps
+// trying the stored network and restarts on it once it's back.
 
 #pragma once
 

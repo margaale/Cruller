@@ -156,7 +156,7 @@ Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (millis
 ## Networking
 
 - **Provisioning:** an access point with DHCP and DNS captive portal, listing nearby networks.
-- **Station:** join with a timeout, reconnect in the background, and fall back to the portal after repeated failures. Never block forever.
+- **Station:** join with a timeout, reconnect in the background, and fall back to the portal after repeated failures. Never block forever: the portal tries the saved network every minute (every 10 with a phone on it) and restarts on it once it's back, since after a power cut the router can take longer to boot than Cruller.
 - **mDNS:** `cruller.local`.
 - **Health:** gateway pings every 2 s; no reply for 10 s stops feeding the watchdog (the network can die while everything else runs). To be made configurable.
 

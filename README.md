@@ -268,8 +268,10 @@ and install it again.
 - **The RT4K shows as "Standby".** It's asleep: **Turn the RT4K on** (on the screen, in the SD card
   view) or the power key on the page's remote wakes it. Reading the SD card and writing an update to
   it need it on.
-- **`Cruller_Setup` appeared again.** Cruller couldn't join your network when it started (the router
-  was off, say) and waits in setup mode. Restart it once the network is back, or set it up again.
+- **`Cruller_Setup` appeared again.** Cruller couldn't join your network when it started (after a
+  power cut the router can take longer to boot than Cruller). It tries your network again every
+  minute and restarts on it once it's back; while a phone is on `Cruller_Setup`, only every 10
+  minutes, so it doesn't get in the way of setting it up again.
 - **An update from GitHub failed.** The page says why and offers the image to download, so you can
   install it with **Install from a file…**.
 
