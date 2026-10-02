@@ -140,7 +140,7 @@
 {"path":"RetroTINK-4K Pro Advanced Menu › Sample Rate Detection","section":"Interlaced Detection","label":"Enable 1/6","bytes":[[7093,1]],"values":[["Off","00"],["On","01"]],"round":true},
 {"path":"RetroTINK-4K Pro Advanced Menu › Sample Rate Detection","section":"Interlaced Detection","label":"Enable 1/5","bytes":[[7094,1]],"values":[["Off","00"],["On","01"]],"round":true},
 {"path":"RetroTINK-4K Pro Advanced Menu › Sample Rate Detection","section":"Interlaced Detection","label":"Enable 1/4","bytes":[[7095,1]],"values":[["Off","00"],["On","01"]],"round":true},
-{"path":"RetroTINK-4K Pro Advanced Menu › Sample Rate Detection","section":"LumaCode","label":"Enable","bytes":[[9124,1]],"values":[["Off","00"],["Pend. Config","01"]],"round":true},
+{"path":"RetroTINK-4K Pro Advanced Menu › Sample Rate Detection","section":"LumaCode","label":"Enable","bytes":[[9124,1]],"values":[["On (AGC)","01"],["On (Manual)","02"],["Off","00"]],"round":true},
 {"path":"RetroTINK-4K Pro Advanced Menu › RGB/Component ADC Setup","label":"Decimation Phase","bytes":[[3705,1]],"values":[["1 of 5","00"],["2 of 5","01"],["3 of 5","02"],["4 of 5","03"],["5 of 5","04"]],"round":true},
 {"path":"RetroTINK-4K Pro Advanced Menu › Color Correction Setup","label":"Xo[Rin]","bytes":[[7712,4]],"values":[["-5.00000","0000a0c0"],["+0.40918","d27fd13e"],["+0.41018","e402d23e"],["+0.41118","f685d23e"],["+0.41218","0809d33e"],["+0.41318","1a8cd33e"],["+0.41418","2c0fd43e"],["+0.41518","3e92d43e"],["+5.00000","0000a040"]],"min":-5,"max":5,"step":0.001},
 {"path":"RetroTINK-4K Pro Advanced Menu › HDMI• Receiver Setup","label":"Output Pixels","bytes":[[6152,1]],"values":[["1","01"],["2","02"],["3","03"],["4","04"]],"min":1,"max":4,"step":1,"round":true},
@@ -153,6 +153,8 @@
 {"path":"RetroTINK-4K Pro Main Menu › HDMI• Output","label":"VRR","bytes":[[604,1]],"values":[["Off","00"],["FreeSync Injection","01"],["VESA Injection","02"]],"round":true},
 {"path":"RetroTINK-4K Pro Main Menu › HDMI• Output","label":"Deep Color","bytes":[[596,1]],"values":[["Off","00"],["On","01"]],"round":true,"asks":"Confirm 3840x2160p60.00? Deep Color"},
 {"path":"RetroTINK-4K Pro Advanced Menu › Black Frame Insertion Setup","label":"Strobe","bytes":[[616,1],[680,1]],"values":[["Off","00|00"],["1","01|01"]],"round":true,"asks":"Warning! Flicker may induce epilepsy. Proceed at your own risk!!"},
-{"path":"RetroTINK-4K Pro Advanced Menu › Black Frame Insertion Setup","label":"LCD Saver","bytes":[[740,1]],"values":[["1 min.","00"],["5 min.","01"],["10 min.","02"],["Off","03"]],"round":true}
+{"path":"RetroTINK-4K Pro Advanced Menu › Black Frame Insertion Setup","label":"LCD Saver","bytes":[[740,1]],"values":[["1 min.","00"],["5 min.","01"],["10 min.","02"],["Off","03"]],"round":true},
+{"path":"RetroTINK-4K Pro Advanced Menu › Sample Rate Detection","label":"Word Trim","bytes":[[9126,1]],"values":[["+0","00"],["+1","01"],["-1","ff"]],"min":-1,"max":1,"step":1,"round":true},
+{"path":"RetroTINK-4K Pro Main Menu","label":"Input Source","bytes":[[22505,1]],"values":[["HDMI","00"],["RCA/YPbPr","07"],["SCART/RGBS","0c"],["HD15/RGBS","15"],["HD15/YPbPr","17"],["HD15/CVBS on G","19"]]}
 ]}
 ]}
