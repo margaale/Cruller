@@ -105,10 +105,12 @@ check(JSON.stringify(m.compact(rec)) === '{"path":"Advanced › Scaling/Crop Set
 // keys through /api/v1/command, one or several; the menu and the settings as the RT4K sends them. asks: a
 // change past asksPast asks first (a box until back or ok; ok goes on).
 
-function rt4k(min, max, asksPast) {
+const respond = (body, headers = {}) => ({ ok: true, status: 200, headers: { get: (h) => headers[h] || null }, arrayBuffer: async () => body.buffer, json: async () => JSON.parse(body), text: async () => String(body) });
+const answered = (cmds) => respond(JSON.stringify({ ok: true, results: cmds.map((c) => ({ command: c, sent: true, reply: ['[COM] Serial Remote: x'] })) }));
+
+function rt4k(min, max, asksPast, live) {
   const s = { v: 0, counter: 0, keys: 0, requests: 0, box: false, oks: 0 };
-  const label = () => ' • Top Trim:          ' + (s.v >= 0 ? '+' : '') + s.v;
-  const respond = (body, headers = {}) => ({ ok: true, status: 200, headers: { get: (h) => headers[h] || null }, arrayBuffer: async () => body.buffer, json: async () => JSON.parse(body), text: async () => String(body) });
+  const label = () => ' • Top Trim:          ' + (s.v >= 0 ? '+' : '') + s.v + (live ? ' (Rmax: ' + (30 + (s.reads || 0) % 8) + ')' : '');
   s.fetch = async (url, o) => {
     if (url === '/rt4k/xfer?cmd=osd') {
       s.reads = (s.reads || 0) + 1;
@@ -141,7 +143,40 @@ function rt4k(min, max, asksPast) {
         if (c === 'remote left') s.v = Math.max(min, s.v - 1);
         if (s.v !== before) s.counter++;
       }
-      return respond(JSON.stringify({ ok: true, results: cmds.map((c) => ({ command: c, sent: true, reply: ['[COM] Serial Remote: x'] })) }));
+      return answered(cmds);
+    }
+    throw new Error('no ' + url);
+  };
+  return s;
+}
+
+// The ADC's two lines: Native Sampling turned on sets Samples per Line (3509), and turned off leaves it.
+function adc() {
+  const s = { spl: 1716, ns: false, cur: 1 };
+  s.fetch = async (url, o) => {
+    if (url === '/rt4k/xfer?cmd=osd') {
+      const p = plane([['RGB/Component ADC Setup', false], ['', false], [' • Samples per Line:  ' + s.spl + ' (1440 Act.)', s.cur === 0], [' • Native Sampling:   ' + (s.ns ? 'On' : 'Off'), s.cur === 1]]);
+      return respond(p.data, { 'X-Ready': p.ready });
+    }
+    if (url === '/rt4k/xfer?cmd=sget') {
+      const d = new Uint8Array(22876);
+      d[0xcf8] = (s.spl - 1716) & 255;
+      d[0xcf9] = ((s.spl - 1716) >> 8) & 255;
+      d[0x23a0] = s.ns ? 1 : 0;
+      return respond(d, { 'X-Ready': 'sget ready size=22876 ver=109 nonce=0x1' });
+    }
+    if (url === '/api/v1/command') {
+      const b = JSON.parse(o.body), cmds = b.commands || [b.command];
+      for (const c of cmds) {
+        if (c === 'remote down' || c === 'remote up') s.cur = 1 - s.cur;
+        else if (s.cur === 0 && c === 'remote right') s.spl = Math.min(4095, s.spl + 1);
+        else if (s.cur === 0 && c === 'remote left') s.spl = Math.max(1024, s.spl - 1);
+        else if (s.cur === 1 && (c === 'remote right' || c === 'remote left')) {
+          s.ns = !s.ns;
+          if (s.ns) s.spl = 3509;
+        }
+      }
+      return answered(cmds);
     }
     throw new Error('no ' + url);
   };
@@ -188,6 +223,16 @@ async function long() {
   check(sim.reads < 120, 'up to 64 keys between reads: ' + sim.reads + ' reads');
 }
 
+// A reading in brackets that moves on its own (the ADC's gains: "1.000 (Rmax: 30)"): not a step.
+async function live() {
+  check(m.same('1.000 (Rmax: 30)', '1.000 (Rmax: 37)') && m.same('-0.00', '0.00') && !m.same('Auto (PAL)', 'Auto (NTSC)') && !m.same('1.004', '1.000'), 'the same value shown');
+  const sim = rt4k(-50, 50, undefined, true);
+  const w = on(sim);
+  await w.mapSetting(['RGB/Component ADC Setup'], { label: 'Top Trim', value: '+0 (Rmax: 30)' });
+  const rec = w.st.results[0];
+  check(sim.v === 0 && rec.min === -50 && rec.max === 50 && !rec.backNote, 'a moving reading walked by its number: ' + JSON.stringify([sim.v, rec.min, rec.max, rec.backNote]));
+}
+
 // A setting that asks first: right away (none of it walked), and past +2 (up to it walked).
 async function asked() {
   let sim = rt4k(0, 300, 0), w = on(sim);
@@ -210,7 +255,15 @@ async function asked() {
   check(!sim.box && sim.oks === 0 && sim.v === 0 && rec.max === 20 && /^past \+20 it asks/.test(rec.backNote), 'the box in a batch: ' + JSON.stringify([sim.box, sim.oks, sim.v, rec.max, rec.backNote]));
 }
 
-walked().then(asked).then(long).then(() => {
+// A setting that moves another on its menu: the other put back, the cursor back on it.
+async function movesAnother() {
+  const sim = adc(), w = on(sim);
+  await w.mapSetting(['RGB/Component ADC Setup'], { label: 'Native Sampling', value: 'Off' });
+  check(!sim.ns && sim.spl === 1716 && sim.cur === 1, 'Samples per Line put back, the cursor on Native Sampling: ' + JSON.stringify(sim));
+  check(w.st.log.some((l) => /Native Sampling moved Samples per Line to 3509 .*: put back to 1716/.test(l[0])), 'said so: ' + JSON.stringify(w.st.log.map((l) => l[0])));
+}
+
+walked().then(asked).then(long).then(live).then(movesAnother).then(() => {
   console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
   process.exit(failures ? 1 : 0);
 }, (e) => {

@@ -79,6 +79,10 @@
   // explanation; "+-100", the TW9912's negatives); NaN when it isn't one.
   const asNumber = (v) => { const m = /^([+-]?\d+(?:\.\d+)?)\s*[a-z%]*(?:\s*\(.*\))?$/i.exec(String(v).trim().replace(/^\+-/, '-')); return m ? +m[1] : NaN; };
 
+  // Whether two values shown are the same: numbers by their number (the brackets may hold a reading that
+  // moves on its own: "1.000 (Rmax: 30)", then "(Rmax: 37)"; "-0.00" is 0.00), the rest as shown.
+  const same = (a, b) => a === b || (!isNaN(asNumber(a)) && asNumber(a) === asNumber(b));
+
   // A setting's values as numbers: its min, max and step; null when any isn't one.
   function numeric(list) {
     const n = (list || []).map(asNumber);
@@ -348,11 +352,11 @@
         continue;
       }
       let v = valueOf(await press(way, true));
-      if (v === prev) v = valueOf(await press(null)); // read settled: its end, or just slow?
+      if (same(v, prev)) v = valueOf(await press(null)); // read settled: its end, or just slow?
       if (v === null && (asks = dialogOf(await press(null)))) await press('back');
-      if (v === prev || v === null) break;
+      if (same(v, prev) || v === null) break;
       steps++;
-      if (v === from) return { values: out, steps, round: true };
+      if (same(v, from)) return { values: out, steps, round: true };
       out.push({ value: v, snap: out.length < snaps ? await snap() : null });
       prev = v;
     }
@@ -367,12 +371,49 @@
     else for (let i = 0; i < n; i++) await press(way, true);
   }
 
+  // The settings on the menu on screen: label -> value shown.
+  const valuesOn = (screen) => new Map(screen.rows.map((r) => parseLine(r.text)).filter((l) => l.value !== null).map((l) => [l.label, l.value]));
+
+  // The menu line label put back to value (another setting moved it: Native Sampling sets Samples per
+  // Line, and leaves it there turned off), then the cursor back on home. There with down (the menu goes
+  // round); a number one key to learn its step, then the rest at once; a list round to it. False if not.
+  async function putBack(label, value, home) {
+    const goTo = async (to) => {
+      for (let i = 0; i < 48; i++) {
+        const s = await press(null);
+        if (s.selected && parseLine(s.selected.text).label === to) return true;
+        await press('down', true);
+      }
+      return false;
+    };
+    if (!(await goTo(label))) return false;
+    let now = valueOf(await press(null));
+    const want = asNumber(value);
+    for (let i = 0; i < 64 && !same(now, value); i++) {
+      const a = asNumber(now);
+      if (isNaN(a) || isNaN(want)) {
+        const next = valueOf(await press('right'));
+        if (same(next, now)) break; // it doesn't move: a reading
+        now = next;
+        continue;
+      }
+      const way = want > a ? 'right' : 'left', one = valueOf(await press(way)), d = Math.abs(asNumber(one) - a);
+      if (!d) break; // it doesn't move
+      const n = Math.round(Math.abs(want - asNumber(one)) / d);
+      now = n ? valueOf(await pressMany(way, n)) : one;
+    }
+    const ok = same(now, value);
+    return (await goTo(home)) && ok;
+  }
+
   // One setting, selected on screen: one step and back; with "all", to both its ends (or round) and back,
-  // its values listed (min, max and step when they're numbers), the bytes of up to 16 and the ends.
+  // its values listed (min, max and step when they're numbers), the bytes of up to 16 and the ends. The
+  // menu's other settings it moved are put back.
   async function mapSetting(path, it) {
     const rec = { path, label: it.label, values: [], ranges: [] };
     st.results.push(rec);
     const all = opts().all, limit = all ? 400 : 1, snaps = all ? 16 : 1;
+    const shown = valuesOn(await press(null));
     const before = await snap();
     const right = await walk('right', it.value, limit, snaps);
     if (!right.round) await stepBack('left', right.steps);
@@ -382,10 +423,17 @@
       if (!left.round) await stepBack('right', left.steps);
     }
     const back = valueOf(await press(null));
+    for (const [l, v] of valuesOn(await press(null))) {
+      if (l === it.label || !shown.has(l) || same(v, shown.get(l)) || RISKY.test(l)) continue;
+      const other = st.results.find((r) => r.label === l && r.path.join('\n') === path.join('\n'));
+      if (other && /did not change/.test(other.backNote || '')) continue; // a reading (the audio levels)
+      const ok = await putBack(l, shown.get(l), it.label);
+      log(it.label + ' moved ' + l + ' to ' + v + ': ' + (ok ? 'put back to ' : 'could not put it back to ') + shown.get(l), !ok);
+    }
     const after = await snap();
     if (st.stop) { // half walked: left out, so a run again maps it whole
       st.results.pop();
-      if (back !== it.value) log(it.label + ' did not come back: ' + back + ', was ' + it.value, true);
+      if (!same(back, it.value)) log(it.label + ' did not come back: ' + back + ', was ' + it.value, true);
       return showResults();
     }
     const asks = right.asks || left.asks;
@@ -403,7 +451,7 @@
     rec.values = order.filter((s) => s.snap).map((s) => ({ value: s.value, at: takeAt(s.snap, rec.ranges) }));
     rec.leftover = diff(before, after);
     if (asks) rec.backNote = 'past ' + rec.list[asks === left.asks ? 0 : rec.list.length - 1] + ' it asks first, cancelled: "' + asks + '"';
-    if (back !== it.value) rec.backNote = 'did not come back: ' + back + ', was ' + it.value;
+    if (!same(back, it.value)) rec.backNote = 'did not come back: ' + back + ', was ' + it.value;
     if (!all) delete rec.list;
     showResults();
     log(path.join(' › ') + ' › ' + it.label + ': ' + valuesText(rec).slice(0, 160), !!rec.note);
@@ -533,6 +581,6 @@
   }
 
   if (typeof document !== 'undefined' && document.getElementById) build();
-  window.mapperInternals = { fields, readPlane, parseLine, dialogOf, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
+  window.mapperInternals = { fields, readPlane, parseLine, dialogOf, same, diff, union, bytesAt, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
     walk, mapSetting, st, opts: (o) => { optsOverride = o; }, sleepless: () => { sleepMs = 0; } };
 })();
