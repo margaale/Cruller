@@ -194,7 +194,7 @@
     c.label = r.label;
     if (r.own && r.own.length) {
       c.bytes = r.own.map((g) => [g.off, g.len]);
-      c.values = r.values.filter((v) => v.at).map((v) => [v.value, hexAt(v.at, r.own).replace(/ /g, '')]);
+      c.values = r.values.filter((v) => v.at).map((v) => [v.value, hexAt(v.at, r.own).replace(/ /g, '')]).filter(([, hex]) => !/\?/.test(hex)); // (bytes not seen)
     }
     if (r.min !== undefined) Object.assign(c, { min: r.min, max: r.max, step: r.step });
     if (r.round) c.round = true;
