@@ -45,6 +45,7 @@
 #define RECV_TIMEOUT_MS     15000
 #define HEADER_MAX          1536
 #define BODY_CHUNK          1024
+#define RT4K_SETTINGS_MAX   24576 // sget: the live settings (22876 bytes on firmware 1.9x), with room to grow
 
 static volatile bool listening = false;
 bool http_listening(void) { return listening; }
@@ -83,9 +84,9 @@ static union {
     } debug_tasks;
     char debug_memory[2048];
     struct {
-        uint8_t buf[4096];
+        uint8_t buf[RT4K_SETTINGS_MAX];
         rtl1_info_t info;
-    } xfer;                     // /rt4k/xfer
+    } xfer;                     // /rt4k/xfer: an OSD plane, the font, or the live settings (sget)
     char stream[2048];          // /log, /rt4k/rx
     form_t form;                // /rt4k/cmd, /rt4k/ask, /wifi, /settings
     raw_t raw;                  // /debug/raw, POST /setup
@@ -152,6 +153,10 @@ extern const unsigned char web_sd_js[];
 extern const size_t web_sd_js_len;
 extern const unsigned char web_profiles_js[];
 extern const size_t web_profiles_js_len;
+extern const unsigned char web_mapper_js[];
+extern const size_t web_mapper_js_len;
+extern const unsigned char web_rt4k_settings_json[]; // where each RT4K setting lives, per firmware (mapper.js)
+extern const size_t web_rt4k_settings_json_len;
 extern const unsigned char web_app_js[];
 extern const size_t web_app_js_len;
 extern const unsigned char web_index_html[];
@@ -492,8 +497,9 @@ static void handle_ws(request_t *r, bool events, const char *query) {
     r->adopted = ws_adopt(r->fd, events, types);
 }
 
-// GET /rt4k/xfer?cmd=osd|osd2|font: one RTL1 transfer, verified (CRC, sequence, SHA-256), as the
-// raw payload; the RT4K's ready line comes back in X-Ready.
+// GET /rt4k/xfer?cmd=osd|osd2|font|sget: one RTL1 transfer, verified (CRC, sequence, SHA-256), as the
+// raw payload; the RT4K's ready line comes back in X-Ready. sget: the settings it runs on now, a profile
+// without its 128-byte header ("sget ready size=22876 ver=..." on 1.9x).
 static void handle_rt4k_xfer(int fd, const char *query) {
     const char *c = query ? strstr(query, "cmd=") : NULL;
     char cmd[16] = "";
@@ -503,8 +509,8 @@ static void handle_rt4k_xfer(int fd, const char *query) {
         memcpy(cmd, c + 4, n);
         cmd[n] = 0;
     }
-    if (strcmp(cmd, "osd") && strcmp(cmd, "osd2") && strcmp(cmd, "font")) {
-        respond(fd, 400, "Bad Request", "text/plain", "cmd must be osd, osd2 or font\n");
+    if (strcmp(cmd, "osd") && strcmp(cmd, "osd2") && strcmp(cmd, "font") && strcmp(cmd, "sget")) {
+        respond(fd, 400, "Bad Request", "text/plain", "cmd must be osd, osd2, font or sget\n");
         return;
     }
     rtl1_info_t *const info = &scratch.xfer.info;
@@ -1289,8 +1295,12 @@ static void handle_api_command(request_t *r) {
         len += (size_t)snprintf(b->results + len, sizeof(b->results) - len, "],\"sent\":%s}", sent ? "true" : "false");
         all_sent &= sent;
     }
-    snprintf(b->out, sizeof(b->out), "{\"ok\":%s,\"power\":\"%s\",\"results\":[%s]}", all_sent ? "true" : "false",
-        power_state_name(power_state()), b->results);
+    // results moved, not printed: GCC 15 can't tell two members of the shared buffers apart (-Wrestrict)
+    const int n = snprintf(b->out, sizeof(b->out), "{\"ok\":%s,\"power\":\"%.16s\",\"results\":[",
+        all_sent ? "true" : "false", power_state_name(power_state()));
+    const size_t rlen = strnlen(b->results, sizeof(b->results) - 1);
+    memmove(b->out + n, b->results, rlen);
+    memcpy(b->out + n + rlen, "]}", 3);
     respond(r->fd, all_sent ? 200 : 503, all_sent ? "OK" : "Service Unavailable", "application/json", b->out);
 }
 
@@ -1571,6 +1581,8 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/fw.js")) respond_asset(r->fd, "application/javascript", web_fw_js, web_fw_js_len);
     else if (get && !strcmp(r->path, "/sd.js")) respond_asset(r->fd, "application/javascript", web_sd_js, web_sd_js_len);
     else if (get && !strcmp(r->path, "/profiles.js")) respond_asset(r->fd, "application/javascript", web_profiles_js, web_profiles_js_len);
+    else if (get && !strcmp(r->path, "/mapper.js")) respond_asset(r->fd, "application/javascript", web_mapper_js, web_mapper_js_len);
+    else if (get && !strcmp(r->path, "/rt4k_settings.json")) respond_asset(r->fd, "application/json", web_rt4k_settings_json, web_rt4k_settings_json_len);
     else if (get && !strcmp(r->path, "/app.js")) respond_asset(r->fd, "application/javascript", web_app_js, web_app_js_len);
     else if (get && !strcmp(r->path, "/status")) handle_status(r->fd);
     else if (get && !strcmp(r->path, "/log")) handle_stream(r->fd, query, log_read);
