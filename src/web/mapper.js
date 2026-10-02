@@ -127,8 +127,8 @@
 
   // Each setting's own bytes, and those it shares with others (worked out from settings, a scaler's
   // factors...): a byte that changed for more than one setting is shared. A setting left without any
-  // owns those it shares with just one other: one setting in two menus (the ADC's Decimation Factor, the
-  // HDMI receiver's Input Pixels), or one another sets (Native Sampling, Samples per Line). What's
+  // owns those it shares with the fewest others: one setting in two menus (the ADC's Decimation Factor,
+  // the HDMI receiver's Input Pixels), or one another sets (Native Sampling, Samples per Line). What's
   // volatile (readings) is no setting's own. Sets own and shared on each.
   function split(records) {
     const count = new Map();
@@ -150,7 +150,7 @@
     for (const r of records) {
       const bytes = [];
       for (const g of r.ranges || []) for (let i = g.off; i < g.off + g.len; i++) bytes.push(i);
-      const n = bytes.some((i) => count.get(i) === 1) ? 1 : 2;
+      const n = Math.min(...bytes.map((i) => count.get(i)).filter(isFinite), 99);
       r.own = ranges(bytes.filter((i) => count.get(i) <= n));
       r.shared = ranges(bytes.filter((i) => count.get(i) > n));
     }
