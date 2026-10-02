@@ -834,14 +834,25 @@ static size_t body_read(void *ctx, uint8_t *buf, size_t max) {
 
 // A path on the RT4K's SD card, relative to its root: no control characters, so it stays one console
 // line (spaces and brackets are fine: firmware zips have "lumacode/NES/PVM Style D93 (FBX).lmc", and
-// so are UTF-8 names), no "..", no backslash, no leading '/'.
-static bool sd_path_ok(const char *p) {
-    if (!*p || *p == '/' || strstr(p, "..")) return false;
+// so are UTF-8 names), no "..", no backslash. A leading '/' is taken off ("/profile/x.rt4" is
+// "profile/x.rt4"), in place.
+static bool sd_path_ok(char *p) {
+    const size_t lead = strspn(p, "/");
+    if (lead) memmove(p, p + lead, strlen(p + lead) + 1);
+    if (!*p || strstr(p, "..")) return false;
     for (; *p; p++) {
         const unsigned char c = (unsigned char)*p;
         if (c < 0x20 || c == 0x7f || c == '\\') return false;
     }
     return true;
+}
+
+// A refused upload's body read and dropped (up to 256 KB) before the answer: closing with it unread
+// resets the connection, and the client sees that instead of why.
+static void drop_body(request_t *r) {
+    body_reader_t reader = {r, r->content_length < 256 * 1024 ? r->content_length : 256 * 1024, 0};
+    uint8_t buf[512];
+    while (body_read(&reader, buf, sizeof(buf))) {}
 }
 
 // POST /rt4k/put?path=<sd path>&sha=<sha256 hex>: writes the body to the RT4K's SD card.
@@ -850,6 +861,7 @@ static void handle_rt4k_put(request_t *r, const char *query) {
     if (!query || !form_field(query, "path", path, sizeof(path)) || !sd_path_ok(path) ||
         !form_field(query, "sha", sha, sizeof(sha)) || strlen(sha) != 64 || strspn(sha, "0123456789abcdefABCDEF") != 64 ||
         r->content_length <= 0) {
+        drop_body(r);
         respond(r->fd, 400, "Bad Request", "text/plain", "Need ?path=<file>&sha=<sha256 hex> and the file as the body\n");
         return;
     }
@@ -946,10 +958,11 @@ static void ls_line(const char *line, void *ctx) {
 static void handle_rt4k_ls(request_t *r, const char *query) {
     char dir[SD_PATH_MAX + 1] = "";
     const bool given = query && strstr(query, "dir=");
-    if (given && (!form_field(query, "dir", dir, sizeof(dir)) || (dir[0] && !sd_path_ok(dir)))) {
+    if (given && (!form_field(query, "dir", dir, sizeof(dir)) || (dir[strspn(dir, "/")] && !sd_path_ok(dir)))) {
         respond(r->fd, 400, "Bad Request", "text/plain", "Need ?dir=<folder on the SD card>\n");
         return;
     }
+    if (!dir[strspn(dir, "/")]) dir[0] = 0; // "/": the root
     ls_t l = {.size = LS_BUF};
     l.buf = pvPortMalloc(LS_BUF);
     if (!l.buf) {
