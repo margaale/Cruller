@@ -37,6 +37,22 @@ check(e.parseProfile(new Uint8Array(200)) === null, 'not a profile');
 const two = { maps: [{ firmware: '1.92.0' }, { firmware: '1.100.0' }] };
 check(e.mapFor(two, '1.92.0').firmware === '1.92.0' && e.mapFor(two, '1.93.0').firmware === '1.100.0', 'the map for a firmware');
 
+// A setting kept per input mode: element k at its first byte + k * stride; written there alone.
+const trim = { label: 'Top Trim', bytes: [[0x524, 2]], each: { by: 'mode', count: 128, stride: 2 }, min: -4096, max: 4096, step: 1, values: [['-3', 'fdff'], ['+0', '0000'], ['+3', '0300']] };
+const [tc] = e.codecs([trim]);
+check(JSON.stringify(e.bytesAt(trim, 1)) === '[[1318,2]]' && JSON.stringify(e.bytesAt(trim, 0)) === '[[1316,2]]', 'element 1 two bytes on');
+const mb = new Uint8Array(22876);
+e.encode(trim, tc, mb, 10, 1);
+check(mb[0x526] === 10 && mb[0x524] === 0 && e.decode(trim, tc, mb, 1).value === 10 && e.decode(trim, tc, mb, 0).value === 0, 'written in mode 1 only, read back there');
+check(JSON.stringify(e.modesUsed([trim], mb)) === '[1]', 'the modes a profile has settings for: ' + JSON.stringify(e.modesUsed([trim], mb)));
+
+// The map's arrays: inside the body, and none running into another (only one field in two menus shares one).
+for (const m of doc.maps) {
+  const arr = m.settings.filter((s) => s.each).map((s) => [s.bytes[0][0], s.bytes[0][0] + s.each.count * s.each.stride, s.label]).sort((a, b) => a[0] - b[0]);
+  const bad = arr.filter((a, k) => (k && a[0] < arr[k - 1][1] && a[0] !== arr[k - 1][0]) || a[1] > m.size);
+  check(arr.length > 20 && !bad.length, m.firmware + ': ' + arr.length + ' settings kept per mode or input, apart: ' + JSON.stringify(bad));
+}
+
 // Every setting of the shipped map: each value it saw written and read back; numbers at both ends.
 for (const m of doc.maps) {
   const codecs = e.codecs(m.settings);
