@@ -43,7 +43,7 @@ for (const m of doc.maps) {
   let numbers = 0, lists = 0, raw = 0;
   m.settings.forEach((s, i) => {
     const c = codecs[i], name = m.firmware + ' ' + s.path + ' › ' + (s.section ? s.section + ' › ' : '') + s.label;
-    if (c.type === 'raw') { raw++; return; }
+    if (c.type === 'raw') { if (!s.readonly) raw++; return; } // (readonly: shown, not edited: the device ID)
     const b = new Uint8Array(22876);
     if (c.type === 'list') {
       lists++;
