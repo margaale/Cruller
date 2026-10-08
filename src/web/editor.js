@@ -134,13 +134,33 @@
   const derived = ([off, len]) => off < 0xcc8 && off + len > 0xca8;
   const pick = (hex, parts) => { const p = hex.split('|'); return parts.map((k) => p[k]).join('|'); };
 
-  // The value a profile's body holds for a setting: a number, a list's value as shown, or null (bytes
-  // the map never saw, then hex says them).
-  function decode(setting, codec, body) {
+  // A setting kept once per input mode the RT4K detects (the trims, scaling, the ADC: 128) or per audio
+  // input port (8) has each: {by, count, stride}, its first element in bytes[0]. Its bytes for element el.
+  function bytesAt(setting, el) {
+    if (!setting.each || !el) return setting.bytes;
+    return setting.bytes.map(([o, l], i) => (i ? [o, l] : [o + el * setting.each.stride, l]));
+  }
+
+  // The input modes a profile has settings of its own for: those where any per-mode setting isn't 0.
+  function modesUsed(settings, body) {
+    const used = new Set();
+    for (const s of settings) {
+      if (!s.each || s.each.by !== 'mode') continue;
+      for (let el = 0; el < s.each.count; el++) {
+        const [o, l] = bytesAt(s, el)[0];
+        if (body.slice(o, o + l).some((b) => b)) used.add(el);
+      }
+    }
+    return [...used].sort((a, b) => a - b);
+  }
+
+  // The value a profile's body holds for a setting (for el, its element: mode or port): a number, a
+  // list's value as shown, or null (bytes the map never saw, then hex says them).
+  function decode(setting, codec, body, el = 0) {
     if (!setting.bytes) return { value: null, hex: '' };
-    const hex = hexOf(body, setting.bytes);
+    const bytes = bytesAt(setting, el), hex = hexOf(body, bytes);
     if (codec.type === 'number') {
-      const [off, len] = setting.bytes[0], f = codec.fit;
+      const [off, len] = bytes[0], f = codec.fit;
       const v = (readRaw(body, off, len, f.kind) - f.b) / f.a, d = decimals(codec.step);
       return { value: +v.toFixed(d), hex };
     }
@@ -154,10 +174,11 @@
   // Writes a value into the body (a copy is the caller's): a number within its range (an int to the
   // nearest the RT4K keeps, its step shown rounded: the ADC gains' 0.004 is 0.0039; a float to its step),
   // a list's value as shown. False when it can't.
-  function encode(setting, codec, body, value) {
+  function encode(setting, codec, body, value, el = 0) {
     if (codec.readonly) return false;
+    const bytes = bytesAt(setting, el);
     if (codec.type === 'number') {
-      const [off, len] = setting.bytes[0], f = codec.fit;
+      const [off, len] = bytes[0], f = codec.fit;
       let v = Math.min(codec.max, Math.max(codec.min, +value));
       if (isNaN(v)) return false;
       if (f.kind === 'f32') v = +(codec.min + Math.round((v - codec.min) / codec.step) * codec.step).toFixed(decimals(codec.step));
@@ -169,7 +190,7 @@
       if (!hit) return false;
       const parts = hit[1].split('|');
       for (const i of codec.parts) {
-        const [off, len] = setting.bytes[i];
+        const [off, len] = bytes[i];
         for (let k = 0; k < len; k++) body[off + k] = parseInt(parts[i].substr(k * 2, 2), 16);
       }
       return true;
@@ -208,7 +229,11 @@
       '<div id=pes class=small></div>' +
       '<div id=pem class=small></div>' +
       '<div id=pebody hidden><div class=row><input id=peq placeholder="Find a setting" class=grow autocomplete=off>' +
-      '<button id=peu>Undo the changes</button></div><div id=peg></div></div>' +
+      '<button id=peu>Undo the changes</button></div>' +
+      '<div class="row pesl"><label>Input mode <select id=pemode></select></label><label class=small><input type=checkbox id=peall> Change every mode</label>' +
+      '<label>Audio input <select id=peport></select></label></div>' +
+      '<div class=small>The RT4K keeps some settings apart for each input mode it detects (the trims, scaling, the ADC: <i>per mode</i>) ' +
+      'and for each audio input (<i>per input</i>): those show and change the one picked here.</div><div id=peg></div></div>' +
       '<div id=pe0 class=empty>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/profiles">Profiles</a> view.</div>' +
       '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. The settings ' +
       'and where they live come from mapping the RT4K\'s menus (Debug tab, Settings map).</div></div>';
@@ -222,11 +247,15 @@
     q('pesv').onclick = saveToSd;
     q('peu').onclick = () => { if (pf) { pf.body = pf.orig.slice(); render(); } };
     q('peq').oninput = () => { filter = q('peq').value.trim().toLowerCase(); render(); };
+    q('pemode').onchange = () => { if (pf) { pf.mode = +q('pemode').value; render(); } };
+    q('peport').onchange = () => { if (pf) { pf.port = +q('peport').value; render(); } };
     q('peg').onchange = (ev) => {
       const el = ev.target.closest('[data-i]');
       if (!el || !pf) return;
-      const i = +el.dataset.i;
-      if (!encode(map.settings[i], cs[i], pf.body, cs[i].type === 'number' ? +el.value : el.value)) status('That value can\'t be written.', true);
+      const i = +el.dataset.i, s = map.settings[i], v = cs[i].type === 'number' ? +el.value : el.value;
+      const every = s.each && s.each.by === 'mode' && q('peall').checked;
+      const els = every ? Array.from({ length: s.each.count }, (x, k) => k) : [elementOf(s)];
+      if (!els.every((k) => encode(s, cs[i], pf.body, v, k))) status('That value can\'t be written.', true);
       render();
     };
     addEventListener('beforeunload', (ev) => { if (changed() || busy) { ev.preventDefault(); ev.returnValue = ''; } });
@@ -234,8 +263,15 @@
 
   const label = (s) => (s.section ? s.section + ' › ' : '') + s.label;
 
+  // The audio input ports, as the input source's port byte says them (measured: HD-15 0, RCA 1, SCART 2,
+  // HDMI 4).
+  const PORTS = ['HD-15', 'RCA', 'SCART', 'Port 3', 'HDMI', 'Port 5', 'Port 6', 'Port 7'];
+  const PORT_AT = 0x57eb; // input_port, beside the input source (0x57e9) on struct ver 109
+
+  const elementOf = (s) => (!s.each ? 0 : s.each.by === 'mode' ? pf.mode : pf.port);
+
   function control(s, c, i) {
-    const d = decode(s, c, pf.body), off = busy || c.readonly ? ' disabled' : '';
+    const d = decode(s, c, pf.body, elementOf(s)), off = busy || c.readonly ? ' disabled' : '';
     if (c.type === 'number') {
       return '<input type=number data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' value="' + (d.value === null ? '' : d.value) + '"' + off + '>' +
         '<span class=small>' + c.min + ' to ' + c.max + '</span>';
@@ -258,6 +294,10 @@
     if (!has) return;
     q('pem').textContent = map ? 'Settings from firmware ' + map.firmware + '\'s map' + (fw && fw !== map.firmware ? ' (the RT4K runs ' + fw + ': same layout)' : '') + ' · ' +
       map.settings.length + ' settings' : '';
+    const used = modesUsed(map.settings, pf.body);
+    q('pemode').innerHTML = Array.from({ length: 128 }, (x, k) => k).sort((a, b) => (used.includes(b) - used.includes(a)) || a - b)
+      .map((k) => '<option value=' + k + (k === pf.mode ? ' selected' : '') + '>Mode ' + k + (used.includes(k) ? ' (has settings)' : '') + '</option>').join('');
+    q('peport').innerHTML = PORTS.map((n, k) => '<option value=' + k + (k === pf.port ? ' selected' : '') + '>' + n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') + '</option>').join('');
     const groups = new Map();
     map.settings.forEach((s, i) => {
       if (filter && !(label(s) + ' ' + s.path).toLowerCase().includes(filter)) return;
@@ -268,8 +308,9 @@
     const was = new Set([...q('peg').querySelectorAll('details[open]')].map((d) => d.dataset.m)); // (kept open as they were)
     q('peg').innerHTML = [...groups].map(([menu, idx]) => '<details data-m="' + esc(menu) + '"' + (filter || was.has(menu) ? ' open' : '') + '><summary>' + esc(menu) + ' <span class=small>' + idx.length + '</span></summary><table class="tbl pet">' +
       idx.map((i) => {
-        const s = map.settings[i], c = cs[i], mod = s.bytes && s.bytes.some(([o, n]) => pf.body.slice(o, o + n).some((b, k) => b !== pf.orig[o + k]));
-        return '<tr' + (mod ? ' class=chg' : '') + '><td>' + esc(label(s)) + (s.asks ? ' <span class="small bad" title="' + esc(s.asks) + '">asks first on the RT4K</span>' : '') +
+        const s = map.settings[i], c = cs[i], mod = s.bytes && bytesAt(s, elementOf(s)).some(([o, n]) => pf.body.slice(o, o + n).some((b, k) => b !== pf.orig[o + k]));
+        const per = s.each ? ' <span class=small>' + (s.each.by === 'mode' ? 'per mode' : 'per input') + '</span>' : '';
+        return '<tr' + (mod ? ' class=chg' : '') + '><td>' + esc(label(s)) + per + (s.asks ? ' <span class="small bad" title="' + esc(s.asks) + '">asks first on the RT4K</span>' : '') +
           '</td><td class=r>' + control(s, c, i) + '</td></tr>';
       }).join('') + '</table></details>').join('') || '<div class=empty>No setting matches</div>';
   }
@@ -290,7 +331,10 @@
       if (!map) throw new Error('there is no settings map');
       if (p.body.length !== map.size) throw new Error(name + ' has ' + p.body.length + ' bytes of settings, the map knows ' + map.size);
       cs = codecs(map.settings);
-      pf = { name, path, header: p.header, body: p.body.slice(), orig: p.body.slice() };
+      // the mode shown first: the profile's own (one with settings, other than 0, the one with none); the
+      // audio input: the one the profile is for
+      const used = modesUsed(map.settings, p.body);
+      pf = { name, path, header: p.header, body: p.body.slice(), orig: p.body.slice(), mode: used.find((k) => k) || 0, port: p.body[PORT_AT] < PORTS.length ? p.body[PORT_AT] : 0 };
       status(p.crcOk ? 'Opened ' + plain(name) + (path ? ' from the SD card' : ' from this computer') : plain(name) + '\'s CRC doesn\'t match: the RT4K wouldn\'t load it as it is (saving writes it right).', !p.crcOk);
     } catch (e) {
       status('Could not open it: ' + e.message, true);
@@ -373,5 +417,5 @@
 
   window.peOpen = open;
   window.peStatus = onStatus;
-  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, asNumber, HEADER }; // tests/test_editor.js
+  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, asNumber, bytesAt, modesUsed, HEADER }; // tests/test_editor.js
 })();
