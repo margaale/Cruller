@@ -1,6 +1,7 @@
 // net.h on the ESP32-S3 (esp_wifi): the same behavior as rp2's net.c. Station mode with the stored
 // network; the setup portal ("Cruller_Setup", 192.168.4.1, open, with a catch-all DNS) when there is
-// none or joining fails; the setup wizard's join with the portal still up; mDNS and DNS-SD.
+// none or joining fails, which tries the stored network again now and then; the setup wizard's join
+// with the portal still up; mDNS and DNS-SD.
 
 #include "net.h"
 
@@ -34,6 +35,8 @@
 #define PORTAL_SSID         "Cruller_Setup"
 #define SETUP_JOIN_MS       20000   // the setup wizard's join attempt
 #define SETUP_CLOSE_MS      20000   // after it worked: the portal stays up this long, then Cruller restarts
+#define RETRY_MS            60000   // in the portal: the saved network tried again this often (a router
+#define RETRY_BUSY_MS       600000  // slower to boot than Cruller), or this seldom with a phone on the portal
 
 #define GOT_IP_BIT          BIT0
 #define DISCONNECTED_BIT    BIT1
@@ -334,6 +337,28 @@ static void setup_join(void) {
     setup.version++;
 }
 
+// --- the saved network, tried again from the portal ---------------------------------------------------
+//
+// After a power cut Cruller can start before the router, fail to join and land in the portal: the
+// saved network is tried every RETRY_MS, and once it's back Cruller restarts on it. Trying takes the
+// radio off the portal's channel for a few seconds, so with a phone on the portal (someone in the
+// wizard, maybe) it waits up to RETRY_BUSY_MS.
+
+static bool portal_busy(void) {
+    wifi_sta_list_t list;
+    return esp_wifi_ap_get_sta_list(&list) == ESP_OK && list.num > 0;
+}
+
+static void retry_saved(void) {
+    printf("net: trying \"%s\" again\n", creds.ssid);
+    const net_setup_state_t r = sta_join(creds.ssid, creds.pass, SETUP_JOIN_MS);
+    if (r == SETUP_OK) {
+        printf("net: \"%s\" is back, restarting on it\n", creds.ssid);
+        plat_reboot();
+    }
+    printf("net: \"%s\" still not there (reason %u)\n", creds.ssid, disconnect_reason);
+}
+
 static void portal_forever(void) {
     printf("net: starting setup portal \"%s\"\n", PORTAL_SSID);
     esp_wifi_disconnect();
@@ -347,7 +372,8 @@ static void portal_forever(void) {
     snprintf(ip_str, sizeof(ip_str), "192.168.4.1");
     state = NET_PORTAL;
     status_led_set(LED_PORTAL);
-    for (;;) { // the HTTP task serves the portal; the wizard's join runs here
+    uint32_t tick_ms = plat_ms(), tried_ms = tick_ms;
+    for (;;) { // the HTTP task serves the portal; the wizard's join and the saved network's retry run here
         vTaskDelay(pdMS_TO_TICKS(200));
         if (setup.requested) {
             setup.requested = false;
@@ -356,6 +382,13 @@ static void portal_forever(void) {
         if (setup.st == SETUP_OK && (int32_t)(plat_ms() - setup.restart_at_ms) >= 0) {
             printf("net: setup done, restarting on \"%s\"\n", setup.ssid);
             plat_reboot();
+        }
+        if (creds.ssid[0] && plat_ms() - tick_ms >= RETRY_MS && setup.st != SETUP_JOINING && setup.st != SETUP_OK) {
+            tick_ms = plat_ms();
+            if (plat_ms() - tried_ms >= RETRY_BUSY_MS || !portal_busy()) {
+                retry_saved();
+                tried_ms = tick_ms = plat_ms();
+            }
         }
     }
 }
