@@ -370,7 +370,7 @@
   // Returns {values: [{value, snap}], steps, round, asks}.
   async function walk(way, from, limit, snaps) {
     const out = [];
-    let prev = from, steps = 0, step = 0, stride = 1, asks = null;
+    let prev = from, steps = 0, step = 0, stride = 1, asks = null, hides = false;
     while (steps < (step ? limit * 16 : limit) && !st.stop) {
       if (!step && out.length >= 3) { // the last steps alike: numbers, a fixed step (not counting where it
         // started: a float stepped there and back may sit a little off, 0.41218 for 0.41239)
@@ -380,8 +380,12 @@
       if (step) {
         let screen = await pressMany(way, BATCH * stride);
         if ((asks = dialogOf(screen))) screen = await press('back'); // (the keys after it moved in the box)
+        else if (!screen.selected) { // the menu left the screen past some value: back a key at a time till it's there
+          for (let k = 0; k < BATCH * stride && !screen.selected; k++) screen = await press(way === 'right' ? 'left' : 'right');
+          hides = true;
+        }
         let v = valueOf(screen), moved = Math.round((asNumber(v) - asNumber(prev)) / step);
-        if (!isNaN(moved) && moved < BATCH * stride && !asks) { // its end, or keys lost on the way: one more
+        if (!isNaN(moved) && moved < BATCH * stride && !asks && !hides) { // its end, or keys lost on the way: one more
           const one = valueOf(await press(way));
           const more = Math.round((asNumber(one) - asNumber(v)) / step);
           if (more > 0) {
@@ -394,7 +398,7 @@
         steps += moved;
         out.push({ value: v, snap: null });
         prev = v;
-        if ((stride && moved < BATCH * stride) || asks) break; // stopped short: its end
+        if ((stride && moved < BATCH * stride) || asks || hides) break; // stopped short: its end
         stride = Math.min(Math.max(stride * 2, 1), 8);
         continue;
       }
@@ -402,6 +406,10 @@
       if (same(v, prev)) v = valueOf(await press(null)); // read settled: its end, or just slow?
       if (same(v, prev)) v = valueOf(await press(way)); // or the key lost on the way: once more
       if (v === null && (asks = dialogOf(await press(null)))) await press('back');
+      else if (v === null) { // the menu left the screen (Enable Debug OSD's Console puts the RT4K's log there): that key undone
+        await press(way === 'right' ? 'left' : 'right');
+        hides = true;
+      }
       if (same(v, prev) || v === null) break;
       steps++;
       if (same(v, from)) return { values: out, steps, round: true };
@@ -411,7 +419,7 @@
     const last = out[out.length - 1];
     if (last && !last.snap) last.snap = await snap();
     const capped = limit > 1 && !st.stop && steps >= (step ? limit * 16 : limit); // stopped before its end
-    return { values: out, steps, round: false, asks, capped };
+    return { values: out, steps, round: false, asks, capped, hides };
   }
 
   // n steps the other way, back to where it was.
@@ -516,6 +524,7 @@
     rec.values = order.filter((s) => s.snap).map((s) => ({ value: s.value, at: takeAt(s.snap, rec.ranges) }));
     rec.leftover = diff(before, after);
     if (asks) rec.backNote = 'past ' + rec.list[asks === left.asks ? 0 : rec.list.length - 1] + ' it asks first, cancelled: "' + asks + '"';
+    if (right.hides || left.hides) rec.backNote = 'past ' + rec.list[left.hides ? 0 : rec.list.length - 1] + ' the menu leaves the screen: not walked further';
     if (!same(back, it.value)) rec.backNote = 'did not come back: ' + back + ', was ' + it.value;
     if (!all) delete rec.list;
     showResults();
