@@ -186,7 +186,9 @@
   // length]], values: [[shown, hex]] (each value seen, its own bytes), min, max, step (numbers), round (a
   // list that goes round), asks (past its first or last value the RT4K warns first: what it says), capped
   // (["first"], ["last"] or both: the walk stopped before that end, so min or max is only how far it got).
-  // How the run went (a setting not back as it was) stays out.
+  // How the run went (a setting not back as it was) stays out. Written by hand, not by a run (one replaces
+  // them): each (kept per input mode or audio input), readonly, note (what the value means, when the menu
+  // shows something else: Free-Form's factors are kept as pixels over the output's size).
 
   function compact(r) {
     const c = { path: r.path.join(' › ') };

@@ -311,7 +311,7 @@
         const s = map.settings[i], c = cs[i], mod = s.bytes && bytesAt(s, elementOf(s)).some(([o, n]) => pf.body.slice(o, o + n).some((b, k) => b !== pf.orig[o + k]));
         const per = s.each ? ' <span class=small>' + (s.each.by === 'mode' ? 'per mode' : 'per input') + '</span>' : '';
         return '<tr' + (mod ? ' class=chg' : '') + '><td>' + esc(label(s)) + per + (s.asks ? ' <span class="small bad" title="' + esc(s.asks) + '">asks first on the RT4K</span>' : '') +
-          '</td><td class=r>' + control(s, c, i) + '</td></tr>';
+          (s.note ? '<div class=small>' + esc(s.note) + '</div>' : '') + '</td><td class=r>' + control(s, c, i) + '</td></tr>';
       }).join('') + '</table></details>').join('') || '<div class=empty>No setting matches</div>';
   }
 
