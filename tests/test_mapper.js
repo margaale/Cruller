@@ -142,14 +142,15 @@ const answered = (cmds, sent) => {
   return { ...respond(JSON.stringify({ ok: all, results: cmds.map((c, i) => ({ command: c, sent: !sent || sent[i], reply: !sent || sent[i] ? ['[COM] Serial Remote: x'] : [] })) })), ok: all, status: all ? 200 : 503 };
 };
 
-function rt4k(min, max, asksPast, live, lossy, scale) {
+function rt4k(min, max, asksPast, live, lossy, scale, hidesPast) {
   const s = { v: 0, counter: 0, keys: 0, requests: 0, box: false, oks: 0, lost: 0 };
   const shown = () => (scale ? (s.v >= 0 ? '+' : '') + (s.v * scale).toFixed(5) : (s.v >= 0 ? '+' : '') + s.v);
   const label = () => ' • Top Trim:          ' + shown() + (live ? ' (Rmax: ' + (30 + (s.reads || 0) % 8) + ')' : '');
   s.fetch = async (url, o) => {
     if (url === '/rt4k/xfer?cmd=osd') {
       s.reads = (s.reads || 0) + 1;
-      const p = s.box ? plane(BOX) : plane([['Scaling/Crop Setup', false], ['', false], [label(), true]]);
+      const log = hidesPast !== undefined && s.v > hidesPast; // (Enable Debug OSD's Console: the RT4K's log where the menu was)
+      const p = s.box ? plane(BOX) : log ? plane([['[MCU] Welcome to the RT4K Pro', false], ['[HDMI GEN] Pipeline Width: 4', false]]) : plane([['Scaling/Crop Setup', false], ['', false], [label(), true]]);
       return respond(p.data, { 'X-Ready': p.ready });
     }
     if (url === '/rt4k/xfer?cmd=sget') {
@@ -286,6 +287,14 @@ async function drift() {
   check(w.st.log.some((l) => /came back to \+0\.00000: put back to \+0\.00021/.test(l[0])), 'as near as it gets: ' + JSON.stringify(w.st.log.map((l) => l[0]).slice(-2)));
 }
 
+// A value that takes the menu off the screen (Enable Debug OSD's Console, past 3): that key undone, not walked further.
+async function hides() {
+  const sim = rt4k(0, 4, undefined, false, 0, 0, 3), w = on(sim);
+  await w.mapSetting(['OSD/Firmware'], { label: 'Top Trim', value: '+0' });
+  const rec = w.st.results[0];
+  check(sim.v === 0 && rec.max === 3 && /past \+3 the menu leaves the screen/.test(rec.backNote), 'back from where the menu went away: ' + JSON.stringify([sim.v, rec.max, rec.backNote]));
+}
+
 // A reading in brackets that moves on its own (the ADC's gains: "1.000 (Rmax: 30)"): not a step.
 async function live() {
   check(m.same('1.000 (Rmax: 30)', '1.000 (Rmax: 37)') && m.same('-0.00', '0.00') && !m.same('Auto (PAL)', 'Auto (NTSC)') && !m.same('1.004', '1.000'), 'the same value shown');
@@ -327,7 +336,7 @@ async function movesAnother() {
   check(w.st.log.some((l) => /Native Sampling moved Samples per Line to 3509 .*: put back to 1716/.test(l[0])), 'said so: ' + JSON.stringify(w.st.log.map((l) => l[0])));
 }
 
-walked().then(asked).then(long).then(live).then(movesAnother).then(lossy).then(drift).then(() => {
+walked().then(asked).then(long).then(live).then(movesAnother).then(lossy).then(drift).then(hides).then(() => {
   console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
   process.exit(failures ? 1 : 0);
 }, (e) => {
