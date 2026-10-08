@@ -156,7 +156,7 @@
 {"path":"RetroTINK-4K Pro Advanced Menu › Black Frame Insertion Setup","label":"Blur","bytes":[[680,1]],"values":[["Off","00"],["1","01"]],"asks":"Warning! Flicker may induce epilepsy. Proceed at your own risk!!"},
 {"path":"RetroTINK-4K Pro Advanced Menu › Black Frame Insertion Setup","label":"LCD Saver","bytes":[[740,1]],"values":[["1 min.","00"],["5 min.","01"],["10 min.","02"],["Off","03"]],"round":true},
 {"path":"RetroTINK-4K Pro Advanced Menu › Sample Rate Detection","label":"Word Trim","bytes":[[9126,1]],"values":[["+0","00"],["+1","01"],["-1","ff"]],"min":-1,"max":1,"step":1,"round":true},
-{"path":"RetroTINK-4K Pro Main Menu","label":"Input Source","bytes":[[22505,1]],"values":[["HDMI","00"],["RCA/YPbPr","07"],["SCART/RGBS","0c"],["HD15/RGBS","15"],["HD15/YPbPr","17"],["HD15/CVBS on G","19"]]},
+{"path":"RetroTINK-4K Pro Main Menu","label":"Input Source","bytes":[[22505,1]],"values":[["HDMI","00"],["RCA/YPbPr","07"],["SCART/RGBS","0c"],["HD15/RGBS","15"],["HD15/YPbPr","17"],["HD15/CVBS on G","19"]],"readonly":true},
 {"path":"RetroTINK-4K Pro Main Menu › HDMI• Output","label":"Resolution","bytes":[[748,1]],"values":[["4K60","00"],["4K50","01"],["1080p60","02"],["1080p50","03"],["1440p60","04"],["1440p50","05"],["1080p100","06"],["1440p100","07"],["1080p120","08"],["1440p120","09"],["480p60","0d"],["Custom 1","45"],["Custom 2","46"],["Custom 3","47"],["Custom 4","48"]]},
 {"path":"RetroTINK-4K Pro Main Menu › Profiles","label":"Auto Load DV1","bytes":[[7852,1]],"values":[["Off","00"],["On","01"]],"round":true},
 {"path":"RetroTINK-4K Pro Main Menu › Profiles","label":"Auto Load SVS","bytes":[[7864,1]],"values":[["On","01"],["Off","00"]],"round":true},

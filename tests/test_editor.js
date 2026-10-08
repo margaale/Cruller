@@ -44,6 +44,7 @@ for (const m of doc.maps) {
   m.settings.forEach((s, i) => {
     const c = codecs[i], name = m.firmware + ' ' + s.path + ' › ' + (s.section ? s.section + ' › ' : '') + s.label;
     if (c.type === 'raw') { if (!s.readonly) raw++; return; } // (readonly: shown, not edited: the device ID)
+    if (c.readonly) { check(!e.encode(s, c, new Uint8Array(22876), (s.values || [[0]])[0][0]), name + ': read-only, never written'); return; }
     const b = new Uint8Array(22876);
     if (c.type === 'list') {
       lists++;

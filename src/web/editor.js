@@ -111,7 +111,8 @@
   // beside it with as many (the colour matrix's eight walked one step).
   function codecs(settings) {
     const fits = settings.map(fitNumber);
-    return settings.map((s, i) => {
+    return settings.map((s, i) => ({ ...codecOf(s, i), readonly: !!s.readonly })); // (readonly: shown, never written)
+    function codecOf(s, i) {
       let fit = fits[i];
       if (!fit && s.min !== undefined && s.bytes && s.bytes.length === 1) {
         const like = (o) => o.min === s.min && o.max === s.max && o.step === s.step && o.bytes[0][1] === s.bytes[0][1];
@@ -125,7 +126,7 @@
         return { type: 'list', values: s.values, parts: parts.length ? parts : s.bytes.map((r, k) => k) };
       }
       return { type: 'raw' };
-    });
+    }
   }
 
   // The scaler's factors (0xca8..0xcc8 on 1.92/1.93): worked out from the other settings, so a list
@@ -154,6 +155,7 @@
   // nearest the RT4K keeps, its step shown rounded: the ADC gains' 0.004 is 0.0039; a float to its step),
   // a list's value as shown. False when it can't.
   function encode(setting, codec, body, value) {
+    if (codec.readonly) return false;
     if (codec.type === 'number') {
       const [off, len] = setting.bytes[0], f = codec.fit;
       let v = Math.min(codec.max, Math.max(codec.min, +value));
@@ -233,7 +235,7 @@
   const label = (s) => (s.section ? s.section + ' › ' : '') + s.label;
 
   function control(s, c, i) {
-    const d = decode(s, c, pf.body), off = busy ? ' disabled' : '';
+    const d = decode(s, c, pf.body), off = busy || c.readonly ? ' disabled' : '';
     if (c.type === 'number') {
       return '<input type=number data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' value="' + (d.value === null ? '' : d.value) + '"' + off + '>' +
         '<span class=small>' + c.min + ' to ' + c.max + '</span>';
