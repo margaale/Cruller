@@ -1,5 +1,6 @@
-// Tests for gameID's view (src/web/gameid.js): a console's address as typed, what Cruller would refuse,
-// profiles, the games' search, a console's answer. Run by tests/run.sh (node 18+).
+// Tests for gameID in the Consoles view (src/web/gameid.js): a console's address as typed and shown, what
+// Cruller would refuse, profiles, the games' search, a console's answer, its SVS input, what's on screen. Run
+// by tests/run.sh (node 18+).
 
 const fs = require('fs');
 const path = require('path');
@@ -42,12 +43,67 @@ check(g.readGame('{"currentMode":"PS2"}').id === '', 'JSON without a game: none'
 check(g.liveText(null, false) === 'Not asked' && g.liveText(null, true) === '…' && g.liveText({ on: false }, true) === 'Off', 'a console not asked, not known yet, off');
 check(g.liveText({ on: true, game: '' }, true) === 'No game' && g.liveText({ on: true, game: 'SCUS-97481', game_name: 'God of War II' }, true) === 'God of War II' &&
   g.liveText({ on: true, game: 'SLUS-00214', game_name: '' }, true) === 'SLUS-00214', 'a console on: its game, by name when it says one');
+// A console's address as shown: a MemCard PRO's by its host.
+check(g.shortUrl('http://10.10.10.88/api/currentState') === '10.10.10.88' && g.shortUrl('http://ps1digital.local/gameid') === 'ps1digital.local/gameid', 'addresses shown');
+check(g.consoleUrl(g.shortUrl('http://10.10.10.88/api/currentState')) === 'http://10.10.10.88/api/currentState' &&
+  g.consoleUrl(g.shortUrl('http://ps1digital.local/gameid')) === 'http://ps1digital.local/gameid', 'and typed back as they were');
+
+// The SVS input a console is on: the one set, or on Auto the one of its kind when just one is.
+const inputs = [{ name: 'PS1', device: 'ps1' }, { name: 'Mega Drive', device: 'megadrive' }, { name: '', device: '' }, { name: 'PS2', device: 'ps2' }];
+check(g.inputOf({ svs_input: 2 }, 'ps2', inputs) === 2 && g.inputOf({ svs_input: 9 }, 'ps2', inputs) === 0, 'set: that one (one the switch has)');
+check(g.inputOf({ svs_input: 0 }, 'ps2', inputs) === 4 && g.inputOf({ svs_input: 0 }, '', inputs) === 0 && g.inputOf({ svs_input: 0 }, 'n64', inputs) === 0, 'Auto: by its kind');
+check(g.inputOf({ svs_input: 0 }, 'ps1', inputs.concat([{ name: 'PS1', device: 'ps1' }])) === 0 && g.inputOf({ svs_input: 0 }, 'ps2', []) === 0, 'Auto: two of its kind, or no switch: none');
+
+// What's on screen, as On screen says it.
+const sv = { known: true, input: 4, inputs, files: { 1: 'S1_PS1.rt4', 2: 'S2_Genesis.rt4', 4: 'S4_PS2.rt4' } };
+const ps2 = { name: 'PS2', url: 'http://10.10.10.88/api/currentState', other: '', svs_input: 0, enabled: true };
 const playing = { console: 'PS2', game: 'SCUS-97481', game_name: 'God of War II' };
-check(g.nowText({ playing, profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: '', loaded: 'ps2/gow2.RT4' }) === 'God of War II on PS2: loaded PS2/GoW2 (from the gameDB)', 'loaded: ' + g.nowText({ playing, profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: '', loaded: 'ps2/gow2.RT4' }));
-check(g.nowText({ playing, profile: 'PS2/Any.rt4', from: 'other', pending: 'PS2/Any.rt4', loaded: '' }) === 'God of War II on PS2: loading PS2/Any (from its console)', 'loading');
-check(g.nowText({ playing, profile: '', from: '', pending: '', loaded: '' }) === 'God of War II on PS2: no profile for it', 'a game with no profile');
-check(g.nowText({ playing: null, profile: 'SVS/S4_PS2.rt4', from: 'svs', pending: '', loaded: 'SVS/S4_PS2.rt4' }) === 'Its console went off: loaded SVS/S4_PS2 (from its SVS input)', 'back to the input\'s');
-check(g.nowText({ playing: null, profile: '', from: '', pending: '', loaded: '' }) === 'No game on screen' && g.nowText(null) === '', 'nothing');
+const seen = { name: 'PS2', on: true, game: 'SCUS-97481', game_name: 'God of War II', kind: 'ps2', on_screen: true };
+const mine = [{ id: 'SCUS-97481', name: 'God of War II', profile: 'PS2/GoW2.rt4' }];
+const state = (o) => Object.assign({ consoles: [seen], svs_input: 4, playing, profile: '', from: '', pending: '', loaded: '', note: '', note_age_s: 0 }, o);
+let r = g.onScreen(state({ profile: 'PS2/GoW2.rt4', from: 'gamedb', loaded: 'ps2/gow2.RT4', note: 'loaded PS2/GoW2.rt4', note_age_s: 120 }), sv, [ps2], mine, 'on');
+check(r.title === 'God of War II' && r.sub === 'PS2 on input 4 · SCUS-97481' && r.profile === 'PS2/GoW2.rt4' && r.badge === 'Loaded 2 min ago' && r.tone === 'ok' &&
+  /loads its own S4_PS2 first/.test(r.why) && !r.add && !r.dim, 'a game in your games, loaded: ' + JSON.stringify(r));
+r = g.onScreen(state({ profile: 'SVS/S4_PS2.rt4', from: 'gamedb', loaded: 'SVS/S4_PS2.rt4' }), sv, [ps2], [{ id: 'SCUS-97481', name: 'God of War II', profile: 'SVS/S4_PS2.rt4' }], 'on');
+check(r.why === 'From your games. The same as input 4\'s own.' && r.tone === 'ok', 'its game\'s profile the input\'s own: ' + r.why);
+r = g.onScreen(state({ profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: 'PS2/GoW2.rt4' }), sv, [ps2], mine, 'standby');
+check(r.badge === 'Waiting for the RT4K' && r.tone === 'wait', 'waiting for the RT4K');
+r = g.onScreen(state({ profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: 'PS2/GoW2.rt4' }), sv, [ps2], mine, 'on');
+check(r.badge === 'Loading…', 'loading');
+r = g.onScreen(state({ profile: 'PS2/GoW2.rt4', from: 'gamedb', note: 'could not load PS2/GoW2.rt4 (prof err)' }), sv, [ps2], mine, 'on');
+check(r.badge === 'Could not load' && r.tone === 'bad' && r.why === 'could not load PS2/GoW2.rt4 (prof err)', 'could not load');
+r = g.onScreen(state({}), sv, [ps2], [], 'on');
+check(r.profile === 'SVS/S4_PS2.rt4' && r.badge === 'The input\'s own' && r.add && r.add.id === 'SCUS-97481' && r.add.name === 'God of War II' &&
+  /the input's own stays/.test(r.why), 'not in your games: the input\'s own, and added in a click: ' + JSON.stringify(r));
+r = g.onScreen(state({ profile: 'PS2/Any.rt4', from: 'other' }), sv, [ps2], [], 'on');
+check(r.profile === 'PS2/Any.rt4' && /its console's profile/.test(r.why) && r.add, 'not in your games: its gameID\'s for those');
+r = g.onScreen(state({ playing: null, svs_input: 0 }), sv, [ps2], mine, 'on');
+check(r.title === 'No input active' && r.dim && r.profile === '' && !r.addFor, 'no input active');
+r = g.onScreen(state({ playing: null, svs_input: 1, consoles: [seen] }), sv, [ps2], mine, 'on');
+check(r.title === 'PS1' && r.sub === 'Input 1 · nothing on it tells its game' && r.addFor === 1 && r.profile === 'SVS/S1_PS1.rt4' && r.badge === 'The input\'s own', 'an input without a gameID: ' + JSON.stringify(r));
+r = g.onScreen(state({ playing: null, consoles: [Object.assign({}, seen, { game: '', game_name: '', on_screen: false })] }), sv, [ps2], mine, 'on');
+check(r.title === 'PS2' && r.sub === 'Input 4 · no game it can tell' && !r.addFor, 'its console on, no game');
+r = g.onScreen(state({ playing: null, consoles: [{ name: 'PS2', on: false, game: '', game_name: '', kind: 'ps2', on_screen: false }], profile: 'SVS/S4_PS2.rt4', from: 'svs', loaded: 'SVS/S4_PS2.rt4' }), sv, [ps2], mine, 'on');
+check(r.sub === 'Input 4 · its gameID doesn\'t answer' && r.profile === 'SVS/S4_PS2.rt4' && r.tone === 'ok' && /went off/.test(r.why), 'its console went off: the input\'s own again');
+r = g.onScreen(state({}), { known: false, input: 0, inputs: [], files: {} }, [ps2], [], 'on');
+check(r.sub === 'PS2 · SCUS-97481' && r.profile === '' && /RT4K keeps/.test(r.why), 'no SVS: a game not in your games');
+r = g.onScreen(state({ playing: null }), { known: false, input: 0, inputs: [], files: {} }, [ps2], [], 'on');
+check(r.title === 'No game on screen' && r.sub === 'Asking its console which game it runs', 'no SVS, no game');
+r = g.onScreen(null, null, [], [], '');
+check(r.title === 'No game on screen' && r.sub === 'No consoles yet', 'nothing known yet');
+
+// A console not on the SVS (-1): on no input; on screen while the RT4K shows another input.
+const ps1d = { name: 'PS1', url: 'http://ps1digital.local/gameid', other: '', svs_input: -1, enabled: true };
+check(g.inputOf(ps1d, 'ps1', inputs) === 0, 'not on the SVS: on no input, though one has its kind');
+const ff7 = { console: 'PS1', game: 'SCUS-94163', game_name: 'Final Fantasy VII' };
+r = g.onScreen(state({ playing: ff7, rt4k_input: 'HDMI', on_svs: false, profile: 'PS1/FF7.rt4', from: 'gamedb', loaded: 'PS1/FF7.rt4' }), sv, [ps2, ps1d], [], 'on');
+check(r.sub === 'PS1 on HDMI · SCUS-94163' && r.why === 'From your games.' && r.tone === 'ok', 'played on another input: ' + JSON.stringify(r));
+r = g.onScreen(state({ playing: null, rt4k_input: 'HDMI', on_svs: false }), sv, [ps2, ps1d], mine, 'on');
+check(r.title === 'HDMI' && r.profile === '' && !r.addFor && /not the SVS/.test(r.sub), 'another input, nothing on it: ' + JSON.stringify(r));
+r = g.onScreen(state({ playing: null, rt4k_input: 'HDMI', on_svs: false }), sv, [ps2], mine, 'on');
+check(r.addFor === -1, 'another input, no console not on the SVS: one offered');
+r = g.onScreen(state({ playing, rt4k_input: 'HD15 YPbPr', on_svs: true, profile: 'PS2/GoW2.rt4', from: 'gamedb' }), sv, [ps2, ps1d], mine, 'on');
+check(r.sub === 'PS2 on input 4 · SCUS-97481', 'the RT4K on the SVS: as before');
 
 console.log(failures ? `gameid.js: ${failures} of ${checks} checks failed` : `gameid.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);

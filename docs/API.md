@@ -210,7 +210,7 @@ the body, in the same form:
 | `name` | What it's called (47 bytes at most). |
 | `url` | What's asked: `http://`, the console's address and its path. Its answer is JSON with `gameID` (a MemCard PRO's or PRO2's, `http://<address>/api/currentState`), or the ID as text (PS1Digital's and N64Digital's, `http://<address>/gameid`). |
 | `other` | The profile for a game the gameDB hasn't (optional; `""`: none). |
-| `svs_input` | With an SVS switch, the input it's on (1-8); `0` (the default): worked out from the console it is. |
+| `svs_input` | With an SVS switch, the input it's on (1-8); `-1`: not on the SVS, straight to the RT4K (it counts while the RT4K shows another input); `0` (the default, Auto): worked out from the console it is. |
 | `enabled` | Asked or not (default `true`). |
 
 Ten consoles at most. A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its path under
@@ -233,15 +233,17 @@ these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "
 ```json
 {"consoles": [{"name": "PS2", "on": true, "game": "SCUS-97481", "game_name": "God of War II", "kind": "ps2",
                "on_screen": true}],
- "svs_input": 3, "playing": {"console": "PS2", "game": "SCUS-97481", "game_name": "God of War II"},
+ "svs_input": 3, "rt4k_input": "", "on_svs": null,
+ "playing": {"console": "PS2", "game": "SCUS-97481", "game_name": "God of War II"},
  "profile": "PS2/God of War II.rt4", "from": "gamedb", "pending": "", "loaded": "PS2/God of War II.rt4",
  "note": "loaded PS2/God of War II.rt4", "note_age_s": 12}
 ```
 
 | Key | Value |
 |---|---|
-| `consoles` | Each console, in the order kept: `on` (it answered lately), the `game` it runs (`""`: none it can tell) and its `game_name` when it says one, the `kind` of console (`ps2`, `n64`…: from what it reports, else its name; matched to the SVS tab's), `on_screen` (its game is the one that counts). |
+| `consoles` | Each console, in the order kept: `on` (it answered lately), the `game` it runs (`""`: none it can tell) and its `game_name` when it says one, the `kind` of console (`ps2`, `n64`…: from what it reports, else its name; matched to the SVS Bridge's), `on_screen` (its game is the one that counts). |
 | `svs_input` | The SVS switch's input, as its bridge last reported it (`0`: none). |
+| `rt4k_input`, `on_svs` | With consoles not on the SVS, the RT4K's active input (`"HDMI"`, `"HD15 YPbPr"`…, asked with a bare `input`, which only reads it) and whether that's the SVS's (by the output its bridge says goes to the RT4K); `""` and `null` when not asked or not known. |
 | `playing` | The game on screen (`null`: none). |
 | `profile`, `from` | The profile for it, and from where: `gamedb`, `other` (its console's, for a game the gameDB hasn't), `svs` (its console went off, or was disabled: the input's own `S<n>`); `""`: none. |
 | `pending` | A profile about to load: after an input change (the RT4K's own `S<n>` first), once the RT4K comes on, or while it sleeps. |

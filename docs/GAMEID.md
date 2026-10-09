@@ -5,8 +5,8 @@ before Cruller ([margaale/DonutShop](https://github.com/margaale/DonutShop)); th
 it, and how far it has got.
 
 Status: working. The consoles and the gameDB are kept, with their API (`/api/v1/gameid`,
-[API.md](API.md)); the page's gameID view edits them and shows what Cruller knows; Cruller asks the
-consoles and loads the profiles. Finding consoles on the network, `.local` names and HTTPS come next.
+[API.md](API.md)); the page's Consoles view puts each console under its SVS input, edits them and the
+games, and shows what Cruller knows; Cruller asks the consoles and loads the profiles. Finding consoles on the network, `.local` names and HTTPS come next.
 
 ## The consoles
 
@@ -40,12 +40,19 @@ overwrites the SVS's `S1`…`S8` (DonutShop sent `SVS NEW INPUT=n` or `remote pr
 ## Several consoles, and an SVS switch
 
 - The last console whose game changed wins, as in DonutShop.
-- With an [SVS switch](SVS.md), a console counts only while its input is on screen. Cruller knows
-  which input it's on from the SVS tab: the input set to that console (a PRO2 says `"currentMode":
-  "PS2"`). Two inputs with the same console: its input is picked in its settings (`svs_input`), and
-  until then the last that changed wins. Back on a console's input, after the SVS's own `S<n>` loads,
+- With an [SVS switch](SVS.md), a console counts only while its input is on screen: the input it's
+  added under in the Consoles view (`svs_input`), or on Auto (`0`, as the API takes it) the input the
+  SVS Bridge says has that console (a PRO2 says `"currentMode": "PS2"`). Two inputs with the same
+  console on Auto: the last that changed wins (the page shows a console on Auto under its input
+  only when just one has its console, and saving it sets that input). Back on a console's input, after the SVS's own `S<n>` loads,
   Cruller loads its game's profile again.
-- A console turning off: with an SVS, its input's profile again; without, nothing.
+- A console not on the SVS (a PS1Digital or an N64Digital on HDMI): set so (`svs_input` -1), it counts
+  while the RT4K shows another input than the SVS's. The RT4K doesn't say when its input changes, so
+  while there's one, Cruller asks it every round (a bare `input` only reads it: `input=0 HDMI ...`) and
+  tells the SVS's by the output the bridge says goes to the RT4K (VGA: an `HD15` input; SCART; component:
+  `RCA YPbPr`; never HDMI). Back on the SVS's input, as after an input change, 3 s later.
+- A console turning off: with an SVS, its input's profile again (while the RT4K shows the SVS); without,
+  nothing.
 - The RT4K asleep: the profile is kept and loaded once it's on.
 
 ## Where it's kept

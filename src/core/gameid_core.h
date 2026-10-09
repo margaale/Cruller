@@ -15,12 +15,14 @@
 #define GAMEID_ID_MAX       64  // a game as a console reports it (SCUS-97481, an N64's CRCs...)
 #define GAMEID_PROFILE_MAX  128 // a profile's path under the SD card's /profile ("PS2/God of War II.rt4")
 #define GAMEID_SVS_INPUTS   8
+#define GAMEID_NOT_ON_SVS   (-1) // a console's svs_input: straight to the RT4K, not through the SVS
 
 typedef struct {
     char name[GAMEID_NAME_MAX];
     char url[GAMEID_URL_MAX];      // what's asked: its reply is JSON with "gameID", or the ID as text
     char other[GAMEID_PROFILE_MAX]; // the profile for a game the gameDB hasn't ('' none)
-    uint8_t svs_input;             // the SVS input it's on, 1-8; 0: worked out from the console it is
+    int8_t svs_input;              // the SVS input it's on, 1-8; 0 (Auto): worked out from the console it is;
+                                   // GAMEID_NOT_ON_SVS: not on the SVS
     bool enabled;
 } gameid_console_t;
 
@@ -80,7 +82,7 @@ typedef struct {
 // neither (an error page, JSON without "gameID").
 bool gameid_read_report(const char *body, size_t len, gameid_report_t *out);
 
-// The console it is, as the SVS tab names them ("ps1", "ps2", "n64", "gamecube"...): from what it
+// The console it is, as the SVS Bridge names them ("ps1", "ps2", "n64", "gamecube"...): from what it
 // reports, else from its name. "" when neither says.
 const char *gameid_kind(const char *mode, const char *name);
 
@@ -92,7 +94,18 @@ typedef struct {
     uint32_t changed;           // when its game last changed, as a count that only grows (0: never)
 } gameid_seen_t;
 
-// Whose game is on screen: of the consoles enabled, on and running a game, those on the SVS's input when
-// one is reported (svs_input > 0: a console set to it, or one on Auto that is the console the SVS tab has
-// there, svs_device; when either isn't known, it counts), the one whose game changed last. -1: none.
-int gameid_pick(const gameid_console_t *c, const gameid_seen_t *seen, int n, int svs_input, const char *svs_device);
+// Whose game is on screen: of the consoles enabled, on and running a game, the one whose game changed last;
+// -1: none. With an SVS input reported (svs_input > 0), only those the RT4K shows: while it shows the SVS
+// (on_svs 1), a console set to that input, or one on Auto that is the console the SVS Bridge says there
+// (svs_device; when either isn't known, it counts); while it shows another input (on_svs 0), those not on
+// the SVS and those on Auto; when that isn't known (-1), as on the SVS, those not on it taken as on Auto.
+int gameid_pick(const gameid_console_t *c, const gameid_seen_t *seen, int n, int svs_input, const char *svs_device, int on_svs);
+
+// The RT4K's active input, by its name, from its answer to a bare "input" ("input=0 HDMI ic=2 model=0"):
+// false when it isn't one.
+bool gameid_rt4k_input(const char *reply, char *name, size_t size);
+
+// Whether the RT4K shows the SVS: 1, 0, or -1 when it can't be told. input: its active input's name
+// ("HDMI", "HD15 YPbPr", "SCART RGBS", "RCA YPbPr"...); svs_out: the SVS's output to it, as the bridge says
+// it ("vga", "scart", "component"; "" not said). An SVS is analog: never on HDMI.
+int gameid_on_svs(const char *input, const char *svs_out);
