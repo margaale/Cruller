@@ -1123,12 +1123,28 @@ function draw() {
 
 // --- remote, keyboard, console input -------------------------------------------------------------------
 
+// The remote's keys. The arrows, as on the real remote, go on while held: one at once, then one every
+// 180 ms after 0.4 s, till let go.
+const REPEATS = /^remote (up|down|left|right)$/;
+let held = null;
+const letGo = () => { if (held) { clearTimeout(held.t); clearInterval(held.r); held = null; } };
 document.querySelectorAll('[data-c]').forEach((b) => {
-  b.onclick = async () => {
+  b.onclick = async (ev) => {
+    if (REPEATS.test(b.dataset.c) && ev.detail) return; // (sent on the press already; a key's Enter comes here)
     if (b.dataset.confirm && !(await askUser(b.dataset.confirm, 'The RT4K goes to standby; the power key turns it back on.', 'Turn off', true))) return;
     if (send(b.dataset.c)) blink();
   };
+  if (!REPEATS.test(b.dataset.c)) return;
+  b.onpointerdown = (ev) => {
+    if (ev.button) return;
+    letGo();
+    if (send(b.dataset.c)) blink();
+    held = { t: setTimeout(() => { held.r = setInterval(() => { if (send(b.dataset.c)) blink(); }, 180); }, 400) };
+  };
 });
+addEventListener('pointerup', letGo);
+addEventListener('pointercancel', letGo);
+addEventListener('blur', letGo);
 
 const keys = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', Escape: 'back', Backspace: 'back', Tab: 'menu' };
 document.onkeydown = (e) => {
@@ -1144,13 +1160,24 @@ function cmd(id) {
 }
 
 // The remote keeps its look and is scaled to the screen panel's height (the grid row's height; the
-// remote itself is out of flow). Narrow layouts stack it instead (CSS), unscaled.
+// remote itself is out of flow). Narrow layouts stack it under the screen (CSS): there it's scaled to the
+// width there is, never past its own size, centred.
+const stacked = matchMedia('(max-width:1000px)');
 function fitRemote() {
-  const r = $('remote'), wrap = r.parentNode;
-  if (getComputedStyle(r).position !== 'absolute') { r.style.transform = ''; return; }
-  const h = wrap.getBoundingClientRect().height, natural = r.offsetHeight;
-  if (!h || !natural) return;
-  const s = h / natural, w = Math.round(r.offsetWidth * s);
+  const r = $('remote'), wrap = r.parentNode, natural = r.offsetHeight, nw = r.offsetWidth;
+  if (!natural || !nw) return;
+  if (stacked.matches) {
+    const s = Math.min(1, wrap.clientWidth / nw);
+    r.style.transform = 'scale(' + s + ')';
+    r.style.left = Math.max(0, Math.round((wrap.clientWidth - nw * s) / 2)) + 'px';
+    wrap.style.height = Math.round(natural * s) + 'px';
+    return;
+  }
+  r.style.left = '';
+  wrap.style.height = '';
+  const h = wrap.getBoundingClientRect().height;
+  if (!h) return;
+  const s = h / natural, w = Math.round(nw * s);
   // The screen narrows a little, the row follows, the remote with it: within a pixel either way it's left
   // as it is, or the two could chase each other for good (the screen and the remote flickering).
   if (r.style.transform && Math.abs((parseFloat(wrap.style.width) || 0) - w) < 2) return;
@@ -1158,6 +1185,7 @@ function fitRemote() {
   wrap.style.width = w + 'px';
 }
 new ResizeObserver(fitRemote).observe($('tv').closest('.panel'));
+stacked.addEventListener('change', () => { $('remote').style.transform = ''; fitRemote(); });
 
 $('tv').ondblclick = () => $('tv').requestFullscreen();
 addEventListener('resize', () => { fit(); if (tab === 'debug') drawCharts(); });
