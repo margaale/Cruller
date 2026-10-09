@@ -4,8 +4,8 @@
 // (RTL1 get, in verified pieces), which the browser downloads on its own. Uploads go to POST
 // /rt4k/put with their SHA-256 (sha256.js), which the RT4K checks; new folders, renames and deletes
 // are the RT4K's own mkdir, mv and rm (POST /rt4k/ask). A profile in /profile can be loaded (its "prof
-// load") or opened in the editor (#rt4k/editor/<path>); the one loaded (Cruller's status says it) is
-// marked. Each folder has its own address (#rt4k/sd/<path>), so the browser's back button walks back up.
+// load") or opened in the editor (#rt4k/editor/<path>), or several ticked and edited together; the one
+// loaded (Cruller's status says it) is marked. Each folder has its own address (#rt4k/sd/<path>), so the browser's back button walks back up.
 
 (() => {
   'use strict';
@@ -85,6 +85,7 @@
   let loaded = '';         // the profile the RT4K has loaded, its path under /profile ('' none)
   let entries = [];
   let shown = [];          // entries as the table shows them (row buttons point into it)
+  let picked = new Set();  // the profiles of this folder ticked to edit together, by name
   let total = 0;           // the RT4K's own count (more than entries when the listing didn't fit)
   let sortKey = 'name', sortDesc = false;
   let loading = 0;         // the listing request that counts (later ones win)
@@ -210,12 +211,23 @@
 
   function render() {
     crumbs();
+    // the profiles ticked: a column of ticks in a profiles' folder, every one here at its head; with any ticked,
+    // a bar to edit them together
+    const can = profilePath(dir, 'x.rt4') !== null, profs = entries.filter((e) => !e.dir && profilePath(dir, e.name));
+    picked = new Set([...picked].filter((n) => profs.some((e) => e.name === n)));
+    q('sdtbl').classList.toggle('pk', can);
+    q('sdpa').checked = profs.length > 0 && picked.size === profs.length;
+    q('sdpa').indeterminate = picked.size > 0 && picked.size < profs.length;
+    q('sdpa').disabled = !profs.length;
+    q('sdsel').hidden = !picked.size;
+    q('sdseln').textContent = picked.size === 1 ? '1 profile ticked' : picked.size + ' profiles ticked';
+    q('sdsele').textContent = picked.size === 1 ? 'Edit it' : 'Edit them together';
     document.querySelectorAll('#sd th[data-k]').forEach((th) => {
       th.setAttribute('aria-sort', th.dataset.k === sortKey ? (sortDesc ? 'descending' : 'ascending') : 'none');
     });
     ['sdu', 'sdn', 'sdr'].forEach((id) => { q(id).disabled = busy || asleep(); });
     // No colspan: with the date column hidden (narrow screens) it would make a fourth, empty one.
-    const up = dir ? '<tr class=up><td class=n><a href="' + hrefFor(dir.split('/').slice(0, -1).join('/')) + '">' +
+    const up = dir ? '<tr class=up><td class=ck></td><td class=n><a href="' + hrefFor(dir.split('/').slice(0, -1).join('/')) + '">' +
       '<span class=ico>' + ICON.dir + '</span>..</a></td><td class=sz></td><td class=when></td><td></td></tr>' : '';
     q('sde').hidden = entries.length > 0;
     shown = sortEntries(entries, sortKey, sortDesc);
@@ -233,7 +245,8 @@
         'aria-label="Download ' + esc(e.name) + '">' + ICON.down + '</a>') +
         '<button class=ib data-a=ren data-i=' + i + off + ' title="Rename" aria-label="Rename ' + esc(e.name) + '">' + ICON.ren + '</button>' +
         '<button class="ib del" data-a=del data-i=' + i + off + ' title="Delete" aria-label="Delete ' + esc(e.name) + '">' + ICON.del + '</button>';
-      return '<tr' + (e.dir ? ' class=d' : on ? ' class=cur title="Loaded now"' : '') + '><td class=n title="' + esc(e.name) + '">' + name + '</td>' +
+      const tick = pp ? '<input type=checkbox data-pick="' + esc(e.name) + '"' + (picked.has(e.name) ? ' checked' : '') + ' aria-label="Tick ' + esc(e.name) + '">' : '';
+      return '<tr' + (e.dir ? ' class=d' : on ? ' class=cur title="Loaded now"' : '') + '><td class=ck>' + tick + '</td><td class=n title="' + esc(e.name) + '">' + name + '</td>' +
         '<td class="num sz">' + (e.dir ? '' : size(e.size)) + '</td><td class="num when">' + when(e.mtime) + '</td><td class=act>' + act + '</td></tr>';
     }).join('');
   }
@@ -242,6 +255,7 @@
   async function list(d, note) {
     const mine = ++loading;
     const moved = d !== dir;
+    if (moved) picked = new Set();
     dir = d;
     crumbs();
     if (asleep()) { // read once it's on (onStatus)
@@ -405,9 +419,10 @@
       '<div class=row><button id=sdu class=primary>Upload</button><button id=sdn>New folder</button>' +
       '<button id=sdr title="Read the folder again">Refresh</button></div></div>' +
       '<input type=file id=sdf multiple hidden>' +
+      '<div id=sdsel class=sdsel hidden><span id=sdseln class=grow></span><button id=sdselc>Clear</button><button id=sdsele class=primary></button></div>' +
       '<div id=sdp class=sdp hidden><div id=sdpt class="small mono"></div><progress id=sdpb></progress></div>' +
       '<table class=files id=sdtbl>' +
-      '<thead><tr><th data-k=name>Name</th><th data-k=size class="num cs sz">Size</th><th data-k=mtime class="num cw when">Modified</th><th class=ca></th></tr></thead>' +
+      '<thead><tr><th class=ck><input type=checkbox id=sdpa aria-label="Tick every profile here"></th><th data-k=name>Name</th><th data-k=size class="num cs sz">Size</th><th data-k=mtime class="num cw when">Modified</th><th class=ca></th></tr></thead>' +
       '<tbody id=sdt></tbody></table><div id=sde class=empty hidden>This folder is empty</div>' +
       '<div id=sdz class=asleep hidden><p id=sdzt></p><button id=sdzb class=primary>Turn the RT4K on</button></div>' +
       '<div class=small>Drop files here to upload them to this folder. ' +
@@ -421,6 +436,25 @@
       waking = true; // until the status says it's starting
       showAsleep();
       setTimeout(() => { if (waking) { waking = false; showAsleep(); } }, 10000); // it didn't take: offer it again
+    };
+    q('sdt').onchange = (ev) => {
+      const c = ev.target.closest('input[data-pick]');
+      if (!c) return;
+      if (c.checked) picked.add(c.dataset.pick); else picked.delete(c.dataset.pick);
+      render();
+    };
+    q('sdpa').onchange = () => {
+      picked = new Set(q('sdpa').checked ? entries.filter((e) => !e.dir && profilePath(dir, e.name)).map((e) => e.name) : []);
+      render();
+    };
+    q('sdselc').onclick = () => { picked = new Set(); render(); };
+    // the ticked profiles in the editor, in the folder's order
+    q('sdsele').onclick = () => {
+      const paths = shown.filter((e) => picked.has(e.name)).map((e) => join(dir, e.name));
+      picked = new Set();
+      render();
+      location.hash = '#rt4k/editor';
+      window.peOpenSet(paths);
     };
     q('sdt').onclick = (ev) => {
       const b = ev.target.closest('button[data-a]');

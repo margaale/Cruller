@@ -32,7 +32,8 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
   [RetroTINK's firmware repository](https://github.com/RetroTINK-LLC/firmware). It's checked
   against its SHA-256, written to the RT4K's card and installed by the RT4K itself.
 - **The SD card, over the network**: browse it, download, upload, make folders, rename and delete;
-  in `/profile`, load a profile with a click or open it in the profile editor, the loaded one marked.
+  in `/profile`, load a profile with a click or open it in the profile editor, the loaded one marked;
+  tick several to edit them together.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
   screen and the console on each input, and each input's profile picked from the RT4K's
@@ -162,7 +163,11 @@ remote works too). It has no clock, so files written over the network are dated 
 
 In `/profile`, each profile has two more buttons: **Load** (the RT4K loads it; this can change its
 input and output resolution, as the profile was saved) and **Edit** (it opens in the profile editor).
-The one the RT4K has loaded is marked.
+The one the RT4K has loaded is marked. Tick several (or every one in the folder) and **Edit them
+together**: the editor shows a setting's value when they agree and *Mixed* when they don't (its tooltip
+says who has what), and a value picked goes to all of them, each keeping the rest of its own. More can
+be added from any folder (**Add profiles…**); saving replaces each changed one where it is, after one
+confirmation that names them.
 
 ### SVS
 

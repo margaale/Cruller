@@ -236,6 +236,14 @@
     return { value: null, hex };
   }
 
+  // What several profiles hold for a setting (decode's, one each): mixed when they differ (by value; by
+  // bytes where the map doesn't know them), and which they have (each value once, in their order).
+  function agree(ds) {
+    const key = (d) => (d.value === null ? 'h' + d.hex : 'v' + d.value);
+    const kinds = [...new Map(ds.map((d) => [key(d), d])).values()];
+    return { mixed: kinds.length > 1, kinds };
+  }
+
   // Writes a value into the body (a copy is the caller's): a number within its range (an int to the
   // nearest the RT4K keeps, its step shown rounded: the ADC gains' 0.004 is 0.0039; a float to its step),
   // a list's value as shown. False when it can't.
@@ -267,7 +275,9 @@
 
   let doc = null;          // the settings map, once read
   let map = null, cs = []; // the map used and its codecs
-  let pf = null;           // the profile open: {name, path (on the SD card, from its root) or '', header, body, orig, mode, port, slot}
+  let set = [];            // the profiles open, edited together: {name, path (on the SD card, from its root) or '', header, body, orig, crcOk}
+  let pf = null;           // the one of them whose settings say what applies (the dimmed lines), and show when they differ
+  let view = { mode: 0, slot: -1, port: 0 }; // the input mode, detected rate and audio input whose settings show
   let power = '', fw = '';
   let busy = '';
   let filter = '';
@@ -291,7 +301,8 @@
     s.classList.toggle('bad', !!bad);
   }
 
-  const changed = () => !!pf && pf.body.some((b, i) => b !== pf.orig[i]);
+  const touched = (p) => p.body.some((b, i) => b !== p.orig[i]);
+  const changed = () => set.some(touched);
 
   function build() {
     q('pe').innerHTML =
@@ -300,7 +311,7 @@
       '<div class=row><button id=peo>Open a file…</button><input type=file id=pef accept=".rt4,.rt6" hidden>' +
       '<button id=peu>Undo</button><button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
       '<div id=pebody class=peg hidden>' +
-      '<div class=pehd><span id=pename class=pename></span><span class=grow></span>' +
+      '<div class=pehd><span id=peset class=peset></span><button type=button id=pea class=pemini title="Edit more profiles from the SD card with these: a change goes to all">Add profiles…</button><span class=grow></span>' +
       '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +
       '<div id=petl class=petl></div>' +
       '<div class=pebar><span class=pegrp><span class=pelab>Input signal mode</span><button type=button id=pesig class="pev pdd" aria-haspopup=listbox></button></span>' +
@@ -310,8 +321,12 @@
       '<input id=peq class=pefind placeholder="Find a setting" autocomplete=off></div>' +
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
       '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/sd/profile">SD card</a> view (its /profile folder).</div>' +
-      '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. The settings ' +
-      'and where they live come from mapping the RT4K\'s menus (Debug tab, Settings map).</div></div>';
+      '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. Several profiles ' +
+      'open together take each change, each keeping the rest of its own. The settings and where they live come from mapping ' +
+      'the RT4K\'s menus (Debug tab, Settings map).</div></div>' +
+      '<dialog id=peadd class=pick aria-labelledby=pept><form method=dialog><h3 id=pept>Add profiles</h3>' +
+      '<nav id=pepc class=crumbs aria-label=Folder></nav><div id=pepl class=pepl></div>' +
+      '<div class=row><span id=peps class="small grow"></span><button value=no>Cancel</button><button value=yes id=pepok class=primary disabled>Add</button></div></form></dialog>';
     q('peo').onclick = () => q('pef').click();
     q('pef').onchange = async () => {
       const f = q('pef').files[0];
@@ -319,36 +334,38 @@
       if (f) openData(f.name, '', new Uint8Array(await f.arrayBuffer()));
     };
     q('ped').onclick = download;
-    q('pesv').onclick = saveToSd;
-    q('peu').onclick = () => { if (pf) { pf.body = pf.orig.slice(); render(); } };
+    q('pesv').onclick = () => (set.length > 1 ? saveAll() : saveToSd());
+    q('peu').onclick = () => { for (const p of set) p.body = p.orig.slice(); render(); };
+    q('pea').onclick = addProfiles;
     q('peq').oninput = () => { filter = q('peq').value.trim().toLowerCase(); render(); };
     q('pesig').onclick = () => {
       if (!pf) return;
-      openList(q('pesig'), signals(), pf.slot >= 0 ? 's' + pf.slot : 'm' + pf.mode, (v) => {
+      openList(q('pesig'), signals(), view.slot >= 0 ? 's' + view.slot : 'm' + view.mode, (v) => {
         const k = +v.slice(1);
-        if (v[0] === 'm') { pf.mode = k; pf.slot = -1; } else pf.slot = k;
+        if (v[0] === 'm') { view.mode = k; view.slot = -1; } else view.slot = k;
         render();
       });
     };
     q('pedc').onclick = () => {
       const s = map && map.settings[deviceAt()];
       if (!pf || !s) return;
-      for (const [o, n] of s.bytes) pf.body.fill(0, o, o + n);
+      for (const p of set) for (const [o, n] of s.bytes) p.body.fill(0, o, o + n);
       render();
     };
     q('pe').addEventListener('change', (ev) => {
       const el = ev.target.closest('[data-i]');
       if (!el || !pf) return;
       const i = +el.dataset.i;
+      if (cs[i].type === 'number' && el.value.trim() === '') return render(); // (emptied: nothing to write)
       write(i, cs[i].type === 'number' ? +el.value : el.value);
     });
     // − and +: one step, and on while held (a setting's whole range, the trims' ±4096, takes a while one by one)
     let held = null;
     const stop = () => { if (held) { clearTimeout(held.t); clearInterval(held.r); held = null; } };
-    const step = (i, dir) => {
-      const s = map.settings[i], c = cs[i], d = decode(s, c, pf.body, ...at(s));
+    const step = (i, dir) => { // (from the value shown: when they differ, the one pf has)
+      const c = cs[i], d = valueOf(i);
       const v = +Math.min(c.max, Math.max(c.min, (d.value === null ? c.min : d.value) + dir * c.step)).toFixed(decimals(c.step));
-      if (v !== d.value) write(i, v);
+      if (v !== d.value || d.mixed) write(i, v);
     };
     q('pe').addEventListener('pointerdown', (ev) => {
       const b = ev.target.closest('button.pestep');
@@ -366,11 +383,16 @@
       if (!b || !pf) return;
       if (b.classList.contains('pestep')) {
         if (!ev.detail) step(+b.dataset.i, +b.dataset.step); // (a key, not the pointer: that stepped already)
+      } else if (b.dataset.lead !== undefined) {
+        pf = set[+b.dataset.lead];
+        render();
+      } else if (b.dataset.drop !== undefined) {
+        drop(set[+b.dataset.drop]);
       } else if (b.id === 'peport') {
-        openList(b, PORTS.map((n, k) => ({ value: k, label: n })), pf.port, (v) => { pf.port = v; render(); });
+        openList(b, PORTS.map((n, k) => ({ value: k, label: n })), view.port, (v) => { view.port = v; render(); });
       } else if (b.classList.contains('pdd') && b.dataset.i !== undefined) {
-        const i = +b.dataset.i;
-        openList(b, cs[i].values.map(([v]) => ({ value: v, label: v })), decode(map.settings[i], cs[i], pf.body, ...at(map.settings[i])).value, (v) => write(i, v));
+        const i = +b.dataset.i, d = valueOf(i);
+        openList(b, cs[i].values.map(([v]) => ({ value: v, label: v })), d.mixed ? undefined : d.value, (v) => write(i, v));
       } else if (b.dataset.tab !== undefined) {
         ui.tab = b.dataset.tab;
         ui.menu = lay.tabs.find((t) => t.tab === ui.tab).menus[0].title;
@@ -383,15 +405,30 @@
     addEventListener('beforeunload', (ev) => { if (changed() || busy) { ev.preventDefault(); ev.returnValue = ''; } });
   }
 
-  // Writes setting i's value where the signal picked keeps it (every mode and rate, if asked).
+  // Writes setting i's value where the signal picked keeps it (every mode and rate, if asked), in every
+  // profile open.
   function write(i, v) {
     const s = map.settings[i];
     const every = s.each && s.each.by === 'mode' && q('peall').checked;
     const where = every ? Array.from({ length: s.each.count }, (x, k) => [k, -1]) : [at(s)];
     if (every && s.each.srd !== undefined) for (let k = 0; k < 32; k++) if ((k & 7) < DIVS.length) where.push([0, k]);
-    if (!where.every(([k, slot]) => encode(s, cs[i], pf.body, v, k, slot))) status('That value can\'t be written.', true);
-    if (s.label === 'Input Source' && pf.body[PORT_AT] < PORTS.length) pf.port = pf.body[PORT_AT]; // (its audio settings show, as the new input's)
+    if (!set.every((p) => where.every(([k, slot]) => encode(s, cs[i], p.body, v, k, slot)))) status('That value can\'t be written.', true);
+    if (s.label === 'Input Source' && pf.body[PORT_AT] < PORTS.length) view.port = pf.body[PORT_AT]; // (its audio settings show, as the new input's)
     render();
+  }
+
+  // What the profiles open hold for setting i, where the signal picked keeps it: pf's value and bytes,
+  // mixed when theirs differ, all: each one's.
+  function valueOf(i) {
+    const s = map.settings[i], w = at(s), all = set.map((p) => decode(s, cs[i], p.body, ...w));
+    return { ...all[set.indexOf(pf)], mixed: set.length > 1 && agree(all).mixed, all };
+  }
+  const shownAs = (d) => (d.value === null ? '? (' + d.hex + ')' : String(d.value));
+
+  // Who holds what, for a tooltip: a name a line, the first 12.
+  function whoHas(values) {
+    const lines = set.map((p, k) => plain(p.name) + ': ' + values[k]);
+    return (lines.length > 12 ? lines.slice(0, 12).concat('and ' + (lines.length - 12) + ' more') : lines).join('\n');
   }
 
   const label = (s) => (s.section ? s.section + ' › ' : '') + s.label;
@@ -404,14 +441,14 @@
   // The saving device's ID: in the map, not laid out with the rest (only Clear changes it).
   const deviceAt = () => map.settings.findIndex((s) => s.hidden && s.label === 'Saved on device');
 
-  const elementOf = (s) => (!s.each ? 0 : s.each.by === 'mode' ? pf.mode : pf.port);
-  const slotOf = (s) => (s.each && s.each.srd !== undefined ? pf.slot : -1);
+  const elementOf = (s) => (!s.each ? 0 : s.each.by === 'mode' ? view.mode : view.port);
+  const slotOf = (s) => (s.each && s.each.srd !== undefined ? view.slot : -1);
   const at = (s) => [elementOf(s), slotOf(s)];
 
   // The ADC's samples per line in the mode picked: what the rates are a fraction of.
   function samplesPerLine() {
     const i = map.settings.findIndex((s) => s.label === 'Samples per Line' && s.each);
-    return i < 0 ? 0 : decode(map.settings[i], cs[i], pf.body, pf.mode).value || 0;
+    return i < 0 ? 0 : decode(map.settings[i], cs[i], pf.body, view.mode).value || 0;
   }
 
   // Whether setting i applies, as the one it depends on is set (where the signal picked has it): '' when it
@@ -425,9 +462,9 @@
     return not.length < s.when.is.length ? 'Not with ' + o.label + ': ' + not.join(' or ') : 'Only with ' + o.label + ': ' + s.when.is.join(' or ');
   }
 
-  // Whether setting i differs from the profile as opened: where the signal picked keeps it (here), or
-  // anywhere (any mode, rate or input).
-  const differs = (o, n) => pf.body.slice(o, o + n).some((b, k) => b !== pf.orig[o + k]);
+  // Whether setting i differs from the profiles as opened (any of them): where the signal picked keeps it
+  // (here), or anywhere (any mode, rate or input).
+  const differs = (o, n) => set.some((p) => { for (let k = o; k < o + n; k++) if (p.body[k] !== p.orig[k]) return true; return false; });
   const changedHere = (i) => { const s = map.settings[i]; return !!s.bytes && bytesAt(s, ...at(s)).some(([o, n]) => differs(o, n)); };
   function changedAnywhere(i) {
     const s = map.settings[i];
@@ -439,20 +476,21 @@
   }
 
   // A value as the OSD shows it, changed in place: a list opens its values, a number takes one (arrows step).
+  // Profiles that differ show Mixed (who has what in the line's tooltip) until a value is picked for all.
   function control(s, c, i) {
-    const d = decode(s, c, pf.body, ...at(s)), off = busy || c.readonly ? ' disabled' : '';
-    const tone = /^Off\b/.test(d.value) ? ' off' : '';
+    const d = valueOf(i), off = busy || c.readonly ? ' disabled' : '';
+    const tone = d.mixed ? ' mix' : /^Off\b/.test(d.value) ? ' off' : '';
     if (c.type === 'number') {
-      const w = Math.max(String(c.min).length, String(c.max).length, String(d.value).length) + 2;
+      const w = Math.max(String(c.min).length, String(c.max).length, String(d.value).length, d.mixed ? 5 : 0) + 2;
       return '<span class=pen><button type=button class=pestep data-step=-1 data-i=' + i + off + ' aria-label="Less" tabindex=-1>−</button>' +
         '<input type=number class="pev' + tone + '" data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' style="width:' + w + 'ch" value="' +
-        (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>' +
+        (d.value === null || d.mixed ? '' : d.value) + '"' + (d.mixed ? ' placeholder=Mixed' : '') + ' title="' + c.min + ' to ' + c.max + '"' + off + '>' +
         '<button type=button class=pestep data-step=1 data-i=' + i + off + ' aria-label="More" tabindex=-1>+</button></span>';
     }
     if (c.type === 'list') {
-      return '<button type=button class="pev pdd' + tone + '" data-i=' + i + ' aria-haspopup=listbox' + off + '><span>' + esc(d.value === null ? '? (' + d.hex + ')' : d.value) + '</span></button>';
+      return '<button type=button class="pev pdd' + tone + '" data-i=' + i + ' aria-haspopup=listbox' + off + '><span>' + esc(d.mixed ? 'Mixed' : shownAs(d)) + '</span></button>';
     }
-    return '<span class="pev mono">' + esc(d.hex) + '</span>';
+    return '<span class="pev mono' + tone + '">' + esc(d.mixed ? 'Mixed' : d.hex) + '</span>';
   }
 
   // A list's values under the button that opens it: the one set marked, the rest to pick from (a click,
@@ -499,7 +537,7 @@
       else return;
       ev.preventDefault();
     };
-    const away = (ev) => { if (!ev || !ev.target || !(el.contains(ev.target) || anchor.contains(ev.target))) closeList(); };
+    const away = (ev) => { const t = ev && ev.target; if (!(t instanceof Node) || !(el.contains(t) || anchor.contains(t))) closeList(); }; // (a resize's target is the window)
     addEventListener('mousedown', away, true);
     addEventListener('scroll', away, true);
     addEventListener('resize', away);
@@ -508,11 +546,12 @@
     el.focus({ preventScroll: true });
   }
 
-  // The signal picker's items: the input modes and rates the profile has settings for, then the others.
+  // The signal picker's items: the input modes and rates the profiles have settings for, then the others.
   function signals() {
-    const modes = modesUsed(map.settings, pf.body), rates = slotsUsed(map.settings, pf.body), spl = samplesPerLine();
+    const any = (used) => [...new Set(set.flatMap((p) => used(map.settings, p.body)))].sort((a, b) => a - b);
+    const modes = any(modesUsed), rates = any(slotsUsed), spl = samplesPerLine();
     const allRates = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
-    return [{ group: 'In this profile' }, ...modes.map((k) => ({ value: 'm' + k, label: modeName(k) })), ...rates.map((k) => ({ value: 's' + k, label: rateName(k, spl) })),
+    return [{ group: set.length > 1 ? 'In these profiles' : 'In this profile' }, ...modes.map((k) => ({ value: 'm' + k, label: modeName(k) })), ...rates.map((k) => ({ value: 's' + k, label: rateName(k, spl) })),
       { group: 'Input modes' }, ...Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k)).map((k) => ({ value: 'm' + k, label: modeName(k) })),
       { group: 'Detected sample rates' }, ...allRates.filter((k) => !rates.includes(k)).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))];
   }
@@ -530,7 +569,8 @@
   function tip(i) {
     const s = map.settings[i];
     const per = !s.each ? '' : slotOf(s) >= 0 ? 'Kept per detected rate' : s.each.by === 'mode' ? 'Kept per input mode' : 'Kept per audio input';
-    return [offMenu.get(i) || whyNot(i), s.note || (cs[i].readonly ? 'Read-only' : ''), per, s.asks ? 'The RT4K asks first: ' + s.asks : ''].filter(Boolean).join('\n');
+    const d = valueOf(i), mixed = d.mixed ? 'Mixed:\n' + whoHas(d.all.map(shownAs)) : '';
+    return [mixed, offMenu.get(i) || whyNot(i), s.note || (cs[i].readonly ? 'Read-only' : ''), per, s.asks ? 'The RT4K asks first: ' + s.asks : ''].filter(Boolean).join('\n');
   }
 
   // One setting's line: its name, its value.
@@ -569,15 +609,26 @@
     q('pen').textContent = 'Profile editor';
     q('ped').disabled = !has || !!busy;
     q('pesv').disabled = !has || !!busy || asleep();
+    q('pesv').textContent = set.length > 1 ? 'Save them to the SD card…' : 'Save to the SD card…';
     q('peu').disabled = !changed() || !!busy;
+    q('pea').disabled = !has || !!busy || asleep();
     if (!has) return;
-    q('pename').textContent = plain(pf.name) + (changed() ? ' (changed)' : '');
 
-    // the ID of the RT4K that saved it: shown, and emptied with Clear (nothing else writes it)
-    const dev = map.settings[deviceAt()], id = dev ? hexOf(pf.body, dev.bytes) : '';
+    // the profiles open: one, its name; several, each (the one marked says what applies; a click marks
+    // another, × leaves one out)
+    q('peset').innerHTML = set.length === 1 ? '<span class=pename>' + esc(plain(pf.name)) + (changed() ? ' (changed)' : '') + '</span>' :
+      set.map((p, k) => '<span class="pechip' + (p === pf ? ' on' : '') + (touched(p) ? ' chg' : '') + '"><button type=button data-lead=' + k +
+        ' title="' + esc((p.path ? '/' + p.path : 'From this computer') + (p === pf ? '\nIts settings say what applies (the lines dimmed), and show when they differ' : '\nMark it: its settings say what applies')) + '">' +
+        esc(plain(p.name)) + '</button><button type=button class=pex data-drop=' + k + ' aria-label="Leave ' + esc(plain(p.name)) + ' out" title="Leave it out">×</button></span>').join('');
+
+    // the ID of the RT4K that saved each: shown, and emptied with Clear (nothing else writes it)
+    const dev = map.settings[deviceAt()], ids = dev ? set.map((p) => hexOf(p.body, dev.bytes)) : [];
+    const idOf = (id) => (/[1-9a-f]/.test(id) ? id : '(empty)'), idMixed = ids.some((id) => id !== ids[0]);
     q('pedev').hidden = !dev;
-    q('pedid').textContent = /[1-9a-f]/.test(id) ? id : '(empty)';
-    q('pedc').disabled = !/[1-9a-f]/.test(id) || !!busy;
+    q('pedid').textContent = idMixed ? 'Mixed' : idOf(ids[0] || '');
+    q('pedid').title = idMixed ? whoHas(ids.map(idOf)) : '';
+    q('pedid').classList.toggle('mix', idMixed);
+    q('pedc').disabled = !ids.some((id) => /[1-9a-f]/.test(id)) || !!busy;
     q('pedev').classList.toggle('chg', !!dev && dev.bytes.some(([o, n]) => differs(o, n)));
 
     // the main menu's settings, as tiles
@@ -587,14 +638,14 @@
     });
     // the audio input whose settings show (Audio Input's, kept per port), beside the input: the profile's own first
     tiles.splice(lay.tiles.findIndex((i) => map.settings[i].label === 'Input Source') + 1, 0, '<div class=pti title="The settings kept per audio input (Audio Input) show this one\'s"><span class=pelab>Audio Input</span>' +
-      '<button type=button id=peport class="pev pdd" aria-haspopup=listbox><span>' + esc(PORTS[pf.port]) + '</span></button></div>');
+      '<button type=button id=peport class="pev pdd" aria-haspopup=listbox><span>' + esc(PORTS[view.port]) + '</span></button></div>');
     q('petl').innerHTML = tiles.join('');
 
     // the signal picked (a mode, or a rate)
     closeList();
-    q('pesig').innerHTML = '<span>' + esc(pf.slot >= 0 ? rateName(pf.slot, samplesPerLine()) : modeName(pf.mode)) + '</span>';
-    q('pesig').title = pf.slot >= 0
-      ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from ' + modeName(pf.mode) + ' (pick a mode to change that)'
+    q('pesig').innerHTML = '<span>' + esc(view.slot >= 0 ? rateName(view.slot, samplesPerLine()) : modeName(view.mode)) + '</span>';
+    q('pesig').title = view.slot >= 0
+      ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from ' + modeName(view.mode) + ' (pick a mode to change that)'
       : 'The settings kept per input mode show this one\'s';
 
     // a search: every setting found, under its submenu; else the tab and submenu picked
@@ -624,47 +675,221 @@
     doc = await r.json();
   }
 
+  // The map for the RT4K's firmware, its codecs and layout: again for profiles opened anew, kept for those
+  // added (they must fit it).
+  async function ready(again) {
+    await readMap();
+    if (map && !again) return;
+    map = mapFor(doc, fw);
+    if (!map) throw new Error('there is no settings map');
+    cs = codecs(map.settings);
+    lay = layoutOf(map);
+    dep = links(map.settings);
+  }
+
+  // A profile's file, ready to edit (or why not).
+  function prepare(name, path, data) {
+    const p = parseProfile(data);
+    if (!p) throw new Error(name + ' is not an RT4K profile');
+    if (p.body.length !== map.size) throw new Error(name + ' has ' + p.body.length + ' bytes of settings, the map knows ' + map.size);
+    return { name, path, header: p.header, body: p.body.slice(), orig: p.body.slice(), crcOk: p.crcOk };
+  }
+
+  // Shows these profiles, the first marked. The mode shown first: its own (one with settings, other than
+  // 0, the one with none); no detected rate (the mode's own); the audio input: the one it's for.
+  function show(list) {
+    set = list;
+    pf = list[0];
+    const used = modesUsed(map.settings, pf.body);
+    view = { mode: used.find((k) => k) || 0, slot: -1, port: pf.body[PORT_AT] < PORTS.length ? pf.body[PORT_AT] : 0 };
+  }
+
+  const crcNote = (ps) => {
+    const bad = ps.filter((p) => !p.crcOk).map((p) => plain(p.name));
+    return !bad.length ? '' : (bad.length === 1 ? bad[0] + '\'s CRC doesn\'t match' : bad.length + ' have a CRC that doesn\'t match (' + bad.join(', ') + ')') +
+      ': the RT4K wouldn\'t load ' + (bad.length === 1 ? 'it' : 'them') + ' as ' + (bad.length === 1 ? 'it is' : 'they are') + ' (saving writes it right).';
+  };
+
   async function openData(name, path, data) {
     try {
-      await readMap();
-      const p = parseProfile(data);
-      if (!p) throw new Error(name + ' is not an RT4K profile');
-      map = mapFor(doc, fw);
-      if (!map) throw new Error('there is no settings map');
-      if (p.body.length !== map.size) throw new Error(name + ' has ' + p.body.length + ' bytes of settings, the map knows ' + map.size);
-      cs = codecs(map.settings);
-      lay = layoutOf(map);
-      dep = links(map.settings);
-      // the mode shown first: the profile's own (one with settings, other than 0, the one with none); no
-      // detected rate (the mode's own); the audio input: the one the profile is for
-      const used = modesUsed(map.settings, p.body);
-      pf = { name, path, header: p.header, body: p.body.slice(), orig: p.body.slice(), mode: used.find((k) => k) || 0, slot: -1, port: p.body[PORT_AT] < PORTS.length ? p.body[PORT_AT] : 0 };
-      status(p.crcOk ? 'Opened ' + plain(name) + (path ? ' from the SD card' : ' from this computer') : plain(name) + '\'s CRC doesn\'t match: the RT4K wouldn\'t load it as it is (saving writes it right).', !p.crcOk);
+      await ready(true);
+      const p = prepare(name, path, data);
+      show([p]);
+      status(crcNote([p]) || 'Opened ' + plain(name) + (path ? ' from the SD card' : ' from this computer'), !p.crcOk);
     } catch (e) {
       status('Could not open it: ' + e.message, true);
     }
     render();
   }
 
+  async function readSd(path) {
+    const r = await fetch('/rt4k/get?path=' + encodeURIComponent(path));
+    if (!r.ok) throw new Error((await r.text()).trim() || 'HTTP ' + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  }
+  const failure = (e) => (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message);
+
+  // Reads these profiles from the SD card (paths from its root), one after another: the ones read, and why
+  // the others weren't.
+  async function readAll(paths) {
+    const got = [], bad = [];
+    for (const [k, path] of paths.entries()) {
+      const name = path.split('/').pop();
+      status('Reading ' + (paths.length > 1 ? (k + 1) + ' of ' + paths.length + ': ' : '') + plain(name) + '…');
+      try { got.push(prepare(name, path, await readSd(path))); } catch (e) { bad.push(plain(name) + ': ' + failure(e)); }
+    }
+    return { got, bad };
+  }
+
   async function openSd(path) {
     if (asleep()) return status('The RT4K is asleep: turn it on to read its SD card, or open a file from this computer.', true);
     status('Reading ' + plain(path.split('/').pop()) + '…');
     try {
-      const r = await fetch('/rt4k/get?path=' + encodeURIComponent(path));
-      if (!r.ok) throw new Error((await r.text()).trim() || 'HTTP ' + r.status);
-      await openData(path.split('/').pop(), path, new Uint8Array(await r.arrayBuffer()));
+      await openData(path.split('/').pop(), path, await readSd(path));
     } catch (e) {
-      status('Could not read it: ' + (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message), true);
+      status('Could not read it: ' + failure(e), true);
     }
   }
 
-  function download() {
-    if (!pf) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([buildProfile(pf.header, pf.body)], { type: 'application/octet-stream' }));
-    a.download = pf.name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  // Opens several profiles of the SD card to edit together (the SD card view's Edit together).
+  async function openSet(paths) {
+    if (!q('pebody')) build();
+    if (!paths.length || busy) return;
+    if (changed() && !(await window.askUser('Leave the changes unsaved?', 'Profiles open have changes not saved: opening others drops them.', 'Open them', true))) return;
+    if (asleep()) return status('The RT4K is asleep: turn it on to read its SD card.', true);
+    try {
+      await ready(true);
+    } catch (e) {
+      return status('Could not open them: ' + e.message, true);
+    }
+    busy = 'open';
+    render();
+    const { got, bad } = await readAll(paths);
+    busy = '';
+    if (got.length) show(got);
+    status([got.length ? 'Opened ' + (got.length === 1 ? plain(got[0].name) : got.length + ' profiles') + ' from the SD card' : '',
+      bad.length ? 'Could not open ' + bad.join('; ') : '', crcNote(got)].filter(Boolean).join('. '), bad.length > 0 || got.some((p) => !p.crcOk));
+    render();
+  }
+
+  // More profiles from the SD card, picked in a folder at a time under /profile (those open shown ticked).
+  const picker = { dir: 'profile', chosen: new Set() };
+  async function pickList() {
+    const d = picker.dir, parts = d.split('/');
+    q('pepc').innerHTML = parts.map((p, k) => (k === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a href=# data-dir="' + esc(parts.slice(0, k + 1).join('/')) + '">' + esc(p) + '</a>')).join('<span>/</span>');
+    q('pepl').innerHTML = '';
+    q('peps').textContent = 'Reading the folder…';
+    try {
+      const r = await fetch('/rt4k/ls?dir=' + encodeURIComponent(d));
+      const body = await r.text();
+      if (!r.ok) throw new Error(body.trim() || 'HTTP ' + r.status);
+      if (picker.dir !== d) return; // (another folder was opened meanwhile)
+      const sd = window.sdInternals, list = sd.sortEntries(sd.parseList(body), 'name', false).filter((e) => e.dir || /\.rt[46]$/i.test(e.name));
+      const open = new Set(set.map((p) => p.path.toLowerCase()));
+      q('pepl').innerHTML = list.map((e) => {
+        const path = d + '/' + e.name;
+        if (e.dir) return '<button type=button data-dir="' + esc(path) + '"><span class=ico>' + DIR + '</span>' + esc(e.name) + '</button>';
+        const already = open.has(path.toLowerCase());
+        return '<label' + (already ? ' class=in title="Open already"' : '') + '><input type=checkbox data-path="' + esc(path) + '"' +
+          (already || picker.chosen.has(path) ? ' checked' : '') + (already ? ' disabled' : '') + '>' + esc(plain(e.name)) + '</label>';
+      }).join('') || '<div class=pe0>No profiles here</div>';
+      q('peps').textContent = '';
+    } catch (e) {
+      q('peps').textContent = 'Could not read the folder: ' + failure(e);
+    }
+  }
+  const DIR = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+
+  function addProfiles() {
+    if (!pf || busy || asleep()) return;
+    const dlg = q('peadd'), ok = q('pepok');
+    picker.dir = pf.path ? pf.path.split('/').slice(0, -1).join('/') : 'profile';
+    picker.chosen = new Set();
+    const count = () => { ok.disabled = !picker.chosen.size; ok.textContent = picker.chosen.size > 1 ? 'Add ' + picker.chosen.size : 'Add'; };
+    count();
+    dlg.onclick = (ev) => {
+      const to = ev.target.closest('[data-dir]');
+      if (!to) return;
+      ev.preventDefault();
+      picker.dir = to.dataset.dir;
+      pickList();
+    };
+    dlg.onchange = (ev) => {
+      const c = ev.target.closest('input[data-path]');
+      if (!c) return;
+      if (c.checked) picker.chosen.add(c.dataset.path); else picker.chosen.delete(c.dataset.path);
+      count();
+    };
+    dlg.onclose = async () => {
+      if (dlg.returnValue !== 'yes' || !picker.chosen.size) return;
+      busy = 'open';
+      render();
+      const { got, bad } = await readAll([...picker.chosen]);
+      busy = '';
+      set = set.concat(got);
+      status([got.length ? 'Added ' + (got.length === 1 ? plain(got[0].name) : got.length + ' profiles') : '', bad.length ? 'Could not add ' + bad.join('; ') : '', crcNote(got)].filter(Boolean).join('. '),
+        bad.length > 0 || got.some((p) => !p.crcOk));
+      render();
+    };
+    dlg.returnValue = '';
+    dlg.showModal();
+    pickList();
+  }
+
+  // Leaves a profile out of those open (its changes dropped, asked first).
+  async function drop(p) {
+    if (!p || set.length < 2 || busy) return;
+    if (touched(p) && !(await window.askUser('Leave ' + plain(p.name) + ' out?', 'Its changes aren\'t saved: leaving it out drops them.', 'Leave it out', true))) return;
+    set = set.filter((x) => x !== p);
+    if (pf === p) pf = set[0];
+    render();
+  }
+
+  // Downloads profiles, each its own file (a moment apart: the browser may ask once to allow several).
+  function downloads(ps) {
+    ps.forEach((p, k) => setTimeout(() => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buildProfile(p.header, p.body)], { type: 'application/octet-stream' }));
+      a.download = p.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }, k * 250));
+  }
+  const download = () => downloads(set);
+
+  // Several open: each changed one replaces itself where it is on the SD card (asked once, every file
+  // named); one from this computer is downloaded.
+  async function saveAll() {
+    if (busy || asleep()) return;
+    const todo = set.filter(touched), sd = todo.filter((p) => p.path), here = todo.filter((p) => !p.path);
+    if (!todo.length) return status('Nothing to save: no profile has changes.');
+    const names = (ps) => (ps.length > 12 ? ps.slice(0, 12).map((p) => p.path || p.name).concat('and ' + (ps.length - 12) + ' more') : ps.map((p) => p.path || p.name)).join('\n');
+    const kept = set.length - todo.length;
+    if (!(await window.askUser(sd.length ? 'Replace ' + (sd.length === 1 ? plain(sd[0].name) : sd.length + ' profiles') + '?' : 'Download ' + here.length + ' profiles?',
+      [sd.length ? 'On the SD card, each where it is:\n' + names(sd) : '', here.length ? 'From this computer, downloaded:\n' + names(here) : '',
+        kept ? kept + (kept === 1 ? ' has' : ' have') + ' no changes and stay' + (kept === 1 ? 's' : '') + ' as it is.' : ''].filter(Boolean).join('\n\n'),
+      sd.length ? 'Replace' : 'Download', !!sd.length))) return;
+    busy = 'save';
+    render();
+    let done = 0;
+    try {
+      for (const p of sd) {
+        status('Saving ' + (sd.length > 1 ? (done + 1) + ' of ' + sd.length + ': ' : '') + plain(p.name) + '…');
+        const data = buildProfile(p.header, p.body);
+        const r = await fetch('/rt4k/put?path=' + encodeURIComponent(p.path) + '&sha=' + window.sha256(data), { method: 'POST', body: data });
+        if (!r.ok) throw new Error(plain(p.name) + ': ' + ((await r.text()).trim() || 'HTTP ' + r.status));
+        p.orig = p.body.slice();
+        p.crcOk = true;
+        done++;
+      }
+      downloads(here);
+      for (const p of here) p.orig = p.body.slice();
+      status([sd.length ? 'Saved ' + (sd.length === 1 ? plain(sd[0].name) : sd.length + ' profiles') + ' to the SD card' : '', here.length ? 'downloaded ' + here.length : ''].filter(Boolean).join(', '));
+    } catch (e) {
+      status('Saved ' + done + ' of ' + sd.length + '; ' + failure(e) + (done < sd.length - 1 ? ' (the rest weren\'t tried)' : ''), true);
+    }
+    busy = '';
+    render();
   }
 
   // Saves to the SD card: where it came from, or /profile; under the name given (the same replaces it,
@@ -686,7 +911,7 @@
       status('Saving ' + plain(name) + '…');
       const r = await fetch('/rt4k/put?path=' + encodeURIComponent(path) + '&sha=' + window.sha256(data), { method: 'POST', body: data });
       if (!r.ok) throw new Error((await r.text()).trim() || 'HTTP ' + r.status);
-      pf = { ...pf, name, path, orig: pf.body.slice() };
+      Object.assign(pf, { name, path, orig: pf.body.slice(), crcOk: true });
       let note = 'Saved ' + plain(name);
       if (load) {
         status('Loading ' + plain(name) + '…');
@@ -707,8 +932,8 @@
     if (!q('pebody')) build();
     render();
     const path = (parts || []).map(decodeURIComponent).join('/');
-    if (!path || (pf && pf.path === 'profile/' + path)) return;
-    if (changed() && !(await window.askUser('Leave the changes unsaved?', plain(pf.name) + ' has changes not saved: opening another drops them.', 'Open it', true))) return;
+    if (!path || (set.length === 1 && pf.path === 'profile/' + path)) return;
+    if (changed() && !(await window.askUser('Leave the changes unsaved?', (set.length > 1 ? 'Profiles open have' : plain(pf.name) + ' has') + ' changes not saved: opening another drops them.', 'Open it', true))) return;
     openSd('profile/' + path);
   }
 
@@ -720,6 +945,7 @@
   }
 
   window.peOpen = open;
+  window.peOpenSet = openSet; // sd.js: the profiles ticked, to edit together
   window.peStatus = onStatus;
-  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, asNumber, bytesAt, modesUsed, slotsUsed, rateName, modeName, links, layoutOf, HEADER }; // tests/test_editor.js
+  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, agree, asNumber, bytesAt, modesUsed, slotsUsed, rateName, modeName, links, layoutOf, HEADER }; // tests/test_editor.js
 })();

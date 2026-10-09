@@ -52,6 +52,20 @@ const sb = new Uint8Array(22876);
 check(JSON.stringify(e.bytesAt(srdTrim, 1, 12)) === '[[7340,2]]' && JSON.stringify(e.bytesAt(srdTrim, 1)) === '[[1318,2]]' && JSON.stringify(e.bytesAt(trim, 1, 12)) === '[[1318,2]]', 'slot 12 of the rate arrays, the mode\'s without one');
 e.encode(srdTrim, tc, sb, -5, 1, 12);
 check(sb[7340] === 0xfb && sb[7341] === 0xff && !sb[0x526] && e.decode(srdTrim, tc, sb, 1, 12).value === -5 && e.decode(srdTrim, tc, sb, 1).value === 0, 'written in slot 12 only, read back there');
+
+// Several profiles open: one value when they agree, mixed (each value once, in their order) when they differ.
+const pa = new Uint8Array(22876), pb = new Uint8Array(22876), pc = new Uint8Array(22876);
+e.encode(trim, tc, pa, 3, 1); e.encode(trim, tc, pb, 3, 1); e.encode(trim, tc, pc, -3, 1);
+const ds = (bs, el) => bs.map((b) => e.decode(trim, tc, b, el));
+check(!e.agree(ds([pa, pb], 1)).mixed && e.agree(ds([pa, pb], 1)).kinds[0].value === 3, 'the same value: not mixed');
+const mix = e.agree(ds([pa, pc, pb], 1));
+check(mix.mixed && mix.kinds.map((d) => d.value).join() === '3,-3', 'different values: mixed, each once in order: ' + mix.kinds.map((d) => d.value).join());
+check(!e.agree(ds([pa, pc], 0)).mixed, 'mixed in one mode, alike in another');
+const odd = { label: 'Odd', bytes: [[0x100, 1]], values: [['On', '01']] }, [oc] = e.codecs([odd]);
+const qa = new Uint8Array(22876), qb = new Uint8Array(22876);
+qa[0x100] = 7; qb[0x100] = 9;
+check(e.agree([e.decode(odd, oc, qa), e.decode(odd, oc, qb)]).mixed && !e.agree([e.decode(odd, oc, qa), e.decode(odd, oc, qa)]).mixed,
+  'bytes the map does not know: told apart by their bytes');
 check(JSON.stringify(e.slotsUsed([srdTrim], sb)) === '[12]' && JSON.stringify(e.modesUsed([srdTrim], sb)) === '[]', 'the slots a profile has settings in');
 check(e.rateName(12, 3432) === '480i · 686.400 (1/5)' && e.rateName(9) === '480i · 1/8' && e.rateName(0, 3410) === '240p · 341.000 (1/10)' && e.rateName(29, 0) === '576i · 1/4' && e.rateName(6) === 'Slot 6', 'the rates\' names: ' + e.rateName(12, 3432));
 check(e.modeName(1) === 'Mode 1 · CP 480i' && e.modeName(7) === 'Mode 7', 'the modes\' names');
