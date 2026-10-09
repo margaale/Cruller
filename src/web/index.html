@@ -9,6 +9,7 @@
 :root{--bg:#121315;--panel:#1B1D21;--raised:#23262B;--line:#2E3238;--rule:#26292E;--text:#ECEAE4;--soft:#B3B7BD;--muted:#A3A7AE;--faint:#8A8E95;--accent:#E8618C;--ok:#4CC38A;--warn:#F0B44C;--blue:#4FB3D9;--well:#0E0F11;
 --sans:'IBM Plex Sans',system-ui,sans-serif;--head:'Chakra Petch','IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace}
 *{box-sizing:border-box}
+html{scrollbar-gutter:stable} /* (a scrollbar coming and going would resize the live screen and its remote, over and over) */
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 var(--sans)}
 body{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;gap:20px;padding:18px 12px;border-right:1px solid var(--rule);background:var(--bg)}

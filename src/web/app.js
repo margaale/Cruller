@@ -1150,10 +1150,12 @@ function fitRemote() {
   if (getComputedStyle(r).position !== 'absolute') { r.style.transform = ''; return; }
   const h = wrap.getBoundingClientRect().height, natural = r.offsetHeight;
   if (!h || !natural) return;
-  const s = h / natural;
+  const s = h / natural, w = Math.round(r.offsetWidth * s);
+  // The screen narrows a little, the row follows, the remote with it: within a pixel either way it's left
+  // as it is, or the two could chase each other for good (the screen and the remote flickering).
+  if (r.style.transform && Math.abs((parseFloat(wrap.style.width) || 0) - w) < 2) return;
   r.style.transform = 'scale(' + s + ')';
-  const w = Math.round(r.offsetWidth * s) + 'px';
-  if (wrap.style.width !== w) wrap.style.width = w; // the screen narrows a little, the row follows
+  wrap.style.width = w + 'px';
 }
 new ResizeObserver(fitRemote).observe($('tv').closest('.panel'));
 
