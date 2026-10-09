@@ -346,7 +346,7 @@
       const b = ev.target.closest('button');
       if (!b || !pf) return;
       if (b.id === 'peport') {
-        openList(b, PORTS.map((n, k) => ({ value: k, label: n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') })), pf.port, (v) => { pf.port = v; render(); });
+        openList(b, PORTS.map((n, k) => ({ value: k, label: n })), pf.port, (v) => { pf.port = v; render(); });
       } else if (b.classList.contains('pdd') && b.dataset.i !== undefined) {
         const i = +b.dataset.i;
         openList(b, cs[i].values.map(([v]) => ({ value: v, label: v })), decode(map.settings[i], cs[i], pf.body, ...at(map.settings[i])).value, (v) => write(i, v));
@@ -375,9 +375,9 @@
 
   const label = (s) => (s.section ? s.section + ' › ' : '') + s.label;
 
-  // The audio input ports, as the input source's port byte says them (measured: HD-15 0, RCA 1, SCART 2,
-  // HDMI 4).
-  const PORTS = ['HD-15', 'RCA', 'SCART', 'Port 3', 'HDMI', 'Port 5', 'Port 6', 'Port 7'];
+  // The audio input ports, as the input source's port byte says them (measured with every input: HD-15 0,
+  // RCA 1, SCART 2, Front 3, HDMI 4; the arrays have 8, the last 3 no input's).
+  const PORTS = ['HD-15', 'RCA', 'SCART', 'Front', 'HDMI'];
   const PORT_AT = 0x57eb; // input_port, beside the input source (0x57e9) on struct ver 109
 
   // The saving device's ID: in the map, not laid out with the rest (only Clear changes it).
@@ -544,7 +544,7 @@
     });
     // the audio input whose settings show (Audio Input's, kept per port), beside the input: the profile's own first
     tiles.splice(lay.tiles.findIndex((i) => map.settings[i].label === 'Input Source') + 1, 0, '<div class=pti title="The settings kept per audio input (Audio Input) show this one\'s"><span class=pelab>Audio Input</span>' +
-      '<button type=button id=peport class="pev pdd" aria-haspopup=listbox><span>' + esc(PORTS[pf.port] + (pf.port === pf.body[PORT_AT] ? ' (this profile\'s)' : '')) + '</span></button></div>');
+      '<button type=button id=peport class="pev pdd" aria-haspopup=listbox><span>' + esc(PORTS[pf.port]) + '</span></button></div>');
     q('petl').innerHTML = tiles.join('');
 
     // the signal picked (a mode, or a rate)
