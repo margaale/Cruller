@@ -164,10 +164,13 @@ remote works too). It has no clock, so files written over the network are dated 
 In `/profile`, each profile has two more buttons: **Load** (the RT4K loads it; this can change its
 input and output resolution, as the profile was saved) and **Edit** (it opens in the profile editor).
 The one the RT4K has loaded is marked. Tick several (or every one in the folder) and **Edit them
-together**: the editor shows a setting's value when they agree and *Mixed* when they don't (its tooltip
-says who has what), and a value picked goes to all of them, each keeping the rest of its own. More can
-be added from any folder (**Add profiles…**); saving replaces each changed one where it is, after one
-confirmation that names them.
+together**.
+
+The editor lists the profiles open beside it, with what's done with them: add more from the SD card
+or this computer, close one, undo, download, save. One shows at a time; with **Multi Edit** on, the
+ones ticked are edited together: a setting shows its value when they agree and *Mixed* when they
+don't (its tooltip says who has what), and a value picked goes to all of them, each keeping the rest
+of its own. Saving them replaces each changed one where it is, after one confirmation that names them.
 
 ### SVS
 

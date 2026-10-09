@@ -275,8 +275,11 @@
 
   let doc = null;          // the settings map, once read
   let map = null, cs = []; // the map used and its codecs
-  let set = [];            // the profiles open, edited together: {name, path (on the SD card, from its root) or '', header, body, orig, crcOk}
-  let pf = null;           // the one of them whose settings say what applies (the dimmed lines), and show when they differ
+  let files = [];          // the profiles open, listed beside the editor: {name, path (on the SD card, from its root) or '', header, body, orig, crcOk}
+  let pf = null;           // the one shown: edited alone, or with Multi Edit the one whose settings say what applies
+  let multi = false;       // Multi Edit: the profiles ticked are edited together (pf one of them)
+  let ticked = new Set();
+  const group = () => (!pf ? [] : multi ? files.filter((p) => ticked.has(p)) : [pf]); // the profiles a change goes to
   let view = { mode: 0, slot: -1, port: 0 }; // the input mode, detected rate and audio input whose settings show
   let power = '', fw = '';
   let busy = '';
@@ -302,16 +305,23 @@
   }
 
   const touched = (p) => p.body.some((b, i) => b !== p.orig[i]);
-  const changed = () => set.some(touched);
+  const changed = () => files.some(touched);
 
   function build() {
     q('pe').innerHTML =
       '<div class="panel pep">' +
-      '<div class="row sdh"><h2 id=pen>Profile editor</h2><span id=pes class="small grow"></span>' +
-      '<div class=row><button id=peo>Open a file…</button><input type=file id=pef accept=".rt4,.rt6" hidden>' +
-      '<button id=peu>Undo</button><button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
+      '<div class="row sdh"><h2 id=pen>Profile editor</h2><span id=pes class="small grow"></span></div>' +
+      '<div class=pewrap>' +
+      // the profiles open, and what's done with them
+      '<aside class=pefiles aria-label="Profiles open">' +
+      '<div class=pefh><span class=pelab>Profiles</span><label class=pemt title="Tick several profiles: a change goes to all of them"><input type=checkbox id=pem role=switch> Multi Edit</label></div>' +
+      '<div id=pefl class=pefl></div>' +
+      '<div class=pefa><button id=pea>Add from the SD card…</button><button id=peo>Add from this computer…</button>' +
+      '<input type=file id=pef accept=".rt4,.rt6" multiple hidden></div>' +
+      '<div class=pefa><div class=row><button id=peu class=grow>Undo</button><button id=ped class=grow>Download</button></div>' +
+      '<button id=pesv class=primary>Save to the SD card…</button></div></aside>' +
       '<div id=pebody class=peg hidden>' +
-      '<div class=pehd><span id=peset class=peset></span><button type=button id=pea class=pemini title="Edit more profiles from the SD card with these: a change goes to all">Add profiles…</button><span class=grow></span>' +
+      '<div class=pehd><span id=peset class=pename></span><span class=grow></span>' +
       '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +
       '<div id=petl class=petl></div>' +
       '<div class=pebar><span class=pegrp><span class=pelab>Input signal mode</span><button type=button id=pesig class="pev pdd" aria-haspopup=listbox></button></span>' +
@@ -320,23 +330,30 @@
       '<div class=pebar><span class=pelab>Advanced Settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
       '<input id=peq class=pefind placeholder="Find a setting" autocomplete=off></div>' +
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
-      '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/sd/profile">SD card</a> view (its /profile folder).</div>' +
-      '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. Several profiles ' +
-      'open together take each change, each keeping the rest of its own. The settings and where they live come from mapping ' +
+      '<div id=pe0 class=pe0>Add a profile from the SD card or this computer, or pick some in the <a class=more href="#rt4k/sd/profile">SD card</a> ' +
+      'view (its /profile folder): one to edit, or several ticked to edit together.</div></div>' +
+      '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. With Multi Edit, the ' +
+      'profiles ticked take each change, each keeping the rest of its own. The settings and where they live come from mapping ' +
       'the RT4K\'s menus (Debug tab, Settings map).</div></div>' +
-      '<dialog id=peadd class=pick aria-labelledby=pept><form method=dialog><h3 id=pept>Add profiles</h3>' +
+      '<dialog id=peadd class=pick aria-labelledby=pept><form method=dialog><h3 id=pept>Add from the SD card</h3>' +
       '<nav id=pepc class=crumbs aria-label=Folder></nav><div id=pepl class=pepl></div>' +
       '<div class=row><span id=peps class="small grow"></span><button value=no>Cancel</button><button value=yes id=pepok class=primary disabled>Add</button></div></form></dialog>';
     q('peo').onclick = () => q('pef').click();
     q('pef').onchange = async () => {
-      const f = q('pef').files[0];
+      const chosen = [...q('pef').files];
       q('pef').value = '';
-      if (f) openData(f.name, '', new Uint8Array(await f.arrayBuffer()));
+      for (const f of chosen) await openData(f.name, '', new Uint8Array(await f.arrayBuffer()));
     };
     q('ped').onclick = download;
-    q('pesv').onclick = () => (set.length > 1 ? saveAll() : saveToSd());
-    q('peu').onclick = () => { for (const p of set) p.body = p.orig.slice(); render(); };
+    q('pesv').onclick = () => (group().length > 1 ? saveAll() : saveToSd());
+    q('peu').onclick = () => { for (const p of group()) p.body = p.orig.slice(); render(); };
     q('pea').onclick = addProfiles;
+    // Multi Edit: on, every profile open ticked to start with; off, the one shown alone
+    q('pem').onchange = () => {
+      multi = q('pem').checked;
+      if (multi) ticked = new Set(files);
+      render();
+    };
     q('peq').oninput = () => { filter = q('peq').value.trim().toLowerCase(); render(); };
     q('pesig').onclick = () => {
       if (!pf) return;
@@ -349,7 +366,26 @@
     q('pedc').onclick = () => {
       const s = map && map.settings[deviceAt()];
       if (!pf || !s) return;
-      for (const p of set) for (const [o, n] of s.bytes) p.body.fill(0, o, o + n);
+      for (const p of group()) for (const [o, n] of s.bytes) p.body.fill(0, o, o + n);
+      render();
+    };
+    // the list: a name shows that profile (with Multi Edit, it's ticked too); its tick adds it to those edited
+    // together or leaves it out (one stays); × closes it
+    q('pefl').onclick = (ev) => {
+      const b = ev.target.closest('button');
+      if (!b || busy) return;
+      const p = files[+b.dataset.k];
+      if (b.dataset.show !== undefined) showOne(p);
+      else if (b.dataset.close !== undefined) closeFile(p);
+    };
+    q('pefl').onchange = (ev) => {
+      const c = ev.target.closest('input[data-k]'), p = c && files[+c.dataset.k];
+      if (!p) return;
+      if (c.checked) ticked.add(p);
+      else if (ticked.size > 1) {
+        ticked.delete(p);
+        if (pf === p) pf = files.find((x) => ticked.has(x));
+      }
       render();
     };
     q('pe').addEventListener('change', (ev) => {
@@ -383,11 +419,6 @@
       if (!b || !pf) return;
       if (b.classList.contains('pestep')) {
         if (!ev.detail) step(+b.dataset.i, +b.dataset.step); // (a key, not the pointer: that stepped already)
-      } else if (b.dataset.lead !== undefined) {
-        pf = set[+b.dataset.lead];
-        render();
-      } else if (b.dataset.drop !== undefined) {
-        drop(set[+b.dataset.drop]);
       } else if (b.id === 'peport') {
         openList(b, PORTS.map((n, k) => ({ value: k, label: n })), view.port, (v) => { view.port = v; render(); });
       } else if (b.classList.contains('pdd') && b.dataset.i !== undefined) {
@@ -405,29 +436,29 @@
     addEventListener('beforeunload', (ev) => { if (changed() || busy) { ev.preventDefault(); ev.returnValue = ''; } });
   }
 
-  // Writes setting i's value where the signal picked keeps it (every mode and rate, if asked), in every
-  // profile open.
+  // Writes setting i's value where the signal picked keeps it (every mode and rate, if asked), in the
+  // profile shown or, with Multi Edit, every one ticked.
   function write(i, v) {
     const s = map.settings[i];
     const every = s.each && s.each.by === 'mode' && q('peall').checked;
     const where = every ? Array.from({ length: s.each.count }, (x, k) => [k, -1]) : [at(s)];
     if (every && s.each.srd !== undefined) for (let k = 0; k < 32; k++) if ((k & 7) < DIVS.length) where.push([0, k]);
-    if (!set.every((p) => where.every(([k, slot]) => encode(s, cs[i], p.body, v, k, slot)))) status('That value can\'t be written.', true);
+    if (!group().every((p) => where.every(([k, slot]) => encode(s, cs[i], p.body, v, k, slot)))) status('That value can\'t be written.', true);
     if (s.label === 'Input Source' && pf.body[PORT_AT] < PORTS.length) view.port = pf.body[PORT_AT]; // (its audio settings show, as the new input's)
     render();
   }
 
-  // What the profiles open hold for setting i, where the signal picked keeps it: pf's value and bytes,
+  // What the profiles edited hold for setting i, where the signal picked keeps it: pf's value and bytes,
   // mixed when theirs differ, all: each one's.
   function valueOf(i) {
-    const s = map.settings[i], w = at(s), all = set.map((p) => decode(s, cs[i], p.body, ...w));
-    return { ...all[set.indexOf(pf)], mixed: set.length > 1 && agree(all).mixed, all };
+    const g = group(), s = map.settings[i], w = at(s), all = g.map((p) => decode(s, cs[i], p.body, ...w));
+    return { ...all[g.indexOf(pf)], mixed: g.length > 1 && agree(all).mixed, all };
   }
   const shownAs = (d) => (d.value === null ? '? (' + d.hex + ')' : String(d.value));
 
   // Who holds what, for a tooltip: a name a line, the first 12.
   function whoHas(values) {
-    const lines = set.map((p, k) => plain(p.name) + ': ' + values[k]);
+    const lines = group().map((p, k) => plain(p.name) + ': ' + values[k]);
     return (lines.length > 12 ? lines.slice(0, 12).concat('and ' + (lines.length - 12) + ' more') : lines).join('\n');
   }
 
@@ -462,9 +493,9 @@
     return not.length < s.when.is.length ? 'Not with ' + o.label + ': ' + not.join(' or ') : 'Only with ' + o.label + ': ' + s.when.is.join(' or ');
   }
 
-  // Whether setting i differs from the profiles as opened (any of them): where the signal picked keeps it
-  // (here), or anywhere (any mode, rate or input).
-  const differs = (o, n) => set.some((p) => { for (let k = o; k < o + n; k++) if (p.body[k] !== p.orig[k]) return true; return false; });
+  // Whether setting i differs from the profiles edited as they were opened (any of them): where the signal
+  // picked keeps it (here), or anywhere (any mode, rate or input).
+  const differs = (o, n) => group().some((p) => { for (let k = o; k < o + n; k++) if (p.body[k] !== p.orig[k]) return true; return false; });
   const changedHere = (i) => { const s = map.settings[i]; return !!s.bytes && bytesAt(s, ...at(s)).some(([o, n]) => differs(o, n)); };
   function changedAnywhere(i) {
     const s = map.settings[i];
@@ -548,10 +579,10 @@
 
   // The signal picker's items: the input modes and rates the profiles have settings for, then the others.
   function signals() {
-    const any = (used) => [...new Set(set.flatMap((p) => used(map.settings, p.body)))].sort((a, b) => a - b);
+    const g = group(), any = (used) => [...new Set(g.flatMap((p) => used(map.settings, p.body)))].sort((a, b) => a - b);
     const modes = any(modesUsed), rates = any(slotsUsed), spl = samplesPerLine();
     const allRates = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
-    return [{ group: set.length > 1 ? 'In these profiles' : 'In this profile' }, ...modes.map((k) => ({ value: 'm' + k, label: modeName(k) })), ...rates.map((k) => ({ value: 's' + k, label: rateName(k, spl) })),
+    return [{ group: g.length > 1 ? 'In these profiles' : 'In this profile' }, ...modes.map((k) => ({ value: 'm' + k, label: modeName(k) })), ...rates.map((k) => ({ value: 's' + k, label: rateName(k, spl) })),
       { group: 'Input modes' }, ...Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k)).map((k) => ({ value: 'm' + k, label: modeName(k) })),
       { group: 'Detected sample rates' }, ...allRates.filter((k) => !rates.includes(k)).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))];
   }
@@ -602,27 +633,38 @@
     return [...by].map(([h, l]) => '<section class=peh>' + (h ? '<h3>' + esc(h) + '</h3>' : '') + l.map((i) => line(i, named ? label(map.settings[i]) : '')).join('') + '</section>').join('');
   }
 
+  // The profiles open, one a line: the one shown marked, a changed one in colour; with Multi Edit a tick for
+  // each (the ticked edited together).
+  function renderFiles() {
+    q('pem').checked = multi;
+    q('pem').disabled = files.length < 2 || !!busy;
+    q('pefl').innerHTML = files.map((p, k) => '<div class="pefr' + (p === pf ? ' on' : '') + (touched(p) ? ' chg' : '') + '">' +
+      (multi ? '<input type=checkbox data-k=' + k + (ticked.has(p) ? ' checked' : '') + (ticked.has(p) && ticked.size < 2 ? ' disabled' : '') + ' aria-label="Edit ' + esc(plain(p.name)) + ' with the others">' : '') +
+      '<button type=button class=pefn data-k=' + k + ' data-show title="' + esc((p.path ? '/' + p.path : 'From this computer') + (touched(p) ? '\nChanged, not saved' : '')) + '">' + esc(plain(p.name)) + '</button>' +
+      '<button type=button class=pex data-k=' + k + ' data-close aria-label="Close ' + esc(plain(p.name)) + '" title="Close it">×</button></div>').join('') ||
+      '<div class=pefe>None open</div>';
+  }
+
   function render() {
-    const has = !!pf;
+    const has = !!pf, g = group();
     q('pebody').hidden = !has;
     q('pe0').hidden = has;
     q('pen').textContent = 'Profile editor';
     q('ped').disabled = !has || !!busy;
     q('pesv').disabled = !has || !!busy || asleep();
-    q('pesv').textContent = set.length > 1 ? 'Save them to the SD card…' : 'Save to the SD card…';
-    q('peu').disabled = !changed() || !!busy;
-    q('pea').disabled = !has || !!busy || asleep();
+    q('pesv').textContent = g.length > 1 ? 'Save ' + g.length + ' to the SD card…' : 'Save to the SD card…';
+    q('peu').disabled = !g.some(touched) || !!busy;
+    q('pea').disabled = !!busy || asleep();
+    q('peo').disabled = !!busy;
+    renderFiles();
     if (!has) return;
 
-    // the profiles open: one, its name; several, each (the one marked says what applies; a click marks
-    // another, × leaves one out)
-    q('peset').innerHTML = set.length === 1 ? '<span class=pename>' + esc(plain(pf.name)) + (changed() ? ' (changed)' : '') + '</span>' :
-      set.map((p, k) => '<span class="pechip' + (p === pf ? ' on' : '') + (touched(p) ? ' chg' : '') + '"><button type=button data-lead=' + k +
-        ' title="' + esc((p.path ? '/' + p.path : 'From this computer') + (p === pf ? '\nIts settings say what applies (the lines dimmed), and show when they differ' : '\nMark it: its settings say what applies')) + '">' +
-        esc(plain(p.name)) + '</button><button type=button class=pex data-drop=' + k + ' aria-label="Leave ' + esc(plain(p.name)) + ' out" title="Leave it out">×</button></span>').join('');
+    // what's edited: the profile shown, or how many with Multi Edit
+    q('peset').textContent = g.length > 1 ? g.length + ' profiles together' + (g.some(touched) ? ' (changed)' : '') : plain(pf.name) + (touched(pf) ? ' (changed)' : '');
+    q('peset').title = g.length > 1 ? plain(pf.name) + '\'s settings say what applies (the lines dimmed), and show where they differ' : pf.path ? '/' + pf.path : 'From this computer';
 
     // the ID of the RT4K that saved each: shown, and emptied with Clear (nothing else writes it)
-    const dev = map.settings[deviceAt()], ids = dev ? set.map((p) => hexOf(p.body, dev.bytes)) : [];
+    const dev = map.settings[deviceAt()], ids = dev ? g.map((p) => hexOf(p.body, dev.bytes)) : [];
     const idOf = (id) => (/[1-9a-f]/.test(id) ? id : '(empty)'), idMixed = ids.some((id) => id !== ids[0]);
     q('pedev').hidden = !dev;
     q('pedid').textContent = idMixed ? 'Mixed' : idOf(ids[0] || '');
@@ -695,14 +737,33 @@
     return { name, path, header: p.header, body: p.body.slice(), orig: p.body.slice(), crcOk: p.crcOk };
   }
 
-  // Shows these profiles, the first marked. The mode shown first: its own (one with settings, other than
-  // 0, the one with none); no detected rate (the mode's own); the audio input: the one it's for.
-  function show(list) {
-    set = list;
-    pf = list[0];
-    const used = modesUsed(map.settings, pf.body);
-    view = { mode: used.find((k) => k) || 0, slot: -1, port: pf.body[PORT_AT] < PORTS.length ? pf.body[PORT_AT] : 0 };
+  // The mode, rate and audio input a profile shows first: its own input mode (one with settings, other than
+  // 0, the one with none); no detected rate (the mode's own); the audio input it's for.
+  function viewOf(p) {
+    const used = modesUsed(map.settings, p.body);
+    view = { mode: used.find((k) => k) || 0, slot: -1, port: p.body[PORT_AT] < PORTS.length ? p.body[PORT_AT] : 0 };
   }
+
+  // Shows a profile of the list: alone (as it opens), or with Multi Edit ticked with the others (the
+  // signal picked stays).
+  function showOne(p) {
+    pf = p;
+    if (multi) ticked.add(p);
+    else viewOf(p);
+    render();
+  }
+
+  // Into the list: the profiles not in it yet (by their path on the SD card), and those that were, as they
+  // are (with their changes).
+  function take(ps) {
+    return ps.map((p) => {
+      const was = p.path && files.find((x) => x.path.toLowerCase() === p.path.toLowerCase());
+      if (was) return was;
+      files.push(p);
+      return p;
+    });
+  }
+  const isOpen = (path) => files.some((x) => x.path && x.path.toLowerCase() === path.toLowerCase());
 
   const crcNote = (ps) => {
     const bad = ps.filter((p) => !p.crcOk).map((p) => plain(p.name));
@@ -710,11 +771,12 @@
       ': the RT4K wouldn\'t load ' + (bad.length === 1 ? 'it' : 'them') + ' as ' + (bad.length === 1 ? 'it is' : 'they are') + ' (saving writes it right).';
   };
 
+  // A profile from this computer (or read from the SD card), into the list and shown.
   async function openData(name, path, data) {
     try {
-      await ready(true);
-      const p = prepare(name, path, data);
-      show([p]);
+      await ready(!files.length);
+      const [p] = take([prepare(name, path, data)]);
+      showOne(p);
       status(crcNote([p]) || 'Opened ' + plain(name) + (path ? ' from the SD card' : ' from this computer'), !p.crcOk);
     } catch (e) {
       status('Could not open it: ' + e.message, true);
@@ -741,8 +803,13 @@
     return { got, bad };
   }
 
-  async function openSd(path) {
-    if (asleep()) return status('The RT4K is asleep: turn it on to read its SD card, or open a file from this computer.', true);
+  // A profile of the SD card (its Edit), into the list if it isn't there, and shown alone.
+  async function openOne(path) {
+    if (pf && pf.path.toLowerCase() === path.toLowerCase() && !multi) return;
+    const was = files.find((x) => x.path && x.path.toLowerCase() === path.toLowerCase());
+    multi = false;
+    if (was) return showOne(was);
+    if (asleep()) return status('The RT4K is asleep: turn it on to read its SD card, or add a file from this computer.', true);
     status('Reading ' + plain(path.split('/').pop()) + '…');
     try {
       await openData(path.split('/').pop(), path, await readSd(path));
@@ -751,28 +818,36 @@
     }
   }
 
-  // Opens several profiles of the SD card to edit together (the SD card view's Edit together).
+  // Profiles of the SD card to edit together (its Edit them together): into the list, with Multi Edit
+  // ticked (only them), the first shown. Those in the list already come as they are.
   async function openSet(paths) {
     if (!q('pebody')) build();
     if (!paths.length || busy) return;
-    if (changed() && !(await window.askUser('Leave the changes unsaved?', 'Profiles open have changes not saved: opening others drops them.', 'Open them', true))) return;
     if (asleep()) return status('The RT4K is asleep: turn it on to read its SD card.', true);
     try {
-      await ready(true);
+      await ready(!files.length);
     } catch (e) {
       return status('Could not open them: ' + e.message, true);
     }
     busy = 'open';
     render();
-    const { got, bad } = await readAll(paths);
+    const { got, bad } = await readAll(paths.filter((p) => !isOpen(p)));
     busy = '';
-    if (got.length) show(got);
-    status([got.length ? 'Opened ' + (got.length === 1 ? plain(got[0].name) : got.length + ' profiles') + ' from the SD card' : '',
+    take(got);
+    const these = paths.map((p) => files.find((x) => x.path && x.path.toLowerCase() === p.toLowerCase())).filter(Boolean);
+    if (these.length) {
+      multi = these.length > 1;
+      ticked = new Set(these);
+      pf = these[0];
+      viewOf(pf);
+    }
+    status([these.length ? 'Opened ' + (these.length === 1 ? plain(these[0].name) : these.length + ' profiles') + (multi ? ', edited together' : '') : '',
       bad.length ? 'Could not open ' + bad.join('; ') : '', crcNote(got)].filter(Boolean).join('. '), bad.length > 0 || got.some((p) => !p.crcOk));
     render();
   }
 
-  // More profiles from the SD card, picked in a folder at a time under /profile (those open shown ticked).
+  // Profiles from the SD card into the list, picked in a folder at a time under /profile (those in it
+  // already shown ticked and greyed).
   const picker = { dir: 'profile', chosen: new Set() };
   async function pickList() {
     const d = picker.dir, parts = d.split('/');
@@ -785,7 +860,7 @@
       if (!r.ok) throw new Error(body.trim() || 'HTTP ' + r.status);
       if (picker.dir !== d) return; // (another folder was opened meanwhile)
       const sd = window.sdInternals, list = sd.sortEntries(sd.parseList(body), 'name', false).filter((e) => e.dir || /\.rt[46]$/i.test(e.name));
-      const open = new Set(set.map((p) => p.path.toLowerCase()));
+      const open = new Set(files.map((p) => p.path.toLowerCase()));
       q('pepl').innerHTML = list.map((e) => {
         const path = d + '/' + e.name;
         if (e.dir) return '<button type=button data-dir="' + esc(path) + '"><span class=ico>' + DIR + '</span>' + esc(e.name) + '</button>';
@@ -801,9 +876,9 @@
   const DIR = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
 
   function addProfiles() {
-    if (!pf || busy || asleep()) return;
+    if (busy || asleep()) return;
     const dlg = q('peadd'), ok = q('pepok');
-    picker.dir = pf.path ? pf.path.split('/').slice(0, -1).join('/') : 'profile';
+    picker.dir = pf && pf.path ? pf.path.split('/').slice(0, -1).join('/') : 'profile';
     picker.chosen = new Set();
     const count = () => { ok.disabled = !picker.chosen.size; ok.textContent = picker.chosen.size > 1 ? 'Add ' + picker.chosen.size : 'Add'; };
     count();
@@ -822,11 +897,18 @@
     };
     dlg.onclose = async () => {
       if (dlg.returnValue !== 'yes' || !picker.chosen.size) return;
+      try {
+        await ready(!files.length);
+      } catch (e) {
+        return status('Could not add them: ' + e.message, true);
+      }
       busy = 'open';
       render();
       const { got, bad } = await readAll([...picker.chosen]);
       busy = '';
-      set = set.concat(got);
+      take(got);
+      if (multi) got.forEach((p) => ticked.add(p));
+      if (got.length) showOne(got[0]);
       status([got.length ? 'Added ' + (got.length === 1 ? plain(got[0].name) : got.length + ' profiles') : '', bad.length ? 'Could not add ' + bad.join('; ') : '', crcNote(got)].filter(Boolean).join('. '),
         bad.length > 0 || got.some((p) => !p.crcOk));
       render();
@@ -836,12 +918,17 @@
     pickList();
   }
 
-  // Leaves a profile out of those open (its changes dropped, asked first).
-  async function drop(p) {
-    if (!p || set.length < 2 || busy) return;
-    if (touched(p) && !(await window.askUser('Leave ' + plain(p.name) + ' out?', 'Its changes aren\'t saved: leaving it out drops them.', 'Leave it out', true))) return;
-    set = set.filter((x) => x !== p);
-    if (pf === p) pf = set[0];
+  // Takes a profile off the list (its changes dropped, asked first); with one left, Multi Edit is off.
+  async function closeFile(p) {
+    if (!p || busy) return;
+    if (touched(p) && !(await window.askUser('Close ' + plain(p.name) + '?', 'Its changes aren\'t saved: closing it drops them.', 'Close it', true))) return;
+    files = files.filter((x) => x !== p);
+    ticked.delete(p);
+    if (files.length < 2) multi = false;
+    if (pf === p) {
+      pf = (multi && files.find((x) => ticked.has(x))) || files[0] || null;
+      if (pf && !multi) viewOf(pf);
+    }
     render();
   }
 
@@ -855,16 +942,16 @@
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     }, k * 250));
   }
-  const download = () => downloads(set);
+  const download = () => downloads(group());
 
-  // Several open: each changed one replaces itself where it is on the SD card (asked once, every file
-  // named); one from this computer is downloaded.
+  // Several edited together: each changed one replaces itself where it is on the SD card (asked once, every
+  // file named); one from this computer is downloaded.
   async function saveAll() {
     if (busy || asleep()) return;
-    const todo = set.filter(touched), sd = todo.filter((p) => p.path), here = todo.filter((p) => !p.path);
+    const g = group(), todo = g.filter(touched), sd = todo.filter((p) => p.path), here = todo.filter((p) => !p.path);
     if (!todo.length) return status('Nothing to save: no profile has changes.');
     const names = (ps) => (ps.length > 12 ? ps.slice(0, 12).map((p) => p.path || p.name).concat('and ' + (ps.length - 12) + ' more') : ps.map((p) => p.path || p.name)).join('\n');
-    const kept = set.length - todo.length;
+    const kept = g.length - todo.length;
     if (!(await window.askUser(sd.length ? 'Replace ' + (sd.length === 1 ? plain(sd[0].name) : sd.length + ' profiles') + '?' : 'Download ' + here.length + ' profiles?',
       [sd.length ? 'On the SD card, each where it is:\n' + names(sd) : '', here.length ? 'From this computer, downloaded:\n' + names(here) : '',
         kept ? kept + (kept === 1 ? ' has' : ' have') + ' no changes and stay' + (kept === 1 ? 's' : '') + ' as it is.' : ''].filter(Boolean).join('\n\n'),
@@ -927,14 +1014,12 @@
     render();
   }
 
-  // The page shows the editor: parts, a profile's path under /profile (#rt4k/editor/<path>), or none.
+  // The page shows the editor: parts, a profile's path under /profile (#rt4k/editor/<path>) to show, or none.
   async function open(parts) {
     if (!q('pebody')) build();
     render();
     const path = (parts || []).map(decodeURIComponent).join('/');
-    if (!path || (set.length === 1 && pf.path === 'profile/' + path)) return;
-    if (changed() && !(await window.askUser('Leave the changes unsaved?', (set.length > 1 ? 'Profiles open have' : plain(pf.name) + ' has') + ' changes not saved: opening another drops them.', 'Open it', true))) return;
-    openSd('profile/' + path);
+    if (path) openOne('profile/' + path);
   }
 
   function onStatus(s) {
