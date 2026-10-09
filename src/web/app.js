@@ -93,6 +93,18 @@ function navOpen(on) {
   $('navbtn').setAttribute('aria-expanded', String(on));
 }
 $('navbtn').onclick = () => navOpen(!document.body.classList.contains('navopen'));
+
+// On a desktop it collapses to its icons, as the browser remembers.
+function sideCollapse(on) {
+  document.body.classList.toggle('sidemini', on);
+  const b = $('sidecol'), what = on ? 'Expand the sidebar' : 'Collapse the sidebar';
+  b.title = what;
+  b.setAttribute('aria-label', what);
+  try { localStorage.setItem('cruller.sidebar', on ? 'icons' : ''); } catch (e) { /* not kept: fine */ }
+  dispatchEvent(new Event('resize')); // (the live screen and the charts fit the new width)
+}
+$('sidecol').onclick = () => sideCollapse(!document.body.classList.contains('sidemini'));
+try { if (localStorage.getItem('cruller.sidebar') === 'icons') sideCollapse(true); } catch (e) { /* none kept */ }
 document.addEventListener('click', (ev) => { if (document.body.classList.contains('navopen') && !ev.target.closest('#side, #navbtn')) navOpen(false); });
 addEventListener('keydown', (ev) => { if (ev.key === 'Escape') navOpen(false); });
 
