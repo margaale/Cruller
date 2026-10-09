@@ -503,9 +503,13 @@
   const at = (s) => [elementOf(s), slotOf(s)];
 
   // The ADC's samples per line in an input mode: what that mode's rates are a fraction of.
+  // With Multi Edit, the first one edited that has settings for that mode says it (one without has the
+  // default), so a rate is named as when its profile is open alone.
   function samplesPerLine(mode) {
     const i = map.settings.findIndex((s) => s.label === 'Samples per Line' && s.each);
-    return i < 0 ? 0 : decode(map.settings[i], cs[i], pf.body, mode).value || 0;
+    if (i < 0) return 0;
+    const p = group().find((x) => modesUsed(map.settings, x.body).includes(mode)) || pf;
+    return decode(map.settings[i], cs[i], p.body, mode).value || 0;
   }
   const rateLabel = (k) => rateName(k, samplesPerLine(modeOfRate(k))); // (its group's mode's)
 
