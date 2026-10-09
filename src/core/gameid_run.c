@@ -120,16 +120,23 @@ static void say(const char *fmt, const char *a, const char *b, const char *c) {
     if (fresh) printf("gameid: %s\n", s);
 }
 
-// The consoles saved, again (the page or the API changed them): what's known of one kept while its
-// address stays.
+// The consoles saved, again (the page or the API changed them, or the gameDB): what's known of one
+// kept while its address stays, the one on screen too, so an edit loads only what it changes (and
+// the one on screen disabled is as if it went off).
 static void reload(void) {
     static gameid_console_t fresh[GAMEID_CONSOLES_MAX];
     const int n = gameid_consoles_load(fresh, GAMEID_CONSOLES_MAX);
     gameid_seen_t keep[GAMEID_CONSOLES_MAX] = {0};
     uint8_t keep_misses[GAMEID_CONSOLES_MAX] = {0};
+    int keep_king = -1;
     for (int k = 0; k < n; k++) {
         for (int j = 0; j < con_n; j++) {
-            if (!strcmp(fresh[k].url, con[j].url)) { keep[k] = seen[j]; keep_misses[k] = misses[j]; break; }
+            if (!strcmp(fresh[k].url, con[j].url)) {
+                keep[k] = seen[j];
+                keep_misses[k] = misses[j];
+                if (j == king && keep_king < 0) keep_king = k;
+                break;
+            }
         }
     }
     xSemaphoreTake(lock, portMAX_DELAY);
@@ -137,8 +144,11 @@ static void reload(void) {
     memcpy(seen, keep, sizeof(seen));
     memcpy(misses, keep_misses, sizeof(misses));
     con_n = n;
-    king = -1;
-    want[0] = 0;
+    king = keep_king; // (its console gone: what it wanted goes on the next round)
+    if (!n) { // (no rounds without consoles)
+        want[0] = pending[0] = 0;
+        want_from = "";
+    }
     seq++;
     xSemaphoreGive(lock);
 }
