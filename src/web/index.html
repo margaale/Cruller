@@ -52,7 +52,7 @@ h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:u
 .pev.off{color:#F07A74}
 .pen{position:relative;display:inline-flex;align-items:center;flex:none}
 .pestep{position:absolute;top:50%;transform:translateY(-50%);width:24px;height:24px;padding:0;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--soft);font:600 14px/1 var(--mono);touch-action:manipulation;user-select:none;opacity:0;pointer-events:none;transition:opacity .12s}
-.pestep[data-step="-1"]{right:calc(100% + 30px)}.pestep[data-step="1"]{right:calc(100% + 4px)}
+.pestep[data-step="-1"]{right:calc(100% + 4px)}.pestep[data-step="1"]{left:calc(100% + 4px)}
 .per:hover .pestep:not(:disabled),.per:focus-within .pestep:not(:disabled){opacity:1;pointer-events:auto}
 .pestep:hover{color:var(--text);border-color:var(--soft);background:var(--raised)}.pestep:active{background:var(--line)}
 button.pev{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -80,7 +80,7 @@ button.pdd[aria-expanded=true]{border-color:var(--accent);background:var(--panel
 .peh{break-inside:avoid;padding:8px 16px 10px}
 .peh h3{display:flex;align-items:center;gap:8px;margin:0 0 4px;font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .peh h3::before{content:"";width:7px;height:7px;border:1px solid var(--muted);flex:none}
-.per{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:30px;margin-left:3px;padding-left:13px;border-left:1px solid var(--line)}
+.per{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:30px;margin-left:3px;padding-left:13px;padding-right:28px;border-left:1px solid var(--line)}
 .pln{font:500 14px var(--mono);color:var(--text);min-width:0}.pelab.tip,.pln.tip{text-decoration:underline dotted var(--faint);text-underline-offset:3px}
 .per.chg .pln,.per.chg .pev{color:var(--accent)}.per.na,.pti.na{opacity:.4}
 @media (max-width:760px){.pew{grid-template-columns:minmax(0,1fr)}.penav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.penav button{flex:none;border-bottom:0;border-right:1px solid var(--rule)}.pepane{columns:1}.petl{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.pegrp{flex-wrap:wrap}.pti .pev{font-size:16px}.pefind{width:100%}}
