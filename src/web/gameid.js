@@ -1,6 +1,6 @@
-// gameID in the Consoles view of the Cruller page (served as /gameid.js, embedded at build time): the game on
-// screen and the profile for it; under each SVS input's card (app.js) the console that tells the game on it;
-// the consoles not on the SVS; and your games, each with the RT4K profile to load (docs/GAMEID.md). Read
+// gameID in the Consoles view of the Cruller page (served as /gameid.js, embedded at build time): under each
+// SVS input's card (app.js) the console that tells the game on it, and on the card on screen the profile for
+// its game; the consoles not on the SVS; and your games, each with the RT4K profile to load (docs/GAMEID.md). Read
 // from and saved to /api/v1/gameid (docs/API.md); a profile is picked from the RT4K's SD card (its /profile
 // folder). What Cruller knows as it asks the consoles (GET /api/v1/gameid/state): every 2 s while the view
 // shows.
@@ -72,60 +72,28 @@
   const same = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
   const ago = (s) => (s < 5 ? 'just now' : s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago');
 
-  // What's on screen, as On screen says it: from gameID's state (s, null until read), the switch (sv:
-  // known, input, inputs [{name, device}], files {n: its profile in /profile/SVS}), the consoles, the games
-  // and the RT4K's power. title (dim: nothing playing), sub, the profile for it and how it stands (badge,
-  // tone: ok, wait, bad), why; add: the game to add to your games; addFor: the input to give a gameID (-1:
-  // a console not on the SVS).
-  function onScreen(s, sv, consoles, games, power) {
-    const svs = !!(sv && sv.known);
-    const input = svs ? (s ? s.svs_input : sv.input) : 0;
-    const away = svs && !!s && s.on_svs === false; // the RT4K shows another input than the SVS's
-    const rin = (s && s.rt4k_input) || 'Another input';
-    const inName = (n) => (sv.inputs[n - 1] && sv.inputs[n - 1].name) || 'Input ' + n;
-    const own = (n) => (svs && n && sv.files[n] ? 'SVS/' + sv.files[n] : '');
-    const r = { title: '', dim: false, sub: '', profile: '', badge: '', tone: '', why: '', add: null, addFor: 0 };
-    const p = s && s.playing;
-    if (p) {
-      r.title = p.game_name || p.game;
-      r.sub = (away ? p.console + ' on ' + rin : svs && input ? inName(input) + ' on input ' + input : p.console) + ' · ' + p.game;
-      if (!games.some((g) => g.id === p.game)) r.add = { id: p.game, name: p.game_name || '' };
-      r.profile = s.profile || (away ? '' : own(input));
-      r.why = s.from === 'gamedb' ? 'From your games.' + (away || !own(input) ? '' : same(r.profile, own(input)) ? ' The same as input ' + input + '\'s own.' :
-        ' Input ' + input + ' loads its own ' + plain(sv.files[input]) + ' first, this one 3 s after.') :
-        s.from === 'other' ? 'Not in your games: its console\'s profile for those.' :
-          'Not in your games: ' + (r.profile ? 'the input\'s own stays.' : 'the RT4K keeps the profile it has.');
-    } else if (away) {
-      Object.assign(r, { title: rin, sub: 'The RT4K shows it, not the SVS · nothing on it tells its game', why: 'The RT4K keeps the profile it has.',
-        addFor: consoles.some((c) => c.svs_input === -1) ? 0 : -1 });
-    } else if (svs && !input) {
-      Object.assign(r, { title: 'No input active', dim: true, sub: 'The SVS shows nothing', why: 'The RT4K keeps the profile it has.' });
-    } else if (svs) {
-      const mine = consoles.map((c, k) => ({ c, l: s && s.consoles[k] && s.consoles[k].name === c.name ? s.consoles[k] : null }))
-        .filter((x) => inputOf(x.c, x.l && x.l.kind, sv.inputs) === input);
-      const asked = mine.filter((x) => x.c.enabled);
-      r.title = inName(input);
-      r.sub = 'Input ' + input + ' · ' + (!asked.length ? 'nothing on it tells its game' : asked.some((x) => x.l && x.l.on) ? 'no game it can tell' : 'its gameID doesn\'t answer');
-      r.addFor = mine.length ? 0 : input;
-      r.profile = s && s.from === 'svs' ? s.profile : own(input);
-      if (s && s.from === 'svs') r.why = 'Its console went off: the input\'s own again.';
-    } else {
-      const asked = consoles.filter((c) => c.enabled).length;
-      Object.assign(r, { title: 'No game on screen', dim: true, why: 'The RT4K keeps the profile it has.',
-        sub: !consoles.length ? 'No consoles yet' : asked ? 'Asking ' + (asked === 1 ? 'its console which game it runs' : asked + ' consoles which game they run') : 'No console asked' });
-    }
-    if (r.profile) {
-      if (s && same(s.pending, r.profile)) {
-        r.badge = power === 'standby' || power === 'starting' ? 'Waiting for the RT4K' : 'Loading…';
-        r.tone = 'wait';
-      } else if (s && /^could not load /.test(s.note) && s.note.includes(r.profile)) {
-        Object.assign(r, { badge: 'Could not load', tone: 'bad', why: s.note });
-      } else if (s && same(s.loaded, r.profile)) {
-        r.badge = 'Loaded' + (s.note && s.note.includes(r.profile) && s.note_age_s >= 0 ? ' ' + ago(s.note_age_s) : '');
-        r.tone = 'ok';
-      } else if (r.profile === own(input)) {
-        r.badge = 'The input\'s own';
-      }
+  // The profile gameID has for what's on screen, as the card on screen says it under its gameID: from
+  // gameID's state (s, null until read), the switch (sv: known, files {n: its profile in /profile/SVS}) and
+  // the RT4K's power. On the card of k, the console on screen; or of input n, when its console went off and
+  // the input's own is back. The profile, how it stands (badge, its tone: ok, wait, bad), why, and more for
+  // its tooltip. null: nothing to say (no game on screen, or one not in your games: the input's own stays,
+  // as its card shows).
+  function loadedNow(s, sv, power) {
+    if (!s || !s.profile) return null;
+    const input = sv && sv.known ? s.svs_input : 0;
+    const own = input && s.on_svs !== false && sv.files[input] ? 'SVS/' + sv.files[input] : '';
+    const k = s.consoles.findIndex((c) => c.on_screen);
+    const r = { k, n: k < 0 && s.from === 'svs' ? input : 0, profile: s.profile, badge: 'Its profile', tone: '', why: '', more: '' };
+    if (k < 0 && !r.n) return null;
+    r.why = s.from === 'gamedb' ? (same(s.profile, own) ? 'From your games: the input\'s own' : 'From your games') :
+      s.from === 'other' ? 'Its gameID\'s, for games not in your games' : 'Its console went off: the input\'s own';
+    if (s.from === 'gamedb' && own && !same(s.profile, own)) r.more = 'Input ' + input + ' loads its own ' + plain(sv.files[input]) + ' first, this one 3 s after';
+    if (same(s.pending, s.profile)) {
+      Object.assign(r, { badge: power === 'standby' || power === 'starting' ? 'Waits for the RT4K' : 'Loading…', tone: 'wait' });
+    } else if (/^could not load /.test(s.note) && s.note.includes(s.profile)) {
+      Object.assign(r, { badge: 'Could not load', tone: 'bad', more: s.note });
+    } else if (same(s.loaded, s.profile)) {
+      Object.assign(r, { badge: 'Loaded' + (s.note.includes(s.profile) && s.note_age_s >= 0 ? ' · ' + ago(s.note_age_s) : ''), tone: 'ok' });
     }
     return r;
   }
@@ -141,7 +109,8 @@
   let liveFail = false;
   let built = false;
   let playing = '';  // the game on screen, as your games last showed it
-  let nowAdd = null; // the game On screen offers to add
+  let now = null;    // the profile for what's on screen (loadedNow)
+  let away = '';     // the RT4K's input while it shows another than the SVS's
 
   const asleep = () => power === 'standby' || power === 'starting';
   const failure = (e) => (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message);
@@ -221,29 +190,23 @@
     });
   }
 
-  // --- what's on screen ---------------------------------------------------------------------------------
-
-  function renderNow() {
-    const sv = svsInfo(), r = onScreen(live, sv, consoles, games, power);
-    nowAdd = r.add;
-    const state = !consoles.length ? ['', 'No consoles to ask'] : liveFail ? ['warn', 'Cruller did not answer'] : live ? ['ok', 'Asking every 2 s'] : ['', '…'];
-    set(q('gon'), '<div class=row><h2 class=grow>On screen</h2><span class="dot ' + state[0] + '"></span><span class=small>' + state[1] + '</span></div>' +
-      '<div class=gonb><div class=gonl><div class="gont' + (r.dim ? ' dim' : '') + '">' + esc(r.title) + '</div><div class=gons>' + esc(r.sub) + '</div></div>' +
-      '<div class=gonr><div class=small>Profile</div><div class=gonp><span>' + (r.profile ? esc(plain(r.profile)) : '—') + '</span>' +
-      (r.badge ? '<span class="gbad ' + r.tone + '">' + esc(r.badge) + '</span>' : '') + '</div>' + (r.why ? '<div class=small>' + esc(r.why) + '</div>' : '') +
-      (r.add ? '<button type=button class=primary data-a=addgame>Add ' + esc(r.add.name || r.add.id) + ' to your games</button>' :
-        r.addFor ? '<button type=button data-a=addfor data-n=' + r.addFor + (consoles.length >= 10 ? ' disabled' : '') + '>Add its gameID</button>' : '') + '</div></div>');
-  }
-
   // --- each console's gameID: in its input's card, or with the consoles not on the SVS -----------------
 
-  // Console k: its address and what it runs (it opens its gameID); a game not in your games, added in a click.
+  // The profile for what's on screen, under the gameID of the card on screen.
+  function nowBlock() {
+    return '<div class="gnow ' + now.tone + '"' + (now.more ? ' title="' + esc(now.more) + '"' : '') + '><div class=gcap>' + esc(now.badge) + '</div>' +
+      '<b>' + esc(plain(now.profile)) + '</b><span>' + esc(now.why) + '</span></div>';
+  }
+
+  // Console k: its address and what it runs (it opens its gameID); a game not in your games, added in a
+  // click; on screen, the profile for it.
   function device(k) {
     const c = consoles[k], l = liveOf(k), tone = !c.enabled ? '' : l && l.on ? ' ok' : l ? ' bad' : '';
     const game = l && l.on && l.game;
     return '<button type=button class="gdev' + (game ? '' : ' off') + '" data-k=' + k + ' title="Change its gameID">' +
       '<span class="dot' + tone + '"></span><span><b>' + esc(shortUrl(c.url)) + '</b><i>' + esc(liveText(l, c.enabled)) + '</i></span></button>' +
-      (game && !games.some((g) => g.id === l.game) ? '<button type=button class=gaddg data-a=addgame data-k=' + k + '>Add ' + esc(l.game_name || l.game) + ' to your games</button>' : '');
+      (game && !games.some((g) => g.id === l.game) ? '<button type=button class=gaddg data-a=addgame data-k=' + k + '>Add ' + esc(l.game_name || l.game) + ' to your games</button>' : '') +
+      (now && now.k === k ? nowBlock() : '');
   }
 
   const full = () => consoles.length >= 10;
@@ -253,7 +216,8 @@
     document.querySelectorAll('#v-grid .gslot[data-n]').forEach((el) => {
       const n = +el.dataset.n, ks = consoles.map((c, k) => k).filter((k) => inputOf(consoles[k], kindOf(k), sv.inputs) === n);
       set(el, '<div class=gcap>gameID</div>' + (ks.length ? ks.map(device).join('') :
-        '<button type=button class=gadd data-a=addfor data-n=' + n + (full() ? ' disabled' : '') + '>+ Add a MemCard or Digital</button>'));
+        '<button type=button class=gadd data-a=addfor data-n=' + n + (full() ? ' disabled' : '') + '>+ Add a MemCard or Digital</button>') +
+        (now && now.n === n ? nowBlock() : ''));
     });
   }
 
@@ -263,19 +227,25 @@
     q('gcon').hidden = sv.bridge && !ks.length;
     const where = (c) => (!sv.bridge ? '' : c.svs_input < 0 ? 'Straight to the RT4K' : c.svs_input ? 'Input ' + c.svs_input + ': this switch has fewer' :
       'Auto: no input has its console');
+    const lit = (k) => { const l = liveOf(k); return l && l.on_screen; };
+    const failed = liveFail && consoles.length ? '<div class="small gfail">Cruller did not answer: what each console runs may be old.</div>' : '';
     set(q('gcon'), '<div class=row><h2 class=grow>' + (sv.bridge ? 'Not on the SVS' : 'Consoles') + '</h2>' +
       '<button type=button data-a=addfor data-n=' + (sv.bridge ? -1 : 0) + (full() ? ' disabled' : '') + '>Add a console</button></div>' +
-      (ks.length ? '<div class="svs-grid gcards">' + ks.map((k) => '<div><span>' + esc(consoles[k].name) + '</span><small>' + esc(where(consoles[k])) + '</small>' +
-        '<div class=gslot><div class=gcap>gameID</div>' + device(k) + '</div></div>').join('') + '</div>' :
+      (ks.length ? '<div class="svs-grid gcards">' + ks.map((k) => '<div' + (lit(k) ? ' class=on' : '') + '><span>' + esc(consoles[k].name) + '</span><small>' +
+        (lit(k) ? 'ON SCREEN' : esc(where(consoles[k]))) + '</small><div class=gslot><div class=gcap>gameID</div>' + device(k) + '</div></div>').join('') + '</div>' :
         '<div class=small>None yet: add one by its MemCard\'s or Digital\'s address, and each game\'s profile loads by itself.</div>') +
-      (sv.bridge ? '' : '<div class=small>With an SVS switch, its SVS Bridge on your network shows its inputs here by itself, each with its gameID.</div>'));
-    set(q('gnot'), sv.bridge && !ks.length ? 'A console that isn\'t on the SVS? <button type=button class=link data-a=addfor data-n=-1' + (full() ? ' disabled' : '') + '>Add it</button>' : '');
+      (sv.bridge ? '' : failed + '<div class=small>With an SVS switch, its SVS Bridge on your network shows its inputs here by itself, each with its gameID.</div>'));
+    set(q('gnot'), (sv.bridge ? failed : '') + (sv.bridge && !ks.length ? 'A console that isn\'t on the SVS? <button type=button class=link data-a=addfor data-n=-1' +
+      (full() ? ' disabled' : '') + '>Add it</button>' : ''));
   }
 
-  // What Cruller knows, everywhere it shows; your games again when the one on screen changes.
+  // What Cruller knows, everywhere it shows; your games again when the one on screen changes. The RT4K
+  // going to or from the SVS's input: the SVS's cards (app.js) say it.
   function renderLive() {
     if (!built) return;
-    renderNow();
+    now = loadedNow(live, svsInfo(), power);
+    const a = live && live.on_svs === false ? live.rt4k_input || 'another input' : '';
+    if (a !== away) { away = a; if (window.svsRedraw) window.svsRedraw(); }
     renderSlots();
     renderOthers();
     const p = live && live.playing ? live.playing.game : '';
@@ -388,7 +358,7 @@
   function renderGames() {
     if (!built) return;
     const shown = filterGames(games, filter);
-    const row = (g) => '<tr data-id="' + esc(g.id) + '"' + (g.id === playing ? ' class=os title="On screen"' : '') + '><td><input data-f=name value="' + esc(g.name) + '" maxlength=47 aria-label="Name" placeholder="(no name)"></td>' +
+    const row = (g) => '<tr data-id="' + esc(g.id) + '"' + (g.id === playing ? ' class=os title="On screen now"' : '') + '><td><input data-f=name value="' + esc(g.name) + '" maxlength=47 aria-label="Name" placeholder="(no name)"></td>' +
       '<td class=mono>' + esc(g.id) + '</td>' +
       '<td><button type=button class=gidp data-f=profile>' + esc(plain(g.profile)) + '</button></td>' +
       '<td class=act><button type=button class="ib del" data-a=del aria-label="Remove ' + esc(g.name || g.id) + '" title="Remove it">×</button></td></tr>';
@@ -397,7 +367,7 @@
       '<td><button type=button class=gidp id=gidap>' + (adding.profile ? esc(plain(adding.profile)) : '<span class=gidn>Pick its profile…</span>') + '</button></td>' +
       '<td class=act><button type=button class=primary id=gidas>Add</button><button type=button id=gidax>Cancel</button></td></tr>' : '';
     q('gidgt').innerHTML = add + shown.map(row).join('') +
-      (!shown.length && !adding ? '<tr><td colspan=4 class=pe0>' + (games.length ? 'No game matches' : 'No games yet: when one is on screen, On screen adds it in a click.') + '</td></tr>' : '');
+      (!shown.length && !adding ? '<tr><td colspan=4 class=pe0>' + (games.length ? 'No game matches' : 'No games yet: one a console runs is added from its card in a click.') + '</td></tr>' : '');
     q('gidgs').textContent = (games.length === 1 ? '1 game' : games.length + ' games') + (filter.trim() ? ', ' + shown.length + ' shown' : '');
     q('gidga').disabled = !!adding || games.length >= 1000;
   }
@@ -472,10 +442,10 @@
       if (!b || b.disabled) return;
       if (b.classList.contains('gdev')) openConsole(+b.dataset.k);
       else if (b.dataset.a === 'addfor') openConsole(-1, +b.dataset.n);
-      else if (b.dataset.a === 'addgame' && b.dataset.k !== undefined) {
+      else if (b.dataset.a === 'addgame') {
         const k = +b.dataset.k, l = liveOf(k);
         if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other });
-      } else if (b.dataset.a === 'addgame' && nowAdd) startAdding(nowAdd);
+      }
     });
     q('gdi').onchange = dialogFields;
     q('gdok').onchange = () => { draft.other = ''; dialogFields(); };
@@ -549,5 +519,6 @@
   window.gidOpen = open;
   window.gidStatus = onStatus;
   window.gidSvs = renderLive; // app.js: the switch as the bridge said it now (the cards may be new)
-  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, readGame, liveText, inputOf, onScreen }; // tests/test_gameid_page.js
+  window.gidAway = () => away; // app.js: the RT4K's input while it shows another than the SVS's ('' none)
+  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, readGame, liveText, inputOf, loadedNow }; // tests/test_gameid_page.js
 })();

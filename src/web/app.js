@@ -613,10 +613,12 @@ function showSvs(v) {
   // One tile per input, the active one lit: once the bridge has said how many the switch has, or
   // described them (SVS models differ in inputs and outputs).
   const total = known ? Math.max(v.total || 0, ins.length) : 0;
-  // What is on screen, and since when (the tile is lit in the grid).
+  // What is on screen, and since when (the tile is lit in the grid); the RT4K may show another input
+  // (gameid.js knows: then the SVS's active one isn't lit).
   const what = on ? short(port(v.input)) || 'Input ' + v.input : '';
+  const away = window.gidAway ? window.gidAway() : '';
   $('v-since').hidden = !known;
-  text('v-since', !known ? '' : (on ? what + (v.since_s < 5 ? ' just switched in' : ' on screen for ' + duration(v.since_s))
+  text('v-since', !known ? '' : (on ? what + (away ? ' active on the SVS · the RT4K shows ' + away : v.since_s < 5 ? ' just switched in' : ' on screen for ' + duration(v.since_s))
     : 'No input active' + (v.since_s < 5 ? '' : ' for ' + duration(v.since_s))) + (total ? ' · ' + total + ' inputs' : ''));
   $('v-grid').hidden = !total;
   $('v-nogrid').hidden = !!total || (!paired && !known);
@@ -639,8 +641,8 @@ function showSvs(v) {
   }
   $('v-grid').querySelectorAll(':scope > div').forEach((d) => {
     const n = +d.dataset.n, lit = v.input === n;
-    d.classList.toggle('on', lit);
-    d.querySelector('small').textContent = lit ? 'ON SCREEN' : kindName(port(n).kind) || 'S' + n;
+    d.classList.toggle('on', lit && !away);
+    d.querySelector('small').textContent = lit ? (away ? 'ACTIVE' : 'ON SCREEN') : kindName(port(n).kind) || 'S' + n;
   });
   $('v-noname').hidden = !total || ins.some((p) => p.name || p.device);
   // Each input's profile (profiles.js): which is on screen, read once there are inputs.

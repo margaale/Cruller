@@ -178,10 +178,9 @@ of its own. Saving them replaces each changed one where it is, after one confirm
 
 ![Consoles: God of War II on screen with its profile loaded, the SVS's four inputs with their profiles and the PS2's MemCard, your games](docs/images/consoles.png)
 
-One view for your consoles and the profile each game loads.
-
-**On screen** says what the RT4K shows and the profile for it: loaded (and when), waiting for the
-RT4K to come on, or why it keeps the one it has.
+One view for your consoles and the profile each game loads. The console on screen is lit, and under
+its gameID the profile for its game and how it stands: loaded (and when), loading, waiting for the
+RT4K to come on, or why it couldn't.
 
 **SVS inputs**: the RT4K can't tell when an [SVS](https://scalablevideoswitch.com/) switch changes
 input, so the [SVS Bridge](https://github.com/margaale/svs-bridge) tells Cruller. There's nothing to
@@ -199,8 +198,8 @@ games keeps the input's, or loads another profile you pick for those. A console 
 any without an SVS, is added the same way. A MemCard PRO2 answers with its own web page on (WebUI v2
 off).
 
-**Your games**: each game's ID with its profile, picked from the RT4K's SD card. The game on screen,
-or one a console runs, is added in a click.
+**Your games**: each game's ID with its profile, picked from the RT4K's SD card. A game a console
+runs is added from its card in a click.
 
 Under them, the SVS Bridge (**Unpair** frees Cruller for another bridge) and the recent switches.
 More in [GAMEID.md](docs/GAMEID.md) and [SVS.md](docs/SVS.md).

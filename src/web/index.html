@@ -195,15 +195,10 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .gadd{width:100%;height:44px;border-style:dashed;border-color:#3A3F46;color:var(--soft);font-size:13px}
 .gadd:hover,.gdev:hover{border-color:var(--accent)}
 .gaddg{height:32px;font-size:12px;align-self:flex-start}
-/* Consoles: what's on screen, and the profile for it (gameid.js) */
-.gonb{display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px}
-.gonl{flex:1 1 320px;min-width:0}.gonr{flex:1 1 340px;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
-.gont{font:600 24px/1.15 var(--head);overflow-wrap:anywhere}.gont.dim{color:var(--muted)}
-.gons{margin-top:4px;font-size:13px;color:var(--soft)}
-.gonp{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}.gonp>span:first-child{font:500 15px var(--mono);overflow-wrap:anywhere}
-.gbad{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--raised);color:var(--soft);white-space:nowrap}
-.gbad.ok{background:#17301F;color:var(--ok)}.gbad.wait{background:#3A2F17;color:var(--warn)}.gbad.bad{background:#3A1A19;color:#F07A74}
-.gonr button{margin-top:4px;height:34px;font-size:13px}
+/* Consoles: the card on screen, under its gameID: the profile for what's on it, and how it stands (gameid.js) */
+.gnow{align-self:stretch;display:flex;flex-direction:column;gap:1px;margin-top:2px;text-align:left}.gnow .gcap{margin-top:4px}
+.gnow b{font:500 13px var(--mono);color:var(--text);overflow-wrap:anywhere}.gnow span{font-size:12px;color:var(--faint)}
+.gnow.ok .gcap{color:var(--ok)}.gnow.wait .gcap{color:var(--warn)}.gnow.bad .gcap{color:#F07A74}.gfail{color:#F07A74}
 /* Consoles: a console's gameID, added or changed (gameid.js) */
 .gdf{display:flex;flex-direction:column;gap:12px}.gdf>label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--soft)}
 .gdf fieldset{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:8px}.gdf legend{padding:0 0 8px;font-size:13px;color:var(--soft)}
@@ -450,10 +445,9 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 </div>
 </section>
 
-<!-- Consoles: the game on screen (gameid.js), the SVS's inputs through its bridge (app.js, docs/SVS.md), each
-with its gameID (gameid.js, docs/GAMEID.md), the consoles not on the SVS, the games and their profiles. -->
+<!-- Consoles: the SVS's inputs through its bridge (app.js, docs/SVS.md), each with its gameID and, on the one on
+screen, the profile for its game (gameid.js, docs/GAMEID.md); the consoles not on the SVS, the games and their profiles. -->
 <section data-view="consoles" id="cons" class="grid3">
-<div class="panel span3" id="gon"></div>
 <div class="panel span3 svs-more">
 <div class="row"><h2 class="grow">SVS inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span>
 <button class="refresh svs-more" id="vpr" title="Read /profile/SVS again" aria-label="Read /profile/SVS again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
