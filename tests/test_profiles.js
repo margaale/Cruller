@@ -1,5 +1,4 @@
-// Tests for the profiles view's logic (src/web/profiles.js): "prof get"'s reply, profile names and
-// folder addresses. Run by tests/run.sh (node 18+).
+// Tests for src/web/profiles.js: profile names, and each SVS input's profile. Run by tests/run.sh (node 18+).
 
 const fs = require('fs');
 const path = require('path');
@@ -17,30 +16,9 @@ function check(cond, what) {
   if (!cond) { failures++; console.log('  FAIL ' + what); }
 }
 
-// "prof get" (Cruller drops the "[COM] " prefix).
-check(pf.parseLoaded('prof loaded=0') === '', 'nothing loaded');
-check(pf.parseLoaded('prof loaded=1 dir=/profile file=Sony PS2/Maverick - RGBS.rt4') === 'Sony PS2/Maverick - RGBS.rt4', 'a profile in a folder, spaces kept');
-check(pf.parseLoaded('prof loaded=1 dir=/profile file=SVS/S1_SNES.rt4') === 'SVS/S1_SNES.rt4', 'an SVS profile');
-check(pf.parseLoaded('prof loaded=1 dir=/profile file=Top.rt4') === 'Top.rt4', 'a profile in /profile itself');
-check(pf.parseLoaded('Bad Command') === null && pf.parseLoaded('prof: busy') === null, 'other replies: not known');
-
 check(pf.isProfile('a.rt4') && pf.isProfile('B.RT4') && pf.isProfile('c.rt6'), 'profile files');
 check(!pf.isProfile('_info.txt') && !pf.isProfile('a.rt4.bak') && !pf.isProfile('rt4'), 'other files');
-check(pf.extFor('RT4K_Pro') === '.rt4' && pf.extFor('RT4K_CE') === '.rt4' && pf.extFor('') === '.rt4', '.rt4 for the 4Ks (and not known yet)');
-check(pf.extFor('RT6X_CE') === '.rt6', '.rt6 for the 6X');
-check(pf.withExt('Maverick', 'RT4K_Pro') === 'Maverick.rt4', 'the extension added');
-check(pf.withExt('Maverick.RT4', 'RT4K_Pro') === 'Maverick.RT4', 'an extension kept');
-check(pf.withExt('v1.2', 'RT4K_Pro') === 'v1.2.rt4', 'a dot in the name isn\'t an extension');
 check(pf.plain('Maverick.rt4') === 'Maverick' && pf.plain('a.b.RT6') === 'a.b' && pf.plain('x.txt') === 'x.txt', 'names without the extension');
-
-// Folder addresses: #rt4k/profiles/<escaped parts>, and back through sd.js (app.js splits the hash at '/').
-for (const d of ['', 'SVS', 'Sony PS2', 'a%b/c#d', 'x & y/100% + more']) {
-  const h = pf.hrefFor(d);
-  const parts = h.slice(1).split('/').slice(2);
-  check(window.sdInternals.dirFromParts(parts) === d, 'address round trip: ' + JSON.stringify(d) + ' -> ' + h);
-}
-check(pf.hrefFor('') === '#rt4k/profiles', 'address of /profile');
-check(pf.dirOf('Sony PS2/Maverick.rt4') === 'Sony PS2' && pf.dirOf('Top.rt4') === '' && pf.dirOf('a/b/c.rt4') === 'a/b', 'a profile\'s folder');
 
 // Each SVS input's profile: /profile/SVS/S<n>_<anything>.rt4, the first the RT4K finds.
 check(pf.slotOf('S1_SNES.rt4') === 1 && pf.slotOf('s12_PS2 480i.RT4') === 12 && pf.slotOf('S3_x.rt6') === 3, 'an input\'s files');

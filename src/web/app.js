@@ -65,7 +65,8 @@ function route() {
   document.body.classList.toggle('setup', tab === 'setup');
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
-  const view = ['firmware', 'profiles', 'sd', 'editor'].includes(sub) ? sub : 'live';
+  if (tab === 'rt4k' && sub === 'profiles') return location.replace('#rt4k/sd/profile' + rest.map((p) => '/' + p).join('')); // (the old Profiles view: its folders in the SD card view)
+  const view = ['firmware', 'sd', 'editor'].includes(sub) ? sub : 'live';
   document.querySelectorAll('[data-subview]').forEach((e) => { e.hidden = e.dataset.subview !== view; });
   // the sidebar: the section shown, its name over the page (the sidebar closes on a phone)
   const at = tab === 'rt4k' ? 'rt4k/' + view : tab;
@@ -76,7 +77,6 @@ function route() {
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
-  if (tab === 'rt4k' && view === 'profiles' && window.profOpen) window.profOpen(rest); // rest: the folder under /profile (profiles.js)
   if (tab === 'rt4k' && view === 'editor' && window.peOpen) window.peOpen(rest); // rest: a profile's path under /profile (editor.js)
   if (tab === 'rt4k' && view === 'live') fit();
   if (tab === 'svs' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
@@ -93,6 +93,18 @@ function navOpen(on) {
   $('navbtn').setAttribute('aria-expanded', String(on));
 }
 $('navbtn').onclick = () => navOpen(!document.body.classList.contains('navopen'));
+
+// On a desktop it collapses to its icons, as the browser remembers.
+function sideCollapse(on) {
+  document.body.classList.toggle('sidemini', on);
+  const b = $('sidecol'), what = on ? 'Expand the sidebar' : 'Collapse the sidebar';
+  b.title = what;
+  b.setAttribute('aria-label', what);
+  try { localStorage.setItem('cruller.sidebar', on ? 'icons' : ''); } catch (e) { /* not kept: fine */ }
+  dispatchEvent(new Event('resize')); // (the live screen and the charts fit the new width)
+}
+$('sidecol').onclick = () => sideCollapse(!document.body.classList.contains('sidemini'));
+try { if (localStorage.getItem('cruller.sidebar') === 'icons') sideCollapse(true); } catch (e) { /* none kept */ }
 document.addEventListener('click', (ev) => { if (document.body.classList.contains('navopen') && !ev.target.closest('#side, #navbtn')) navOpen(false); });
 addEventListener('keydown', (ev) => { if (ev.key === 'Escape') navOpen(false); });
 
@@ -107,7 +119,7 @@ function st(s) {
   if (window.fwPutProgress) window.fwPutProgress(s.put); // the firmware updater's progress bar (fw.js)
   if (window.sdStatus) window.sdStatus(s); // the SD card view reads the folder again once the RT4K is on
   if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power
-  if (window.profStatus) window.profStatus(s); // profiles: read again once the RT4K is on, the loaded one now and then
+  if (window.profStatus) window.profStatus(s); // the SVS folder read again once the RT4K is on
   if (window.peStatus) window.peStatus(s); // the editor: the RT4K's power and firmware
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;
@@ -911,6 +923,30 @@ function out(t) { append('rx', t); }
 let ws, font = null;
 const planes = [null, null], BG = [[5, 7, 12], [233, 237, 243], [32, 192, 32], [208, 32, 32]];
 
+// Where the RT4K puts its menu: OSD/Firmware › On Screen Display › Position (0 Left, 1 Center, 2 Right),
+// byte 0x17cc of its live settings (struct ver 109, as the settings map has it). Read each time the menu
+// shows up, so one changed in the menu itself shows the next time it opens.
+const OSD_POS_AT = 0x17cc;
+// Whether a plane shows anything: a character, or a cell's background (the plane comes, blank, with no menu).
+function showing(p) {
+  if (!p) return false;
+  const k = kv(p.r), rows = k.rows || 0, w = k.width || k.cols || 0, stp = k.stride || w;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < w; x++) { const j = y * stp + x; if (p.d[j] > 32 || p.d[2048 + j] & 192) return true; }
+  return false;
+}
+let osdPos = 0, osdPosReading = false, menuShut = -1e9; // (menuShut: since when the menu's plane is blank; long ago at first, so the first menu reads)
+async function readOsdPos() {
+  if (osdPosReading) return;
+  osdPosReading = true;
+  try {
+    const r = await fetch('/api/v1/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: 'peek ' + OSD_POS_AT + ' 1' }) });
+    const v = await r.json(), m = /peek [0-9a-f]+ ([0-9a-f]{2})/i.exec(((v.results && v.results[0] && v.results[0].reply) || []).join(' '));
+    const p = m ? parseInt(m[1], 16) : -1;
+    if (p >= 0 && p <= 2 && p !== osdPos) { osdPos = p; draw(); }
+  } catch (e) { /* as it was: read again next time */ }
+  osdPosReading = false;
+}
+
 function send(t) {
   if (ws && ws.readyState === 1) { ws.send(t); return true; }
   return false;
@@ -955,6 +991,11 @@ function conn() {
       const n = u[2], d = u.subarray(3 + n);
       if (u[1] === 1 && ST.key) { ST.lat = Math.round(performance.now() - ST.key); ST.key = 0; keySeen(ST.lat); }
       planes[u[1] - 1] = d.length ? { r: new TextDecoder().decode(u.subarray(3, 3 + n)), d: d.slice() } : null;
+      if (u[1] === 1) { // the menu opened (its plane blank for 1.5 s, not a moment between two of its pages)
+        const now = performance.now();
+        if (!showing(planes[0])) menuShut = menuShut || now;
+        else { if (menuShut && now - menuShut > 1500) readOsdPos(); menuShut = 0; }
+      }
       draw();
     }
   };
@@ -1062,8 +1103,9 @@ function draw() {
   if (!font) return;
   const mk = planes[0] ? kv(planes[0].r) : {}, ph = (mk.rows || 32) * 16, sc = H * (2048 / 2160) / ph;
   if (planes[0] && !(planes[1] && sameAsMessages(planes[0], planes[1]))) {
-    const c = render(planes[0]);
-    blit(g, c, 0, 0, c.width, c.height, W * 0.031, H * 0.974 - c.height * sc, sc);
+    const c = render(planes[0]), pw = c.width * sc; // (as the RT4K's Position puts it: its left margin mirrored on the right)
+    const x = osdPos === 1 ? (W - pw) / 2 : osdPos === 2 ? W * (1 - 0.031) - pw : W * 0.031;
+    blit(g, c, 0, 0, c.width, c.height, x, H * 0.974 - c.height * sc, sc);
   }
   // Secondary plane: only its content (it's left-aligned inside a 32-column box).
   if (planes[1]) {
@@ -1084,12 +1126,28 @@ function draw() {
 
 // --- remote, keyboard, console input -------------------------------------------------------------------
 
+// The remote's keys. The arrows, as on the real remote, go on while held: one at once, then one every
+// 180 ms after 0.4 s, till let go.
+const REPEATS = /^remote (up|down|left|right)$/;
+let held = null;
+const letGo = () => { if (held) { clearTimeout(held.t); clearInterval(held.r); held = null; } };
 document.querySelectorAll('[data-c]').forEach((b) => {
-  b.onclick = async () => {
+  b.onclick = async (ev) => {
+    if (REPEATS.test(b.dataset.c) && ev.detail) return; // (sent on the press already; a key's Enter comes here)
     if (b.dataset.confirm && !(await askUser(b.dataset.confirm, 'The RT4K goes to standby; the power key turns it back on.', 'Turn off', true))) return;
     if (send(b.dataset.c)) blink();
   };
+  if (!REPEATS.test(b.dataset.c)) return;
+  b.onpointerdown = (ev) => {
+    if (ev.button) return;
+    letGo();
+    if (send(b.dataset.c)) blink();
+    held = { t: setTimeout(() => { held.r = setInterval(() => { if (send(b.dataset.c)) blink(); }, 180); }, 400) };
+  };
 });
+addEventListener('pointerup', letGo);
+addEventListener('pointercancel', letGo);
+addEventListener('blur', letGo);
 
 const keys = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', Escape: 'back', Backspace: 'back', Tab: 'menu' };
 document.onkeydown = (e) => {
@@ -1105,18 +1163,32 @@ function cmd(id) {
 }
 
 // The remote keeps its look and is scaled to the screen panel's height (the grid row's height; the
-// remote itself is out of flow). Narrow layouts stack it instead (CSS), unscaled.
+// remote itself is out of flow). Narrow layouts stack it under the screen (CSS): there it's scaled to the
+// width there is, never past its own size, centred.
+const stacked = matchMedia('(max-width:1000px)');
 function fitRemote() {
-  const r = $('remote'), wrap = r.parentNode;
-  if (getComputedStyle(r).position !== 'absolute') { r.style.transform = ''; return; }
-  const h = wrap.getBoundingClientRect().height, natural = r.offsetHeight;
-  if (!h || !natural) return;
-  const s = h / natural;
+  const r = $('remote'), wrap = r.parentNode, natural = r.offsetHeight, nw = r.offsetWidth;
+  if (!natural || !nw) return;
+  if (stacked.matches) {
+    const s = Math.min(1, wrap.clientWidth / nw);
+    r.style.transform = 'scale(' + s + ')';
+    r.style.left = Math.max(0, Math.round((wrap.clientWidth - nw * s) / 2)) + 'px';
+    wrap.style.height = Math.round(natural * s) + 'px';
+    return;
+  }
+  r.style.left = '';
+  wrap.style.height = '';
+  const h = wrap.getBoundingClientRect().height;
+  if (!h) return;
+  const s = h / natural, w = Math.round(nw * s);
+  // The screen narrows a little, the row follows, the remote with it: within a pixel either way it's left
+  // as it is, or the two could chase each other for good (the screen and the remote flickering).
+  if (r.style.transform && Math.abs((parseFloat(wrap.style.width) || 0) - w) < 2) return;
   r.style.transform = 'scale(' + s + ')';
-  const w = Math.round(r.offsetWidth * s) + 'px';
-  if (wrap.style.width !== w) wrap.style.width = w; // the screen narrows a little, the row follows
+  wrap.style.width = w + 'px';
 }
 new ResizeObserver(fitRemote).observe($('tv').closest('.panel'));
+stacked.addEventListener('change', () => { $('remote').style.transform = ''; fitRemote(); });
 
 $('tv').ondblclick = () => $('tv').requestFullscreen();
 addEventListener('resize', () => { fit(); if (tab === 'debug') drawCharts(); });

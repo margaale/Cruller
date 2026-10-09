@@ -593,7 +593,7 @@
       await mapMenu([]);
       const end = await snap(), vol = volatileBytes(st.results);
       const left = diff(st.start, end).filter((g) => { for (let i = g.off; i < g.off + g.len; i++) if (!vol.has(i)) return true; return false; });
-      log((st.stop ? 'Stopped' : 'Done') + (left.length ? ', but ' + rangeText(left) + ' differ from the start: reload the profile you had (Profiles view)' : ': the settings are as they were'), left.length > 0);
+      log((st.stop ? 'Stopped' : 'Done') + (left.length ? ', but ' + rangeText(left) + ' differ from the start: reload the profile you had (SD card view, /profile)' : ': the settings are as they were'), left.length > 0);
     } catch (e) {
       log(e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message, true);
     }

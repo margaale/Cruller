@@ -296,10 +296,9 @@
   function build() {
     q('pe').innerHTML =
       '<div class="panel pep">' +
-      '<div class="row sdh"><h2 class=grow id=pen>Profile editor</h2>' +
+      '<div class="row sdh"><h2 id=pen>Profile editor</h2><span id=pes class="small grow"></span>' +
       '<div class=row><button id=peo>Open a file…</button><input type=file id=pef accept=".rt4,.rt6" hidden>' +
       '<button id=peu>Undo</button><button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
-      '<div id=pes class=small></div>' +
       '<div id=pebody class=peg hidden>' +
       '<div class=pehd><span id=pename class=pename></span><span class=grow></span>' +
       '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +
@@ -310,7 +309,7 @@
       '<div class=pebar><span class=pelab>Advanced Settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
       '<input id=peq class=pefind placeholder="Find a setting" autocomplete=off></div>' +
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
-      '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/profiles">Profiles</a> view.</div>' +
+      '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/sd/profile">SD card</a> view (its /profile folder).</div>' +
       '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. The settings ' +
       'and where they live come from mapping the RT4K\'s menus (Debug tab, Settings map).</div></div>';
     q('peo').onclick = () => q('pef').click();
