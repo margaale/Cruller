@@ -10,11 +10,19 @@
 --sans:'IBM Plex Sans',system-ui,sans-serif;--head:'Chakra Petch','IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 var(--sans)}
+body{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;gap:20px;padding:18px 12px;border-right:1px solid var(--rule);background:var(--bg)}
+.side .logo{height:28px;padding:0 10px}
+.snav{display:flex;flex-direction:column;gap:2px}
+.snav .sgrp{padding:0 10px 6px;font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}.snav .sgrp:empty{margin:10px 10px 8px;padding:0;border-top:1px solid var(--rule)}
+.snav a{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500;font-size:14px}
+.snav a svg{flex:none;color:var(--faint)}.snav a:hover{background:var(--raised);color:var(--text)}
+.snav a[aria-current]{background:var(--raised);color:var(--text);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}.snav a[aria-current] svg{color:var(--accent)}
+.page{min-width:0}
 header{display:flex;align-items:center;gap:14px;height:64px;padding:0 24px;border-bottom:1px solid var(--rule)}
+.ptitle{margin:0;font:700 20px var(--head);letter-spacing:.02em}
+.navbtn{display:none;width:40px;height:40px;padding:0;place-items:center;border-color:transparent}.logo.mlogo{display:none}
 .logo{display:flex;align-items:center;gap:10px;font:700 22px var(--head);letter-spacing:.02em}
-nav.tabs{display:flex;align-self:stretch;gap:4px;margin-left:16px}
-nav.tabs a{display:flex;align-items:center;padding:0 14px;color:var(--muted);text-decoration:none;font-weight:500;border-bottom:2px solid transparent}
-nav.tabs a[aria-current]{color:var(--text);font-weight:600;border-color:var(--accent)}
 .grow{flex-grow:1}
 .chip{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:#C9CCD1;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
@@ -140,9 +148,6 @@ button:disabled{opacity:.5;cursor:default}
 input,select{font:14px var(--sans);color:var(--text);background:var(--well);border:1px solid var(--line);border-radius:8px;height:38px;padding:0 10px;width:100%}
 pre{margin:0;background:var(--well);border-radius:8px;padding:10px 12px;font:12px/1.55 var(--mono);color:#C9CCD1;overflow:auto;white-space:pre-wrap}
 a.more{color:var(--accent);text-decoration:none;font-weight:500;font-size:14px}
-.sub{display:flex;gap:6px;margin-bottom:16px}
-.sub a{padding:7px 14px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;border:1px solid transparent}
-.sub a[aria-current]{background:var(--raised);color:var(--text);border-color:var(--line)}
 /* RetroTINK: screen, console, remote */
 /* The remote sits next to the screen panel, scaled (app.js fitRemote) to exactly its height. */
 .stage{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"screen remote" "console console";gap:16px}
@@ -230,11 +235,11 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .files .ib.del:hover:not(:disabled){border-color:#5A2A28;color:#F07A74}
 .files .msz{display:none}
 /* Narrow screens: no date, the size under the name, names wrap instead of being cut. */
-@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:98px}.files td{padding:0 4px}.files .ib{width:30px}.sub a{white-space:nowrap;padding:7px 10px}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
+@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:98px}.files td{padding:0 4px}.files .ib{width:30px}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
 .files td.n{white-space:normal;overflow-wrap:break-word;height:auto;padding-top:6px;padding-bottom:6px}.files td.n a,.files .fn{height:auto;min-height:28px}
 .files .msz{display:block;font:12px var(--mono);color:var(--faint)}}
 /* setup wizard (portal) */
-body.setup header nav,body.setup header .chip{display:none}
+body.setup{grid-template-columns:minmax(0,1fr)}body.setup .side,body.setup .navbtn,body.setup .ptitle,body.setup header .chip{display:none}body.setup .logo.mlogo{display:flex}
 .wiz{max-width:430px;margin:auto;display:flex;flex-direction:column;gap:16px;min-height:calc(100vh - 110px)}
 .wiz-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.wiz-bar div{height:4px;border-radius:2px;background:#2B2F35}.wiz-bar div.on{background:var(--accent)}
 .wiz-page{display:flex;flex-direction:column;gap:14px;flex-grow:1}
@@ -257,13 +262,20 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 .legend{display:flex;gap:14px;flex-wrap:wrap;font:12px var(--mono)}.legend i{display:inline-block;width:8px;height:8px;margin-right:6px}
 #d-rx,#lg{height:200px}
 @media (max-width:1000px){.grid3{grid-template-columns:minmax(0,1fr)}.span2,.span3{grid-column:auto}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.stage{grid-template-columns:minmax(0,1fr);grid-template-areas:"screen" "remote" "console"}.rwrap{width:auto!important;height:auto!important}.rwrap .remote{position:static;transform:none!important;margin:auto}}
-@media (max-width:640px){header{padding:0 12px;gap:8px}.logo span{display:none}#rt4k-chip{display:none}#chip-rt4k{padding:8px}nav.tabs{margin-left:0}nav.tabs a{padding:0 8px}.hide-sm{display:none}main{padding:16px}}
+@media (max-width:640px){header{padding:0 12px;gap:8px}header .logo span{display:none}#rt4k-chip{display:none}#chip-rt4k{padding:8px}.hide-sm{display:none}main{padding:16px}}
+@media (max-width:860px){body{grid-template-columns:minmax(0,1fr)}.side{position:fixed;inset:0 auto 0 0;width:min(272px,84vw);z-index:60;transform:translateX(-102%);transition:transform .2s ease;box-shadow:none}body.navopen .side{transform:none;box-shadow:0 0 0 100vmax #0009}.navbtn{display:grid}.logo.mlogo{display:flex}header{gap:10px}.ptitle{font-size:18px}}
 </style>
 </head>
 <body>
-<header>
+<aside class="side" id="side">
 <div class="logo"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#E8618C" stroke-width="4" aria-hidden="true"><circle cx="14" cy="14" r="10"/></svg><span>Cruller</span></div>
-<nav class="tabs" aria-label="Sections"><a href="#rt4k" data-tab="rt4k">RetroTINK</a><a href="#svs" data-tab="svs">SVS</a><a href="#cruller" data-tab="cruller">Cruller</a><a href="#debug" data-tab="debug">Debug</a></nav>
+<nav class="snav" aria-label="Sections"><div class="sgrp">RetroTINK</div><a href="#rt4k" data-nav="rt4k/live"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg><span>Live screen</span></a><a href="#rt4k/profiles" data-nav="rt4k/profiles"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg><span>Profiles</span></a><a href="#rt4k/editor" data-nav="rt4k/editor"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/></svg><span>Editor</span></a><a href="#rt4k/sd" data-nav="rt4k/sd"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9 7v3"/><path d="M12 7v3"/><path d="M15 7v3"/></svg><span>SD card</span></a><a href="#rt4k/firmware" data-nav="rt4k/firmware"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg><span>Firmware</span></a><div class="sgrp"></div><a href="#svs" data-nav="svs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="8" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="16" cy="12" r="1.2"/></svg><span>SVS</span></a><a href="#cruller" data-nav="cruller"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg><span>Cruller</span></a><a href="#debug" data-nav="debug"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg><span>Debug</span></a></nav>
+</aside>
+<div class="page">
+<header>
+<button class="navbtn" id="navbtn" aria-label="Sections" aria-controls="side" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+<div class="logo mlogo"><svg width="24" height="24" viewBox="0 0 28 28" fill="none" stroke="#E8618C" stroke-width="4" aria-hidden="true"><circle cx="14" cy="14" r="10"/></svg></div>
+<h1 class="ptitle" id="ptitle"></h1>
 <div class="grow"></div>
 <div class="chip" id="chip-rt4k"><span class="dot" id="rt4k-dot"></span><span id="rt4k-chip">Connecting…</span></div>
 <div class="chip hide-sm" id="chip-wifi" hidden><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 9a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r=".8"/></svg><span id="wifi-chip"></span></div>
@@ -273,7 +285,6 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <main>
 <!-- RetroTINK -->
 <section data-view="rt4k">
-<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><a href="#rt4k/profiles" data-sub="profiles">Profiles</a><a href="#rt4k/sd" data-sub="sd">SD card</a><a href="#rt4k/editor" data-sub="editor">Editor</a></div>
 
 <div data-subview="live" class="stage">
 <div class="panel" style="grid-area:screen">
@@ -523,6 +534,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <table class="tbl"><thead><tr><th>Task</th><th>State</th><th class="r">Priority</th><th class="r">Stack never used</th></tr></thead><tbody id="t-rows"><tr><td colspan="4" class="small">Not read yet</td></tr></tbody></table></div>
 </section>
 </main>
+</div>
 <div id="busy" class="busy" hidden role="status" aria-live="polite">
 <div class="busy-box">
 <div class="ring" id="busy-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44" class="track"/><circle cx="50" cy="50" r="44" class="arc" id="busy-arc"/></svg><span id="busy-num"></span><span id="busy-icon"></span></div>

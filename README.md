@@ -17,7 +17,7 @@ Cruller is firmware for a Raspberry Pi Pico 2 W that plugs into the RetroTINK 4K
 where you would otherwise connect a PC. It talks to the RT4K over its USB serial port and serves a
 web page over Wi-Fi, so the scaler can live behind the TV and still be managed from your phone.
 
-![The RetroTINK tab: the RT4K's menu mirrored live, its remote, and the serial console](docs/images/live-screen.png)
+![Live screen: the RT4K's menu mirrored live, its remote, and the serial console](docs/images/live-screen.png)
 
 > [!NOTE]
 > Cruller is young: every release so far is an alpha. Automatic game profiles (gameID) are next.
@@ -91,7 +91,7 @@ You only do this once over a cable. Later updates happen over the air.
 3. Copy the file to that drive. The Pico restarts into Cruller by itself.
 
 The factory image holds the partition table and Cruller together. The other file in each release,
-`cruller.uf2`, is the update that the Cruller tab installs over the air.
+`cruller.uf2`, is the update that the Cruller section installs over the air.
 
 ### 2. Put it on your Wi-Fi
 
@@ -124,12 +124,15 @@ while it's on.
 
 ## Using it
 
-### The RetroTINK tab
+### RetroTINK
+
+The sidebar groups the RT4K's views: Live screen, Profiles, Editor, SD card and Firmware. On a phone
+it opens from the menu button.
 
 - **Live screen**: the RT4K's menu as it looks on your TV (see the screenshot at the top of this
   page). It stops polling while the RT4K is in standby, and offers to turn it on.
 - **Remote**: every key of the RT4K's remote. The power key asks before turning the RT4K off. While
-  this tab is open, your keyboard's arrows, Enter, Escape (back) and Tab (menu) work too.
+  Live screen is open, your keyboard's arrows, Enter, Escape (back) and Tab (menu) work too.
 - **Console**: type any RT4K serial command, such as `remote menu` or `ver`. You see the replies to
   your own commands.
 
@@ -158,9 +161,9 @@ list), make folders, rename, and delete files or whole folders. Transfers go at 
 and offers to turn it on, then shows the folder as soon as it answers (turning it on with its own
 remote works too). It has no clock, so files written over the network are dated 2020-01-01.
 
-### The SVS tab
+### SVS
 
-![The SVS tab: eight inputs with their consoles, the one on screen lit, and the recent switches](docs/images/svs-tab.png)
+![SVS: eight inputs with their consoles, the one on screen lit, and the recent switches](docs/images/svs-tab.png)
 
 The RT4K can't tell when an [SVS](https://scalablevideoswitch.com/) switch changes input, so the
 [SVS Bridge](https://github.com/margaale/svs-bridge) tells Cruller. There's nothing to set up on
@@ -172,9 +175,9 @@ screen lit, the output that goes to the RetroTINK, and the recent switches. **Un
 for another bridge. With "Auto Load SVS" on, the RT4K itself loads
 `/profile/SVS/S<input>_….rt4` when the input changes. Per-console game profiles come next.
 
-### The Cruller tab
+### Cruller
 
-![The Cruller tab: the serial link, Wi-Fi, clients, memory, this Cruller, and its firmware updates](docs/images/cruller-tab.png)
+![Cruller: the serial link, Wi-Fi, clients, memory, this Cruller, and its firmware updates](docs/images/cruller-tab.png)
 
 - **Serial link to the RT4K**: key-to-screen time, bytes lost, traffic, and the adapter's settings.
 - **Wi-Fi**: the network, its signal, and a way to change it.
@@ -304,7 +307,7 @@ any CI build of the same version. Pass `CRULLER_VERSION` and `CRULLER_BUILD` to 
 installed. A local build takes its version from `src/version.cmake`, and CI passes its own.
 
 `CRULLER_DEBUG=0` builds it without the developer tools: the `/debug` routes that act on the RT4K
-or the board, the RTL1 failure capture and the USB trace (16 KB of RAM). The Debug tab then hides
+or the board, the RTL1 failure capture and the USB trace (16 KB of RAM). The Debug section then hides
 their buttons. The routes that only read stay.
 
 `scripts/build.sh esp32`, in an ESP-IDF 6.1 shell, builds the ESP32-S3 port into `build/esp32`.
