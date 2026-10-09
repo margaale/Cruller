@@ -333,7 +333,7 @@
     if (box.dataset.ready) return;
     box.dataset.ready = 1;
     box.innerHTML =
-      '<div class=panel style="max-width:880px">' +
+      '<div class=panel>' +
       '<div><div style="font:700 26px var(--head)">RetroTINK firmware</div>' +
       '<div id=fwh class=small></div></div>' +
       '<div class=row style="flex-wrap:wrap"><select id=fwc style="flex:0 0 160px"></select><select id=fwv style="flex:1 1 240px"></select>' +

@@ -400,7 +400,7 @@
   function build() {
     const box = q('sd');
     box.innerHTML =
-      '<div class=panel id=sdbox style="max-width:1100px">' +
+      '<div class=panel id=sdbox>' +
       '<div class="row sdh"><nav id=sdc class="crumbs grow" aria-label="Folder"></nav>' +
       '<div class=row><button id=sdu class=primary>Upload</button><button id=sdn>New folder</button>' +
       '<button id=sdr title="Read the folder again">Refresh</button></div></div>' +
