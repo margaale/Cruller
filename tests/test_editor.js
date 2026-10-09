@@ -46,9 +46,19 @@ e.encode(trim, tc, mb, 10, 1);
 check(mb[0x526] === 10 && mb[0x524] === 0 && e.decode(trim, tc, mb, 1).value === 10 && e.decode(trim, tc, mb, 0).value === 0, 'written in mode 1 only, read back there');
 check(JSON.stringify(e.modesUsed([trim], mb)) === '[1]', 'the modes a profile has settings for: ' + JSON.stringify(e.modesUsed([trim], mb)));
 
+// A setting kept per detected rate too: slot k at each.srd + k * stride, instead of the mode's.
+const srdTrim = { ...trim, each: { ...trim.each, srd: 7316 } };
+const sb = new Uint8Array(22876);
+check(JSON.stringify(e.bytesAt(srdTrim, 1, 12)) === '[[7340,2]]' && JSON.stringify(e.bytesAt(srdTrim, 1)) === '[[1318,2]]' && JSON.stringify(e.bytesAt(trim, 1, 12)) === '[[1318,2]]', 'slot 12 of the rate arrays, the mode\'s without one');
+e.encode(srdTrim, tc, sb, -5, 1, 12);
+check(sb[7340] === 0xfb && sb[7341] === 0xff && !sb[0x526] && e.decode(srdTrim, tc, sb, 1, 12).value === -5 && e.decode(srdTrim, tc, sb, 1).value === 0, 'written in slot 12 only, read back there');
+check(JSON.stringify(e.slotsUsed([srdTrim], sb)) === '[12]' && JSON.stringify(e.modesUsed([srdTrim], sb)) === '[]', 'the slots a profile has settings in');
+check(e.slotName(12) === '1/5 interlaced' && e.slotName(9) === '1/8 interlaced' && e.slotName(0) === '1/10 progressive' && e.slotName(29) === '1/4 interlaced, 50 Hz' && e.slotName(6) === 'Slot 6', 'the slots\' names');
+
 // The map's arrays: inside the body, and none running into another (only one field in two menus shares one).
 for (const m of doc.maps) {
-  const arr = m.settings.filter((s) => s.each).map((s) => [s.bytes[0][0], s.bytes[0][0] + s.each.count * s.each.stride, s.label]).sort((a, b) => a[0] - b[0]);
+  const arr = m.settings.filter((s) => s.each).map((s) => [s.bytes[0][0], s.bytes[0][0] + s.each.count * s.each.stride, s.label])
+    .concat(m.settings.filter((s) => s.each && s.each.srd !== undefined).map((s) => [s.each.srd, s.each.srd + 32 * s.each.stride, s.label + ' (per rate)'])).sort((a, b) => a[0] - b[0]);
   const bad = arr.filter((a, k) => (k && a[0] < arr[k - 1][1] && a[0] !== arr[k - 1][0]) || a[1] > m.size);
   check(arr.length > 20 && !bad.length, m.firmware + ': ' + arr.length + ' settings kept per mode or input, apart: ' + JSON.stringify(bad));
 }
