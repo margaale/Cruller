@@ -243,7 +243,7 @@ these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "
 | `consoles` | Each console, in the order kept: `on` (it answered lately), the `game` it runs (`""`: none it can tell) and its `game_name` when it says one, the `kind` of console (`ps2`, `n64`…: from what it reports, else its name; matched to the SVS tab's), `on_screen` (its game is the one that counts). |
 | `svs_input` | The SVS switch's input, as its bridge last reported it (`0`: none). |
 | `playing` | The game on screen (`null`: none). |
-| `profile`, `from` | The profile for it, and from where: `gamedb`, `other` (its console's, for a game the gameDB hasn't), `svs` (its console went off: the input's own `S<n>`); `""`: none. |
+| `profile`, `from` | The profile for it, and from where: `gamedb`, `other` (its console's, for a game the gameDB hasn't), `svs` (its console went off, or was disabled: the input's own `S<n>`); `""`: none. |
 | `pending` | A profile about to load: after an input change (the RT4K's own `S<n>` first), once the RT4K comes on, or while it sleeps. |
 | `loaded` | What gameID last loaded. |
 | `note`, `note_age_s` | What it last did, or why it waits, and how long ago. |
