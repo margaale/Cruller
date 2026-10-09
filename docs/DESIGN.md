@@ -2,7 +2,7 @@
 
 Cruller is firmware for the Raspberry Pi Pico 2 W that controls a RetroTINK 4K (RT4K) over Wi-Fi. It switches RT4K profiles from the gameID that consoles report, and provides a web UI to control the RT4K. It takes the idea of [DonutShop](https://github.com/svirant/DonutShop) and is written from scratch on the Pico SDK, without Arduino.
 
-Status: M1 (RT4K link) done, parts of M3 and M4 done; M2 (gameID) not started. Details under "Milestones".
+Status: M1 (RT4K link) done, parts of M3 and M4 done; M2 (gameID) started: its consoles and gameDB are kept. Details under "Milestones".
 
 ## Goals
 
@@ -34,7 +34,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 - `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings, firmware downloads from GitHub) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `tls.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
 - `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
 - `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time. The CI's images embed its JavaScript minified (`scripts/minify-web.sh`, esbuild: 234 KB down to 129 KB); a local build, as it is.
-- `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
+- `third_party/littlefs`: Cruller's files (`cfgfs.h`: gameID's), and DonutShop's filesystem read once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
 - `src/version.cmake`: the version, for every target.
 
 ## Software stack
@@ -126,7 +126,7 @@ Cruller layout (`src/platform/rp2/pt.json`). The RP2350 boot ROM reads the parti
 | `0x000000` | 8 KB | partition table |
 | `0x002000` | 1856 KB | slot A |
 | `0x1D2000` | 1856 KB | slot B |
-| after B | rest | data (littlefs: configuration) |
+| after B | 364 KB | data: `store.h`'s records (16 sectors), then cfgfs's littlefs (300 KB) |
 
 ## First install on a new board
 
@@ -162,13 +162,13 @@ Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (millis
 
 ## Configuration
 
-JSON files in littlefs, with a schema version. The importer reads the DonutShop formats (`consoles.json`, `gameDB.json`, `settings.json`). Wi-Fi credentials are stored separately and are never included in configuration exports.
+Small records (`store.h`: the Wi-Fi credentials, the settings, the RT4K's firmware, the SVS profiles), each replaced whole: two alternating sectors each on rp2, NVS blobs on the ESP32. What doesn't fit 2 KB goes in files (`cfgfs.h`): littlefs, on rp2 in the data partition after the records, on the ESP32 in its `cruller` partition (registered by hand on a board whose partition table predates it). A file is replaced whole (written beside it, renamed over it), JSON with a version (`{"v":1}`). gameID keeps its consoles and its gameDB there ([GAMEID.md](GAMEID.md)); DonutShop's aren't imported.
 
 ## Milestones
 
 1. **M0, foundation (done 2026-09-25):** CMake project, flash layout with partition table, migration from DonutShop by OTA with the Wi-Fi credentials, station mode with the portal fallback, mDNS, Cruller-to-Cruller OTA with rollback.
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
-3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI. Not started.
+3. **M2, gameID ([GAMEID.md](GAMEID.md)):** the consoles and the gameDB kept, with their API (done). Still to do: asking the consoles (HTTP; HTTPS later), loading the profiles (with the SVS switch's input), the page's view, finding consoles on the network.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, the API (`/api/v1`), RFC 2217. LED patterns still to do.
 5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete), firmware updates from RetroTINK's repository, the profiles view (the loaded profile, loading one, saving the current settings as a new one, copying one) and each SVS input's profile (the RT4K's /profile/SVS/S<n>_ files). Still to do: Extron/TESmart/MT-VIKI serial, IR, editing profiles.
 

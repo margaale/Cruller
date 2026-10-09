@@ -50,6 +50,11 @@ The API's version is a whole number: `api` in the TXT, `api_version` in `/api/v1
 | `POST /api/v1/svs` | The SVS Bridge's report. |
 | `POST /api/v1/svs/unpair` | Forget the paired SVS Bridge. |
 | `POST /api/v1/svs/profiles` | Each input's profile, as the page read the RT4K's card, to keep. |
+| `GET /api/v1/gameid/consoles` | The consoles gameID asks which game they run. |
+| `POST /api/v1/gameid/consoles` | Replace them. |
+| `GET /api/v1/gameid/games` | The gameDB: each game and its profile. |
+| `POST /api/v1/gameid/games` | Add a game, or change one. |
+| `POST /api/v1/gameid/games/delete` | Remove a game. |
 
 ### GET /api/v1/info
 
@@ -183,3 +188,41 @@ restarts, writing its flash only when they changed, and `GET /api/v1/svs` gives 
 `profiles_seq` (in both, and in the page's status) changes with them. Answers
 `{"ok": true, "changed": true}`; a line that isn't an input 1-32, a tab and a name (150 bytes at
 most), or more than 1 KB, gets `400`/`413 {"ok": false, "error": "…"}`.
+
+### /api/v1/gameid
+
+gameID loads a game's own RT4K profile when a console reports which game it runs
+([GAMEID.md](GAMEID.md)). These routes keep what it works from: the consoles it asks, and the games,
+each with its profile. Cruller keeps both across restarts in its flash (the gameDB holds 1000 games);
+a factory reset erases them.
+
+`GET /api/v1/gameid/consoles` answers them all; `POST /api/v1/gameid/consoles` replaces them all with
+the body, in the same form:
+
+```json
+{"consoles": [{"name": "PS2", "url": "http://10.10.10.88/api/currentState", "other": "PS2/Generic.rt4",
+               "svs_input": 0, "enabled": true}]}
+```
+
+| Key | Value |
+|---|---|
+| `name` | What it's called (47 bytes at most). |
+| `url` | What's asked: `http://`, the console's address and its path. Its answer is JSON with `gameID` (a MemCard PRO's or PRO2's, `http://<address>/api/currentState`), or the ID as text (PS1Digital's and N64Digital's, `http://<address>/gameid`). |
+| `other` | The profile for a game the gameDB hasn't (optional; `""`: none). |
+| `svs_input` | With an SVS switch, the input it's on (1-8); `0` (the default): worked out from the console it is. |
+| `enabled` | Asked or not (default `true`). |
+
+Ten consoles at most. A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its path under
+`/profile` (`PS2/God of War II.rt4`). Answers `{"ok": true}`; anything else gets
+`400 {"ok": false, "error": "…"}`, and nothing changes.
+
+`GET /api/v1/gameid/games` answers every game, in the order they were added:
+
+```json
+{"games": [{"id": "SCUS-97481", "profile": "PS2/God of War II.rt4", "name": "God of War II"}]}
+```
+
+`POST /api/v1/gameid/games` with one of them (`name` optional) adds it, or replaces the one with its
+`id` (compared as written): `{"ok": true, "replaced": false}`. `POST /api/v1/gameid/games/delete`
+with `{"id": "SCUS-97481"}` removes it: `{"ok": true, "found": true}`. A body that isn't one of
+these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "…"}`.

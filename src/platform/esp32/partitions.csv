@@ -1,7 +1,10 @@
-# 16 MB flash: settings (NVS), OTA state, two 4 MB app slots; the rest free for later.
+# 16 MB flash: settings (NVS), OTA state, two 4 MB app slots, cfgfs (littlefs: gameID's files); the rest free
+# for later. A board updated over the air keeps the table it was flashed with: cfgfs_part.c registers
+# "cruller" by hand there (keep it where it is).
 # Name,   Type, SubType, Offset,   Size
 nvs,      data, nvs,     0x9000,   0x6000
 otadata,  data, ota,     0xf000,   0x2000
 phy_init, data, phy,     0x11000,  0x1000
 ota_0,    app,  ota_0,   0x20000,  0x400000
 ota_1,    app,  ota_1,   0x420000, 0x400000
+cruller,  data, 0x83,    0x820000, 0x100000

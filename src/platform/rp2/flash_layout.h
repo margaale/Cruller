@@ -16,6 +16,11 @@
 // partition, in the keys' order: the Wi-Fi credentials, the settings (name, paired SVS Bridge), the
 // RT4K's firmware and model, each SVS input's profile, and whatever comes after.
 #define STORE_SECTOR_OFFSET(key, copy) (DATA_PART_OFFSET + (2u * (uint32_t)(key) + (uint32_t)(copy)) * FLASH_SECTOR_SIZE_B)
+#define STORE_SECTORS         16u // room for 8 records
+
+// cfgfs.h's littlefs (cfgfs_flash.c): the rest of the data partition, after store.h's records.
+#define CFGFS_OFFSET          (DATA_PART_OFFSET + STORE_SECTORS * FLASH_SECTOR_SIZE_B)
+#define CFGFS_SIZE            (DATA_PART_SIZE - STORE_SECTORS * FLASH_SECTOR_SIZE_B)
 
 // DonutShop (arduino-pico, flash=4194304_2097152) LittleFS, read once after migrating.
 // The first Cruller OTA overwrites it (partition B and the data partition overlap it).

@@ -48,11 +48,15 @@ target_compile_definitions(littlefs PUBLIC LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WAR
 add_library(cruller_app INTERFACE)
 target_sources(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core/buttons.c
+    ${CRULLER_ROOT}/src/core/cfgfs.c
     ${CRULLER_ROOT}/src/core/clients.c
     ${CRULLER_ROOT}/src/core/console.c
     ${CRULLER_ROOT}/src/core/console_core.c
     ${CRULLER_ROOT}/src/core/creds.c
+    ${CRULLER_ROOT}/src/core/gameid.c
+    ${CRULLER_ROOT}/src/core/gameid_core.c
     ${CRULLER_ROOT}/src/core/http.c
+    ${CRULLER_ROOT}/src/core/json.c
     ${CRULLER_ROOT}/src/core/ota_fetch.c
     ${CRULLER_ROOT}/src/core/ota_fetch_proto.c
     ${CRULLER_ROOT}/src/core/power.c
@@ -75,6 +79,7 @@ target_sources(cruller_app INTERFACE
     freertos_hooks.c
     flash_ops.c
     store_flash.c
+    cfgfs_flash.c
     donutshop.c
     ota.c
     tls.c

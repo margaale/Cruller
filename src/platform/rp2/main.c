@@ -18,6 +18,7 @@
 #include "http.h"
 #include "log.h"
 #include "net.h"
+#include "cfgfs.h"
 #include "console.h"
 #include "ota.h"
 #include "power.h"
@@ -90,6 +91,8 @@ static void main_task(void *param) {
     health_start_net_probe();
     health_start_sensors();
     status_led_start();
+    // The files (gameID's): before rt4k_start(), so a first format needn't hold the USB host off.
+    if (!cfgfs_mount()) printf("cfgfs: no files this run\n");
     console_start(); // before rt4k_start(): the rt4k task feeds them text from the start
     power_start();
     rt4k_start();
