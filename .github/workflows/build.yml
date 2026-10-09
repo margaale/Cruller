@@ -57,6 +57,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true # littlefs, for cfgfs's tests
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -174,6 +176,8 @@ jobs:
             chip: esp32s3
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true # littlefs (cfgfs)
 
       # ESP-IDF compiles through ccache: keep its directory between runs (inside the workspace, which
       # the container mounts), so only what changed is compiled again.

@@ -15,9 +15,12 @@
 #include "lwip/priv/tcp_priv.h" // /debug/tcp: lwIP's PCB lists
 
 #include "buttons.h"
+#include "cfgfs.h"
 #include "creds.h"
+#include "gameid.h"
 #include "health.h"
 #include "freeze.h"
+#include "json.h"
 #include "log.h"
 #include "clients.h"
 #include "console.h"
@@ -104,6 +107,10 @@ static union {
             svs_msg_t m;
         };
     } svs;
+    // gameID: the consoles' JSON in (POST) or out (GET), a game in, or each game out.
+    struct {
+        char buf[8192];
+    } gameid;
 #if CRULLER_DEBUG
     char usbtrace[12288];
 #endif
@@ -1563,7 +1570,116 @@ static void handle_settings(request_t *r) {
 
 // POST /restart: reboots into the current image. POST /factory-reset: forgets the Wi-Fi network, the
 // name and the paired SVS Bridge, and reboots into the setup portal.
+// --- gameID: its consoles and its games (docs/API.md, src/core/gameid.h) --------------------------------
+
+static bool gameid_sink(const uint8_t *data, size_t len, void *ctx) {
+    size_t *n = ctx;
+    if (*n + len >= sizeof(scratch.gameid.buf)) return false;
+    memcpy(scratch.gameid.buf + *n, data, len);
+    *n += len;
+    return true;
+}
+
+// The body read whole into scratch.gameid.buf, 0-terminated: its length, or -1 (answered already).
+static long gameid_body(request_t *r) {
+    size_t n = 0;
+    if (r->content_length <= 0 || r->content_length >= (long)sizeof(scratch.gameid.buf) || !read_body(r, gameid_sink, &n)) {
+        const bool big = r->content_length >= (long)sizeof(scratch.gameid.buf);
+        respond(r->fd, big ? 413 : 400, big ? "Payload Too Large" : "Bad Request", "application/json",
+            big ? "{\"ok\":false,\"error\":\"too big (8 KB at most)\"}" : "{\"ok\":false,\"error\":\"send it as JSON, the body\"}");
+        return -1;
+    }
+    scratch.gameid.buf[n] = 0;
+    return (long)n;
+}
+
+static void gameid_refused(int fd, const char *why) {
+    char esc[200], out[240];
+    json_escape(esc, sizeof(esc), why);
+    snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\"}", esc);
+    respond(fd, 400, "Bad Request", "application/json", out);
+}
+
+static void handle_gameid_consoles(request_t *r, bool post) {
+    char *const buf = scratch.gameid.buf;
+    if (!post) {
+        const size_t n = gameid_consoles_get_json(buf, sizeof(scratch.gameid.buf));
+        respond(r->fd, n ? 200 : 500, n ? "OK" : "Internal Server Error", "application/json", n ? buf : "{\"consoles\":[]}");
+        return;
+    }
+    const long n = gameid_body(r);
+    if (n < 0) return;
+    const char *why;
+    if (!gameid_consoles_put_json(buf, (size_t)n, &why)) { gameid_refused(r->fd, why); return; }
+    respond(r->fd, 200, "OK", "application/json", "{\"ok\":true}");
+}
+
+// GET: every game, {"games": [{"id", "profile", "name"}, ...]}, sent as it's read (the files held, so
+// the length counted first holds).
+typedef struct {
+    int fd;
+    bool send, ok;
+    size_t len, count;
+} games_out_t;
+
+static bool games_out(const gameid_game_t *g, void *ctx) {
+    games_out_t *o = ctx;
+    char *const item = scratch.gameid.buf;
+    item[0] = ',';
+    const size_t n = gameid_game_json(g, item + 1, sizeof(scratch.gameid.buf) - 1);
+    const size_t k = o->count++ ? n + 1 : n;
+    if (o->send) o->ok = send_all(o->fd, o->count > 1 ? item : item + 1, k);
+    o->len += k;
+    return !o->send || o->ok;
+}
+
+static void handle_gameid_games_get(request_t *r) {
+    static const char head[] = "{\"games\":[", tail[] = "]}";
+    games_out_t o = {r->fd, false, true, 0, 0};
+    cfgfs_hold();
+    gameid_games_each(games_out, &o);
+    char hdr[192];
+    const int h = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %u\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        (unsigned)(strlen(head) + o.len + strlen(tail)));
+    if (send_all(r->fd, hdr, (size_t)h) && send_all(r->fd, head, strlen(head))) {
+        o = (games_out_t){r->fd, true, true, 0, 0};
+        gameid_games_each(games_out, &o);
+        if (o.ok) send_all(r->fd, tail, strlen(tail));
+    }
+    cfgfs_release();
+}
+
+// POST: a game added, or the one with its ID replaced.
+static void handle_gameid_games_put(request_t *r) {
+    const long n = gameid_body(r);
+    if (n < 0) return;
+    gameid_game_t g;
+    const char *why;
+    bool replaced = false;
+    if (!gameid_game_parse(scratch.gameid.buf, (size_t)n, &g, &why)) { gameid_refused(r->fd, why); return; }
+    if (!gameid_game_put(&g, &replaced)) { gameid_refused(r->fd, "could not save it (1000 games at most)"); return; }
+    respond(r->fd, 200, "OK", "application/json", replaced ? "{\"ok\":true,\"replaced\":true}" : "{\"ok\":true,\"replaced\":false}");
+}
+
+// POST {"id"}: that game gone.
+static void handle_gameid_games_delete(request_t *r) {
+    const long n = gameid_body(r);
+    if (n < 0) return;
+    json_tok_t tok[4];
+    char id[GAMEID_ID_MAX];
+    bool found = false;
+    if (json_parse(scratch.gameid.buf, (size_t)n, tok, 4) < 1 ||
+        !json_str(scratch.gameid.buf, tok, json_get(scratch.gameid.buf, tok, 0, "id"), id, sizeof(id))) {
+        gameid_refused(r->fd, "send {\"id\": the game's ID}");
+        return;
+    }
+    if (!gameid_game_delete(id, &found)) { gameid_refused(r->fd, "could not save the games"); return; }
+    respond(r->fd, 200, "OK", "application/json", found ? "{\"ok\":true,\"found\":true}" : "{\"ok\":true,\"found\":false}");
+}
+
 static void handle_restart(request_t *r, bool forget) {
+    if (forget && !gameid_wipe()) printf("http: gameID's files not erased\n"); // (no files: nothing kept anyway)
     if (forget && (!creds_forget() || !settings_clear())) {
         respond(r->fd, 500, "Internal Server Error", "text/plain", "Could not erase the settings\n");
         return;
@@ -1687,6 +1803,10 @@ static void handle(request_t *r) {
     else if ((get || post) && (!strcmp(r->path, "/api/v1/svs") || !strcmp(r->path, "/api/svs"))) handle_svs(r, post);
     else if (post && (!strcmp(r->path, "/api/v1/svs/unpair") || !strcmp(r->path, "/api/svs/unpair"))) handle_svs_unpair(r);
     else if (post && !strcmp(r->path, "/api/v1/svs/profiles")) handle_svs_profiles(r);
+    else if ((get || post) && !strcmp(r->path, "/api/v1/gameid/consoles")) handle_gameid_consoles(r, post);
+    else if (get && !strcmp(r->path, "/api/v1/gameid/games")) handle_gameid_games_get(r);
+    else if (post && !strcmp(r->path, "/api/v1/gameid/games")) handle_gameid_games_put(r);
+    else if (post && !strcmp(r->path, "/api/v1/gameid/games/delete")) handle_gameid_games_delete(r);
     else if ((get || post) && !strcmp(r->path, "/setup")) handle_setup(r, post);
     else if (post && !strcmp(r->path, "/settings")) handle_settings(r);
     else if (post && !strcmp(r->path, "/restart")) handle_restart(r, false);

@@ -17,9 +17,18 @@ mkdir -p build-tests
 "$CC" "${CFLAGS[@]}" src/core/ota_fetch_proto.c tests/test_ota_fetch.c -o build-tests/test_ota_fetch
 "$CC" "${CFLAGS[@]}" src/core/buttons.c tests/test_buttons.c -o build-tests/test_buttons
 "$CC" "${CFLAGS[@]}" src/core/rt4k_info_core.c tests/test_rt4k_info.c -o build-tests/test_rt4k_info
+"$CC" "${CFLAGS[@]}" src/core/json.c tests/test_json.c -o build-tests/test_json
+# littlefs as the boards build it (its own warnings aside), under cfgfs over a flash of RAM
+LFS=(-DLFS_NO_MALLOC -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR -I third_party/littlefs)
+"$CC" -std=c11 -O1 -g "${LFS[@]}" -c third_party/littlefs/lfs.c -o build-tests/lfs.o
+"$CC" -std=c11 -O1 -g "${LFS[@]}" -c third_party/littlefs/lfs_util.c -o build-tests/lfs_util.o
+"$CC" "${CFLAGS[@]}" "${LFS[@]}" src/core/cfgfs.c tests/cfgfs_ram.c tests/test_cfgfs.c build-tests/lfs.o build-tests/lfs_util.o \
+    -o build-tests/test_cfgfs
+"$CC" "${CFLAGS[@]}" "${LFS[@]}" src/core/json.c src/core/gameid_core.c src/core/gameid.c src/core/cfgfs.c tests/cfgfs_ram.c \
+    tests/test_gameid.c build-tests/lfs.o build-tests/lfs_util.o -o build-tests/test_gameid
 
 status=0
-for t in test_rtl1 test_ws test_power test_rfc2217 test_console test_svs test_ota_fetch test_buttons test_rt4k_info; do
+for t in test_rtl1 test_ws test_power test_rfc2217 test_console test_svs test_ota_fetch test_buttons test_rt4k_info test_json test_cfgfs test_gameid; do
     echo "== $t"
     ./build-tests/$t || status=1
     echo
