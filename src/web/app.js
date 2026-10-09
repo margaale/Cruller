@@ -65,10 +65,13 @@ function route() {
   document.body.classList.toggle('setup', tab === 'setup');
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
-  document.querySelectorAll('nav.tabs a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.tab === tab));
   const view = ['firmware', 'profiles', 'sd', 'editor'].includes(sub) ? sub : 'live';
   document.querySelectorAll('[data-subview]').forEach((e) => { e.hidden = e.dataset.subview !== view; });
-  document.querySelectorAll('.sub a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.sub === view));
+  // the sidebar: the section shown, its name over the page (the sidebar closes on a phone)
+  const at = tab === 'rt4k' ? 'rt4k/' + view : tab;
+  document.querySelectorAll('.snav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.nav === at));
+  $('ptitle').textContent = tab === 'setup' ? '' : (document.querySelector('.snav a[aria-current]') || {}).textContent || '';
+  navOpen(false);
   $('chip-rt4k').hidden = tab !== 'rt4k';
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
@@ -82,6 +85,16 @@ function route() {
   if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); }
 }
 addEventListener('hashchange', route);
+
+// On a phone the sidebar slides in from the menu button, over the page: a tap outside it, a section or
+// Escape closes it.
+function navOpen(on) {
+  document.body.classList.toggle('navopen', on);
+  $('navbtn').setAttribute('aria-expanded', String(on));
+}
+$('navbtn').onclick = () => navOpen(!document.body.classList.contains('navopen'));
+document.addEventListener('click', (ev) => { if (document.body.classList.contains('navopen') && !ev.target.closest('#side, #navbtn')) navOpen(false); });
+addEventListener('keydown', (ev) => { if (ev.key === 'Escape') navOpen(false); });
 
 // --- status (WebSocket type 5, every 5 s) -------------------------------------------------------------
 
