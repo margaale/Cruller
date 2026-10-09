@@ -498,7 +498,7 @@
   function tip(i) {
     const s = map.settings[i];
     const per = !s.each ? '' : slotOf(s) >= 0 ? 'Kept per detected rate' : s.each.by === 'mode' ? 'Kept per input mode' : 'Kept per audio input';
-    return [whyNot(i), s.note, per, s.asks ? 'The RT4K asks first: ' + s.asks : ''].filter(Boolean).join('\n');
+    return [whyNot(i), s.note || (cs[i].readonly ? 'Read-only' : ''), per, s.asks ? 'The RT4K asks first: ' + s.asks : ''].filter(Boolean).join('\n');
   }
 
   // One setting's line: its name, its value.
@@ -540,7 +540,7 @@
     // the main menu's settings, as tiles
     q('petl').innerHTML = lay.tiles.map((i) => {
       const s = map.settings[i], t = tip(i);
-      return '<div class="pti' + (changedHere(i) ? ' chg' : '') + (whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '><span class=pelab>' + esc(s.label) + '</span>' + control(s, cs[i], i) + '</div>';
+      return '<div class="pti' + (changedHere(i) ? ' chg' : '') + (whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '><span class="pelab' + (s.note ? ' tip' : '') + '">' + esc(s.label) + '</span>' + control(s, cs[i], i) + '</div>';
     }).join('');
 
     // the signal picked (a mode, or a rate), the audio input picked
