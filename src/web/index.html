@@ -57,22 +57,23 @@ h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:u
 .pehd,.pebar{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .pename{font:600 16px var(--mono)}.pedev{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}.pep .sdh .row{flex-wrap:wrap}#pedid{font-size:13px;color:var(--soft)}.pedev.chg #pedid{color:var(--accent)}
 .pemini{height:26px;padding:0 10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;border-radius:6px}
-/* The profiles open, listed beside the editor with what's done with them: the one shown marked, a changed one in colour; with
+/* The profiles open, listed beside the editor with what's done with them (no taller than the window shows of it: editor.js fitSide;
+   the list scrolls, the buttons always at its foot): the one shown marked, a changed one in colour; with
    Multi Edit a tick each (those ticked edited together; a setting they differ in shows Mixed). Over the editor on a narrow screen. */
-.pewrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;align-items:start}
-.pefiles{position:sticky;top:12px;display:flex;flex-direction:column;gap:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--well)}
+.pewrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px}.pewrap>#pebody,.pewrap>.pe0{align-self:start}
+.pefiles{position:sticky;top:12px;box-sizing:border-box;height:100%;max-height:calc(100vh - 24px);display:flex;flex-direction:column;gap:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--well)}
 .pefh{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px;padding:0 4px}
 .pemt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--soft);cursor:pointer}.pemt input{width:14px;height:14px;margin:0;padding:0;flex:none}
-.pefl{display:flex;flex-direction:column;gap:2px;max-height:min(50vh,520px);overflow-y:auto}
+.pefl{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
 .pefr{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 2px 0 8px;border-radius:6px}.pefr:hover{background:var(--raised)}
 .pefr.on{background:var(--raised);box-shadow:inset 2px 0 0 var(--accent)}.pefr input{width:14px;height:14px;margin:0;padding:0;flex:none}
 .pefn{flex:1;min-width:0;height:32px;padding:0;border:0;border-radius:0;background:none;justify-content:flex-start;font:500 13px var(--mono);color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pefr.on .pefn{color:var(--text)}.pefr.chg .pefn{color:var(--accent)}.pefr.chg .pefn::after{content:" •"}
 .pefr .pex{flex:none;width:26px;height:26px;padding:0;border:0;font:500 16px/1 var(--sans);color:var(--faint);opacity:0}.pefr:hover .pex,.pefr.on .pex,.pefr .pex:focus-visible{opacity:1}.pefr .pex:hover{color:#F07A74}
 .pefe{padding:6px 4px;font-size:13px;color:var(--faint)}
-.pefa{display:flex;flex-direction:column;gap:6px}.pefa button{width:100%;height:34px;font-size:13px;padding:0 10px}.pefa .row{gap:6px}
+.pefb{margin-top:auto;display:flex;flex-direction:column;gap:12px;padding-top:12px;border-top:1px solid var(--rule)}.pefa{display:flex;flex-direction:column;gap:6px}.pefa button{width:100%;height:34px;font-size:13px;padding:0 10px}.pefa .row{gap:6px}
 .pewrap>.pe0{padding:18px 4px}
-@media (max-width:760px){.pewrap{grid-template-columns:minmax(0,1fr)}.pefiles{position:static}}
+@media (max-width:760px){.pewrap{grid-template-columns:minmax(0,1fr)}.pefiles{position:static;height:auto;max-height:none}}
 .pev.mix,.pev.mix::placeholder,#pedid.mix{color:var(--faint);font-style:italic}
 /* The profiles of a folder to add, ticked (those open already ticked and greyed). */
 dialog.pick{max-width:520px;width:calc(100% - 32px);padding:20px 20px 16px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px #000a}

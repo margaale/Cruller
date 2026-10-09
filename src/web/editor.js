@@ -313,13 +313,13 @@
       '<div class="row sdh"><h2 id=pen>Profile editor</h2><span id=pes class="small grow"></span></div>' +
       '<div class=pewrap>' +
       // the profiles open, and what's done with them
-      '<aside class=pefiles aria-label="Profiles open">' +
+      '<div class=peside><aside class=pefiles aria-label="Profiles open">' +
       '<div class=pefh><span class=pelab>Profiles</span><label class=pemt title="Tick several profiles: a change goes to all of them"><input type=checkbox id=pem role=switch> Multi Edit</label></div>' +
       '<div id=pefl class=pefl></div>' +
-      '<div class=pefa><button id=pea>Add from the SD card…</button><button id=peo>Add from this computer…</button>' +
+      '<div class=pefb><div class=pefa><button id=pea>Add from the SD card…</button><button id=peo>Add from this computer…</button>' +
       '<input type=file id=pef accept=".rt4,.rt6" multiple hidden></div>' +
       '<div class=pefa><div class=row><button id=peu class=grow>Undo</button><button id=ped class=grow>Download</button></div>' +
-      '<button id=pesv class=primary>Save to the SD card…</button></div></aside>' +
+      '<button id=pesv class=primary>Save to the SD card…</button></div></div></aside></div>' +
       '<div id=pebody class=peg hidden>' +
       '<div class=pehd><span id=peset class=pename></span><span class=grow></span>' +
       '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +
@@ -645,6 +645,19 @@
       '<div class=pefe>None open</div>';
   }
 
+  // The list beside the editor no taller than the window shows of its column, so all of it, its buttons at
+  // its foot, stays in sight (sticky, it keeps to the window's top as the page scrolls; stacked, as tall as
+  // it is).
+  function fitSide() {
+    const side = document.querySelector('.pefiles');
+    if (!side || !side.offsetParent) return;
+    if (getComputedStyle(side).position !== 'sticky') return void (side.style.maxHeight = '');
+    const col = side.parentNode.getBoundingClientRect();
+    side.style.maxHeight = Math.max(240, Math.min(innerHeight - 12, col.bottom) - Math.max(12, col.top)) + 'px';
+  }
+  addEventListener('scroll', fitSide, { passive: true });
+  addEventListener('resize', fitSide);
+
   function render() {
     const has = !!pf, g = group();
     q('pebody').hidden = !has;
@@ -657,6 +670,7 @@
     q('pea').disabled = !!busy || asleep();
     q('peo').disabled = !!busy;
     renderFiles();
+    fitSide(); // (its top: where the list starts, known already)
     if (!has) return;
 
     // what's edited: the profile shown, or how many with Multi Edit
