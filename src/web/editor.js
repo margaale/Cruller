@@ -159,9 +159,25 @@
     return GROUPS[k >> 3] + ' · ' + (spl > 0 ? (spl / DIVS[n]).toFixed(3) + ' (1/' + DIVS[n] + ')' : '1/' + DIVS[n]);
   }
 
-  // The input modes the RT4K has named on its mode line here (0 with no signal, 1 a PS2's 480i component).
-  const MODES = { 0: 'No Signal', 1: 'CP 480i' };
+  // The input modes' names, and the one each group of rates belongs to (its samples per line name the rates;
+  // the RT4K takes the settings not kept per rate from it): taken from PIPe's RT4K Profiler
+  // (https://rt4k-profiler.pipe.hr/, its build of 2026-10-08), as the user chose on 2026-10-09. Measured here
+  // too: 0 with no signal, 1 a PS2's 480i component. Slots 20 to 68 it has as reserved for future modes, and
+  // none for 94, 95, 125 to 127.
+  const MODES = {
+    0: 'No Signal', 1: 'CP 480i', 2: 'CP 240p', 3: 'CP 576i', 4: 'CP 288p', 5: 'CP 480p', 6: 'CP 576p', 7: 'CP 720p', 8: 'CP 1080i', 9: 'CP 1080p',
+    10: 'DOS 400p70', 11: 'DOS 350p70', 12: 'SVGA 800x600', 13: 'XGA 1024x768', 14: 'VESA 1280x960', 15: 'VESA 1280x1024', 16: 'VESA 1600x1200',
+    17: 'VGA 640x480', 18: 'Unknown', 19: 'PC 1368x768', 69: 'Custom Input Mode No Slot',
+    96: 'SDP 240p', 97: 'SDP 480i', 98: 'SDP 288p', 99: 'SDP 576i',
+    100: 'HDMI® Custom', 101: 'HDMI® 480i', 102: 'HDMI® 240p', 103: 'HDMI® 480p', 104: 'HDMI® 576i', 105: 'HDMI® 288p', 106: 'HDMI® 480i (SR)',
+    107: 'HDMI® 240p (SR)', 108: 'HDMI® 576i (SR)', 109: 'HDMI® 288p (SR)', 110: 'HDMI® 576p', 111: 'HDMI® 720p', 112: 'HDMI® 1080i', 113: 'HDMI® 1080p',
+    114: 'HDMI® 640x480', 115: 'HDMI® 800x600', 116: 'HDMI® 1024x768', 117: 'HDMI® 1280x1024', 118: 'HDMI® GBI', 119: 'HDMI® 960i',
+    120: 'MiSTer 240p', 121: 'MiSTer 480i', 122: 'MiSTer 288p', 123: 'MiSTer 576i', 124: 'MiSTer Gen.',
+  };
+  for (let k = 0; k < 24; k++) MODES[70 + k] = 'Custom Input Mode ' + (k + 1);
   const modeName = (k) => 'Mode ' + k + (MODES[k] ? ' · ' + MODES[k] : '');
+  const GROUP_MODE = [2, 1, 4, 3]; // 240p, 480i, 288p, 576i
+  const modeOfRate = (k) => GROUP_MODE[k >> 3];
 
   // A setting that applies only while another has some values (what the RT4K shows, or marks N/A, as that
   // one changes): when {path (if another menu's), section, label, is: [values]}. For each setting, the
@@ -486,11 +502,12 @@
   const slotOf = (s) => (s.each && s.each.srd !== undefined ? view.slot : -1);
   const at = (s) => [elementOf(s), slotOf(s)];
 
-  // The ADC's samples per line in the mode picked: what the rates are a fraction of.
-  function samplesPerLine() {
+  // The ADC's samples per line in an input mode: what that mode's rates are a fraction of.
+  function samplesPerLine(mode) {
     const i = map.settings.findIndex((s) => s.label === 'Samples per Line' && s.each);
-    return i < 0 ? 0 : decode(map.settings[i], cs[i], pf.body, view.mode).value || 0;
+    return i < 0 ? 0 : decode(map.settings[i], cs[i], pf.body, mode).value || 0;
   }
+  const rateLabel = (k) => rateName(k, samplesPerLine(modeOfRate(k))); // (its group's mode's)
 
   // Whether setting i applies, as the one it depends on is set (where the signal picked has it): '' when it
   // does, else why not.
@@ -594,22 +611,22 @@
 
   // The signal picker's items: those the profiles have settings for (and the one shown); Add mode… has the others.
   function signals() {
-    const modes = usedIn(modesUsed), rates = usedIn(slotsUsed), spl = samplesPerLine();
+    const modes = usedIn(modesUsed), rates = usedIn(slotsUsed);
     if (!modes.includes(view.mode)) modes.push(view.mode);
     if (view.slot >= 0 && !rates.includes(view.slot)) rates.push(view.slot);
     const by = (a, b) => a - b;
     return [{ group: 'Input modes' }, ...modes.sort(by).map((k) => ({ value: 'm' + k, label: modeName(k) })),
-      ...(rates.length ? [{ group: 'Detected sample rates' }, ...rates.sort(by).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))] : [])];
+      ...(rates.length ? [{ group: 'Detected sample rates' }, ...rates.sort(by).map((k) => ({ value: 's' + k, label: rateLabel(k) }))] : [])];
   }
   function others() {
-    const modes = usedIn(modesUsed), rates = usedIn(slotsUsed), spl = samplesPerLine();
-    return [{ group: 'Input modes' }, ...Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k) && k !== view.mode).map((k) => ({ value: 'm' + k, label: modeName(k) })),
-      { group: 'Detected sample rates' }, ...RATES.filter((k) => !rates.includes(k) && k !== view.slot).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))];
+    const modes = usedIn(modesUsed), rates = usedIn(slotsUsed);
+    return [{ group: 'Input modes' }, ...Array.from({ length: 128 }, (x, k) => k).filter((k) => MODES[k] && !modes.includes(k) && k !== view.mode).map((k) => ({ value: 'm' + k, label: modeName(k) })),
+      { group: 'Detected sample rates' }, ...RATES.filter((k) => !rates.includes(k) && k !== view.slot).map((k) => ({ value: 's' + k, label: rateLabel(k) }))];
   }
-  // Shows a mode ('m<k>') or a detected rate ('s<k>': the rest stays the mode's).
+  // Shows a mode ('m<k>') or a detected rate ('s<k>': the rest from its group's mode, as the RT4K takes it).
   function toSignal(v) {
     const k = +v.slice(1);
-    if (v[0] === 'm') { view.mode = k; view.slot = -1; } else view.slot = k;
+    if (v[0] === 'm') { view.mode = k; view.slot = -1; } else { view.slot = k; view.mode = modeOfRate(k); }
     render();
   }
 
@@ -617,7 +634,7 @@
   // none, the RT4K's defaults there. Then shows the first mode still with settings.
   async function deleteSignal() {
     if (!pf || busy) return;
-    const rate = view.slot >= 0, what = rate ? rateName(view.slot, samplesPerLine()) : modeName(view.mode);
+    const rate = view.slot >= 0, what = rate ? rateLabel(view.slot) : modeName(view.mode);
     const has = group().filter((p) => (rate ? slotsUsed : modesUsed)(map.settings, p.body).includes(rate ? view.slot : view.mode));
     if (!has.length) return;
     if (!(await window.askUser('Delete ' + what + '?', (has.length > 1 ? has.length + ' profiles lose their' : plain(has[0].name) + ' loses its') +
@@ -739,13 +756,13 @@
 
     // the signal picked (a mode, or a rate)
     closeList();
-    q('pesig').innerHTML = '<span>' + esc(view.slot >= 0 ? rateName(view.slot, samplesPerLine()) : modeName(view.mode)) + '</span>';
+    q('pesig').innerHTML = '<span>' + esc(view.slot >= 0 ? rateLabel(view.slot) : modeName(view.mode)) + '</span>';
     const shown = view.slot >= 0 ? usedIn(slotsUsed).includes(view.slot) : usedIn(modesUsed).includes(view.mode);
     q('pemdel').disabled = !shown || !!busy; // (one the profiles have no settings for: nothing to delete)
     q('pemdel').textContent = view.slot >= 0 ? 'Delete rate' : 'Delete mode';
     q('pemadd').disabled = !!busy;
     q('pesig').title = view.slot >= 0
-      ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from ' + modeName(view.mode) + ' (pick a mode to change that)'
+      ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from its input mode, ' + modeName(view.mode)
       : 'The settings kept per input mode show this one\'s';
 
     // a search: every setting found, under its submenu; else the tab and submenu picked
@@ -1090,5 +1107,5 @@
   window.peOpen = open;
   window.peOpenSet = openSet; // sd.js: the profiles ticked, to edit together
   window.peStatus = onStatus;
-  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, agree, clearSignal, asNumber, bytesAt, modesUsed, slotsUsed, rateName, modeName, links, layoutOf, HEADER }; // tests/test_editor.js
+  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, agree, clearSignal, asNumber, bytesAt, modesUsed, slotsUsed, rateName, modeName, modeOfRate, links, layoutOf, HEADER }; // tests/test_editor.js
 })();

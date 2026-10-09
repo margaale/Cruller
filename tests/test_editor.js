@@ -80,7 +80,9 @@ check(e.agree([e.decode(odd, oc, qa), e.decode(odd, oc, qb)]).mixed && !e.agree(
   'bytes the map does not know: told apart by their bytes');
 check(JSON.stringify(e.slotsUsed([srdTrim], sb)) === '[12]' && JSON.stringify(e.modesUsed([srdTrim], sb)) === '[]', 'the slots a profile has settings in');
 check(e.rateName(12, 3432) === '480i · 686.400 (1/5)' && e.rateName(9) === '480i · 1/8' && e.rateName(0, 3410) === '240p · 341.000 (1/10)' && e.rateName(29, 0) === '576i · 1/4' && e.rateName(6) === 'Slot 6', 'the rates\' names: ' + e.rateName(12, 3432));
-check(e.modeName(1) === 'Mode 1 · CP 480i' && e.modeName(7) === 'Mode 7', 'the modes\' names');
+check(e.modeName(1) === 'Mode 1 · CP 480i' && e.modeName(2) === 'Mode 2 · CP 240p' && e.modeName(70) === 'Mode 70 · Custom Input Mode 1' && e.modeName(93) === 'Mode 93 · Custom Input Mode 24' && e.modeName(30) === 'Mode 30',
+  'the modes\' names (PIPe\'s; none for those it has as reserved)');
+check([0, 12, 16, 29].map(e.modeOfRate).join() === '2,1,4,3', 'each group of rates with its input mode: 240p 2, 480i 1, 288p 4, 576i 3');
 
 // What each setting depends on: found for every "when", in its menu or the one it names, with values it has.
 for (const m of doc.maps) {

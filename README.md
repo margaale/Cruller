@@ -430,6 +430,8 @@ are in [docs/SVS.md](docs/SVS.md).
 ## Acknowledgements
 
 - [RetroTINK](https://www.retrotink.com/), for the RetroTINK 4K and its serial interface.
+- PIPe's [RT4K Profiler](https://rt4k-profiler.pipe.hr/), for the names of the RT4K's input modes and the
+  mode each group of detected sample rates belongs to, as the profile editor shows them.
 - Built on the [Pico SDK](https://github.com/raspberrypi/pico-sdk),
   [FreeRTOS](https://www.freertos.org/), [lwIP](https://savannah.nongnu.org/projects/lwip/),
   [TinyUSB](https://github.com/hathach/tinyusb), [Mbed TLS](https://github.com/Mbed-TLS/mbedtls)
