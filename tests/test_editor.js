@@ -66,10 +66,12 @@ for (const m of doc.maps) {
   });
 }
 
-// The layout: every setting once, the main menu's as tiles, the advanced menu's each in a tab's submenu.
+// The layout: every setting once (but the hidden), the main menu's as tiles, the advanced menu's each in a
+// tab's submenu.
 for (const m of doc.maps) {
   const lay = e.layoutOf(m), placed = lay.tiles.concat(lay.tabs.flatMap((t) => t.menus.flatMap((x) => x.idx))).sort((a, b) => a - b);
-  check(placed.length === m.settings.length && placed.every((i, k) => i === k), m.firmware + ': every setting placed once');
+  const shown = m.settings.map((s, i) => i).filter((i) => !m.settings[i].hidden);
+  check(placed.length === shown.length && placed.every((i, k) => i === shown[k]) && shown.length < m.settings.length, m.firmware + ': every setting placed once, the hidden none');
   check(lay.tiles.length > 5 && !lay.tabs.some((t) => t.tab === 'Other'), m.firmware + ': ' + lay.tiles.length + ' tiles, every other in a known submenu');
 }
 

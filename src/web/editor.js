@@ -179,6 +179,7 @@
     const tiles = [], tabs = (m.tabs || []).map(([tab, items]) => ({ tab, menus: items.map(([item, title]) => ({ item, title, idx: [] })) }));
     const menus = tabs.flatMap((t) => t.menus), other = { item: 'Other', title: '', idx: [] };
     m.settings.forEach((s, i) => {
+      if (s.hidden) return; // (not laid out: the saving device's ID has a line of its own)
       if (/^RetroTINK-\S+ \S+ Main Menu/.test(s.path)) return tiles.push(i);
       const title = s.path.split(' › ').pop();
       (menus.find((x) => x.title === title) || other).idx.push(i);
@@ -273,6 +274,11 @@
   const plain = (name) => name.replace(/\.rt[46]$/i, '');
 
   // --- UI ---------------------------------------------------------------------------------------------
+  //
+  // Laid out as the RT4K's menus read: the main menu's settings as tiles, then the signal picked, then the
+  // advanced menu (its tabs, its submenus, each with its headings), every value shown as the OSD shows
+  // it and changed in place (a list's value opens its list, a number takes a new one: arrows step it).
+  // What a setting means or needs is its line's tooltip; what doesn't apply is dimmed.
 
   let ui = { tab: '', menu: '' }; // the tab and submenu shown (the submenu's title)
   let lay = null, dep = [];        // the map's layout (layoutOf) and links (links), with map
@@ -290,17 +296,17 @@
       '<div class="panel pep">' +
       '<div class="row sdh"><h2 class=grow id=pen>Profile editor</h2>' +
       '<div class=row><button id=peo>Open a file…</button><input type=file id=pef accept=".rt4,.rt6" hidden>' +
-      '<button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
+      '<button id=peu>Undo</button><button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
       '<div id=pes class=small></div>' +
-      '<div id=pem class=small></div>' +
-      '<div id=pebody hidden>' +
+      '<div id=pebody class=peg hidden>' +
+      '<div class=pehd><span id=pename class=pename></span><span class=grow></span>' +
+      '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +
       '<div id=petl class=petl></div>' +
-      '<div class="row pesl"><label>Signal <select id=pesig></select></label>' +
-      '<label>Audio input <select id=peport></select></label>' +
-      '<label class=small><input type=checkbox id=peall> Change every mode</label></div>' +
-      '<div id=pesc class=small></div>' +
-      '<div class=row><input id=peq placeholder="Find a setting" class=grow autocomplete=off><button id=peu>Undo the changes</button></div>' +
-      '<div id=petabs class=petabs></div>' +
+      '<div class=pebar><span class=pegrp><span class=pelab>Input signal mode</span><select id=pesig class=pev></select></span>' +
+      '<label class=pelab title="A change to a setting kept per mode or per rate goes to every mode and rate"><input type=checkbox id=peall> Every mode</label>' +
+      '<span class=grow></span><span class=pegrp><span class=pelab>Audio input</span><select id=peport class=pev title="The settings kept per audio input (Audio Input) show this one\'s"></select></span></div>' +
+      '<div class=pebar><span class=pelab>Advanced settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
+      '<input id=peq class=pefind placeholder="Find a setting" autocomplete=off></div>' +
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
       '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/profiles">Profiles</a> view.</div>' +
       '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. The settings ' +
@@ -322,20 +328,22 @@
       render();
     };
     q('peport').onchange = () => { if (pf) { pf.port = +q('peport').value; render(); } };
+    q('pedc').onclick = () => {
+      const s = map && map.settings[deviceAt()];
+      if (!pf || !s) return;
+      for (const [o, n] of s.bytes) pf.body.fill(0, o, o + n);
+      render();
+    };
     q('pe').addEventListener('change', (ev) => {
       const el = ev.target.closest('[data-i]');
-      if (!el || !pf || el.tagName === 'BUTTON') return;
+      if (!el || !pf) return;
       const i = +el.dataset.i;
       write(i, cs[i].type === 'number' ? +el.value : el.value);
     });
     q('pe').addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
       if (!b || !pf) return;
-      if (b.dataset.step) {
-        const i = +b.dataset.i, s = map.settings[i], c = cs[i], d = decode(s, c, pf.body, ...at(s));
-        const v = (d.value === null ? c.min : d.value) + +b.dataset.step * c.step;
-        write(i, +Math.min(c.max, Math.max(c.min, v)).toFixed(decimals(c.step)));
-      } else if (b.dataset.tab !== undefined) {
+      if (b.dataset.tab !== undefined) {
         ui.tab = b.dataset.tab;
         ui.menu = lay.tabs.find((t) => t.tab === ui.tab).menus[0].title;
         render();
@@ -363,6 +371,9 @@
   // HDMI 4).
   const PORTS = ['HD-15', 'RCA', 'SCART', 'Port 3', 'HDMI', 'Port 5', 'Port 6', 'Port 7'];
   const PORT_AT = 0x57eb; // input_port, beside the input source (0x57e9) on struct ver 109
+
+  // The saving device's ID: in the map, not laid out with the rest (only Clear changes it).
+  const deviceAt = () => map.settings.findIndex((s) => s.hidden && s.label === 'Saved on device');
 
   const elementOf = (s) => (!s.each ? 0 : s.each.by === 'mode' ? pf.mode : pf.port);
   const slotOf = (s) => (s.each && s.each.srd !== undefined ? pf.slot : -1);
@@ -398,28 +409,34 @@
     return ranges.some(([o, n]) => differs(o, n));
   }
 
+  // A value as the OSD shows it, changed in place: a list opens its values, a number takes one (arrows step).
   function control(s, c, i) {
     const d = decode(s, c, pf.body, ...at(s)), off = busy || c.readonly ? ' disabled' : '';
+    const tone = /^Off\b/.test(d.value) ? ' off' : '';
     if (c.type === 'number') {
-      return '<span class=pen><button class=pestep data-step=-1 data-i=' + i + off + ' aria-label="Less">−</button>' +
-        '<input type=number data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' value="' + (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>' +
-        '<button class=pestep data-step=1 data-i=' + i + off + ' aria-label="More">+</button></span>';
+      const w = Math.max(String(c.min).length, String(c.max).length, String(d.value).length) + 2;
+      return '<input type=number class="pev' + tone + '" data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' style="width:' + w + 'ch" value="' +
+        (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>';
     }
     if (c.type === 'list') {
       const opts = c.values.map(([v]) => '<option' + (v === d.value ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
-      return '<select data-i=' + i + off + '>' + (d.value === null ? '<option selected disabled>? (' + esc(d.hex) + ')</option>' : '') + opts + '</select>';
+      return '<select class="pev' + tone + '" data-i=' + i + off + '>' + (d.value === null ? '<option selected disabled>? (' + esc(d.hex) + ')</option>' : '') + opts + '</select>';
     }
-    return '<span class="small mono">' + esc(d.hex) + '</span>';
+    return '<span class="pev mono">' + esc(d.hex) + '</span>';
   }
 
-  const perTag = (s) => (s.each ? ' <span class=small>' + (slotOf(s) >= 0 ? 'per rate' : s.each.by === 'mode' ? 'per mode' : 'per input') + '</span>' : '');
+  // What a line's tooltip says: why it doesn't apply, what it means, what it's kept per, what it asks.
+  function tip(i) {
+    const s = map.settings[i];
+    const per = !s.each ? '' : slotOf(s) >= 0 ? 'Kept per detected rate' : s.each.by === 'mode' ? 'Kept per input mode' : 'Kept per audio input';
+    return [whyNot(i), s.note, per, s.asks ? 'The RT4K asks first: ' + s.asks : ''].filter(Boolean).join('\n');
+  }
 
-  // One setting's line: its name (and what it's kept per, what it needs, what it means), its control.
+  // One setting's line: its name, its value.
   function line(i, name) {
-    const s = map.settings[i], why = whyNot(i), notes = [why, s.note].filter(Boolean).join(' · ');
-    return '<div class="per' + (changedHere(i) ? ' chg' : '') + (why ? ' na' : '') + '"><div class=pel><span class=pln>' + esc(name || s.label) + '</span>' + perTag(s) +
-      (s.asks ? ' <span class="small bad" title="' + esc(s.asks) + '">asks first on the RT4K</span>' : '') +
-      (notes ? '<div class=small>' + esc(notes) + '</div>' : '') + '</div><div class=pec>' + control(s, cs[i], i) + '</div></div>';
+    const s = map.settings[i], t = tip(i);
+    return '<div class="per' + (changedHere(i) ? ' chg' : '') + (whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '>' +
+      '<span class="pln' + (s.note || s.asks ? ' tip' : '') + '">' + esc(name || s.label) + '</span>' + control(s, cs[i], i) + '</div>';
   }
 
   // Settings under their headings: the one above each in the menu, or what named says.
@@ -430,53 +447,59 @@
       if (!by.has(h)) by.set(h, []);
       by.get(h).push(i);
     }
-    return [...by].map(([h, l]) => (h ? '<section class=peh><h3>' + esc(h) + '</h3>' : '<section class="peh loose">') + l.map((i) => line(i, named ? label(map.settings[i]) : '')).join('') + '</section>').join('');
+    return [...by].map(([h, l]) => '<section class=peh>' + (h ? '<h3>' + esc(h) + '</h3>' : '') + l.map((i) => line(i, named ? label(map.settings[i]) : '')).join('') + '</section>').join('');
   }
 
   function render() {
     const has = !!pf;
     q('pebody').hidden = !has;
     q('pe0').hidden = has;
-    q('pen').textContent = has ? plain(pf.name) + (changed() ? ' (changed)' : '') : 'Profile editor';
+    q('pen').textContent = 'Profile editor';
     q('ped').disabled = !has || !!busy;
     q('pesv').disabled = !has || !!busy || asleep();
     q('peu').disabled = !changed() || !!busy;
     if (!has) return;
-    q('pem').textContent = map ? 'Settings from firmware ' + map.firmware + '\'s map' + (fw && fw !== map.firmware ? ' (the RT4K runs ' + fw + ': same layout)' : '') + ' · ' +
-      map.settings.length + ' settings' : '';
+    q('pename').textContent = plain(pf.name) + (changed() ? ' (changed)' : '');
+
+    // the ID of the RT4K that saved it: shown, and emptied with Clear (nothing else writes it)
+    const dev = map.settings[deviceAt()], id = dev ? hexOf(pf.body, dev.bytes) : '';
+    q('pedev').hidden = !dev;
+    q('pedid').textContent = /[1-9a-f]/.test(id) ? id : '(empty)';
+    q('pedc').disabled = !/[1-9a-f]/.test(id) || !!busy;
+    q('pedev').classList.toggle('chg', !!dev && dev.bytes.some(([o, n]) => differs(o, n)));
 
     // the main menu's settings, as tiles
     q('petl').innerHTML = lay.tiles.map((i) => {
-      const s = map.settings[i], why = whyNot(i);
-      return '<div class="pti' + (changedHere(i) ? ' chg' : '') + (why ? ' na' : '') + '"' + (why ? ' title="' + esc(why) + '"' : '') + '><span class=small>' + esc(s.label) + perTag(s) + '</span>' + control(s, cs[i], i) + '</div>';
+      const s = map.settings[i], t = tip(i);
+      return '<div class="pti' + (changedHere(i) ? ' chg' : '') + (whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '><span class=pelab>' + esc(s.label) + '</span>' + control(s, cs[i], i) + '</div>';
     }).join('');
 
     // the signal: the input modes and rates the profile has settings for, then the others
     const modes = modesUsed(map.settings, pf.body), rates = slotsUsed(map.settings, pf.body), spl = samplesPerLine();
     const picked = (v) => (v[0] === 'm' ? pf.slot < 0 && +v.slice(1) === pf.mode : +v.slice(1) === pf.slot);
-    const opt = (v, text, used) => '<option value=' + v + (picked(v) ? ' selected' : '') + '>' + esc(text) + (used ? ' (has settings)' : '') + '</option>';
+    const opt = (v, text) => '<option value=' + v + (picked(v) ? ' selected' : '') + '>' + esc(text) + '</option>';
     const allRates = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
     q('pesig').innerHTML =
-      '<optgroup label="In this profile">' + [...modes.map((k) => opt('m' + k, modeName(k), true)), ...rates.map((k) => opt('s' + k, rateName(k, spl), true))].join('') + '</optgroup>' +
+      '<optgroup label="In this profile">' + [...modes.map((k) => opt('m' + k, modeName(k))), ...rates.map((k) => opt('s' + k, rateName(k, spl)))].join('') + '</optgroup>' +
       '<optgroup label="Input modes">' + Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k)).map((k) => opt('m' + k, modeName(k))).join('') + '</optgroup>' +
       '<optgroup label="Detected sample rates">' + allRates.filter((k) => !rates.includes(k)).map((k) => opt('s' + k, rateName(k, spl))).join('') + '</optgroup>';
-    q('pesc').textContent = pf.slot >= 0
-      ? 'With Sample Rate Detection locked on ' + rateName(pf.slot, spl) + ', the RT4K takes the trims, scaling and Sub-Phase from that rate, the rest from ' + modeName(pf.mode) + ' (pick a mode to change it).'
-      : 'Settings kept per mode or per input show those of the ones picked.';
+    q('pesig').title = pf.slot >= 0
+      ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from ' + modeName(pf.mode) + ' (pick a mode to change that)'
+      : 'The settings kept per input mode show this one\'s';
     q('peport').innerHTML = PORTS.map((n, k) => '<option value=' + k + (k === pf.port ? ' selected' : '') + '>' + n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') + '</option>').join('');
 
     // a search: every setting found, under its submenu; else the tab and submenu picked
     const menus = lay.tabs.flatMap((t) => t.menus);
-    q('petabs').hidden = q('penav').hidden = !!filter;
+    q('penav').hidden = !!filter;
+    if (!menus.some((m) => m.title === ui.menu)) { ui.tab = lay.tabs[0].tab; ui.menu = lay.tabs[0].menus[0].title; }
+    const count = (idx) => idx.filter(changedAnywhere).length, badge = (n) => (n ? ' <span class=peb>' + n + '</span>' : '');
+    q('petabs').innerHTML = lay.tabs.map((t) => '<button data-tab="' + esc(t.tab) + '"' + (!filter && t.tab === ui.tab ? ' aria-selected=true' : '') + '>' + esc(t.tab) + badge(count(t.menus.flatMap((m) => m.idx))) + '</button>').join('');
     if (filter) {
       const where = new Map(menus.flatMap((m) => m.idx.map((i) => [i, m.item])));
-      const found = map.settings.map((s, i) => i).filter((i) => (label(map.settings[i]) + ' ' + map.settings[i].path).toLowerCase().includes(filter));
+      const found = map.settings.map((s, i) => i).filter((i) => !map.settings[i].hidden && (label(map.settings[i]) + ' ' + map.settings[i].path).toLowerCase().includes(filter));
       q('pepane').innerHTML = groups(found, (i) => where.get(i) || 'Main menu') || '<div class=pe0>No setting matches</div>';
       return;
     }
-    if (!menus.some((m) => m.title === ui.menu)) { ui.tab = lay.tabs[0].tab; ui.menu = lay.tabs[0].menus[0].title; }
-    const count = (idx) => idx.filter(changedAnywhere).length, badge = (n) => (n ? ' <span class=peb>' + n + '</span>' : '');
-    q('petabs').innerHTML = lay.tabs.map((t) => '<button data-tab="' + esc(t.tab) + '"' + (t.tab === ui.tab ? ' aria-selected=true' : '') + '>' + esc(t.tab) + badge(count(t.menus.flatMap((m) => m.idx))) + '</button>').join('');
     const tab = lay.tabs.find((t) => t.tab === ui.tab);
     q('penav').innerHTML = tab.menus.map((m) => '<button data-menu="' + esc(m.title) + '"' + (m.title === ui.menu ? ' aria-current=true' : '') + '>' + esc(m.item) + badge(count(m.idx)) + '</button>').join('');
     q('pepane').innerHTML = groups(menus.find((m) => m.title === ui.menu).idx) || '<div class=pe0>No settings mapped here</div>';
