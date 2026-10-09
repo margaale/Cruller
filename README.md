@@ -331,9 +331,10 @@ src/core/            The common code (HTTP, WebSocket, console, RTL1, RFC 2217, 
 src/platform/rp2/    The Raspberry Pi Pico 2 W: startup, Wi-Fi and the setup portal, the RT4K's
                      USB host, flash (A/B slots, settings), watchdog
 src/platform/esp32/  The ESP32-S3 port, an ESP-IDF project (no RT4K link yet)
-src/web/             The page, embedded as C arrays at build time
+src/web/             The page, embedded as C arrays at build time (its JavaScript minified in CI)
 tests/               Host tests of src/core and the page
-scripts/             build.sh, and tls_roots.sh for the Pico's HTTPS roots
+scripts/             build.sh, tls_roots.sh for the Pico's HTTPS roots, minify-web.sh for the
+                     page's JavaScript in the CI's images
 docs/                DESIGN.md, RTL1.md (the RT4K's binary protocol), SVS.md (the SVS Bridge)
 ```
 

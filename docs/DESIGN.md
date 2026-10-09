@@ -33,7 +33,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 
 - `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings, firmware downloads from GitHub) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `tls.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
 - `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
-- `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time.
+- `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time. The CI's images embed its JavaScript minified (`scripts/minify-web.sh`, esbuild: 234 KB down to 129 KB); a local build, as it is.
 - `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
 - `src/version.cmake`: the version, for every target.
 
