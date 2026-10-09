@@ -158,7 +158,7 @@ a.more{color:var(--accent);text-decoration:none;font-weight:500;font-size:14px}
 /* RetroTINK: screen, console, remote */
 /* The remote sits next to the screen panel, scaled (app.js fitRemote) to exactly its height. */
 .stage{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"screen remote" "console console";gap:16px}
-.rwrap{grid-area:remote;position:relative;width:238px}
+.rwrap{grid-area:remote;position:relative;width:200px}
 .rwrap .remote{position:absolute;top:0;left:0;transform-origin:0 0}
 .screen{position:relative}
 canvas#tv{display:block;width:100%;aspect-ratio:16/9;image-rendering:pixelated;background:#000;border-radius:8px}
@@ -174,19 +174,19 @@ canvas#tv:fullscreen{border-radius:0}
 .live{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--muted)}
 #rx{height:170px}
 /* The RT4K remote, laid out like the real one; big dark labels on light keys (design: RemoteA). */
-.remote{width:300px;background:#161616;border:4px solid #050505;border-radius:40px;padding:22px 18px 18px;box-shadow:inset 0 1px 0 #2a2a2a,0 6px 18px #0008;font-family:system-ui,'Segoe UI',Arial,sans-serif}
-.remote button{margin:0;padding:0;height:30px;width:100%;background:#A6A6A6;color:#0B0B0B;border:0;border-radius:7px;font:800 12px system-ui,sans-serif;box-shadow:0 2px 0 #5c5c5c;display:flex;align-items:center;justify-content:center}
+.remote{width:248px;background:#161616;border:4px solid #050505;border-radius:36px;padding:22px 14px 18px;box-shadow:inset 0 1px 0 #2a2a2a,0 6px 18px #0008;font-family:system-ui,'Segoe UI',Arial,sans-serif}
+.remote button{margin:0;padding:0;height:30px;width:100%;background:#A6A6A6;color:#0B0B0B;border:0;border-radius:6px;font:800 11px system-ui,sans-serif;box-shadow:0 2px 0 #5c5c5c;display:flex;align-items:center;justify-content:center}
 .remote button:active{background:#cfcfcf;box-shadow:none;transform:translateY(2px)}
-.rg{display:grid;gap:7px;margin:0 0 12px}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-.top{grid-template-columns:60px minmax(0,1fr);gap:10px;align-items:center}
-.grp{background:#D9D9D9;padding:6px;border-radius:6px;margin:0;gap:5px}.grp button{height:26px;background:#9A9A9A;font-size:11px;border-radius:5px;box-shadow:none}
+.rg{display:grid;gap:7px 6px;margin:0 0 12px}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 4px}
+.top{grid-template-columns:48px minmax(0,1fr);gap:8px;align-items:center}
+.grp{background:#D9D9D9;padding:5px;border-radius:6px;margin:0;gap:4px}.grp button{height:26px;background:#9A9A9A;font-size:10px;border-radius:5px;box-shadow:none}
 .remote .pwr{height:60px;background:#C9202B;color:#fff;border-radius:14px;box-shadow:0 2px 0 #7a1016}
-.remote .g3:not(.grp):not(.nav):not(.mid) button{height:34px;font-size:15px}
-.nav{align-items:center;gap:8px}.nav .arw{height:64px;background:#B4B4B4;border-radius:50%}.nav .ok{height:64px;border-radius:50%;background:#7E7E7E;color:#fff;font-size:13px;box-shadow:0 2px 0 #3a3a3a}
+.remote .g3:not(.grp):not(.nav):not(.mid) button{height:34px;font-size:14px}
+.nav{align-items:center;gap:6px}.nav .arw{height:62px;background:#B4B4B4;border-radius:50%}.nav .ok{height:62px;border-radius:50%;background:#7E7E7E;color:#fff;font-size:13px;box-shadow:0 2px 0 #3a3a3a}
 .nav .side{height:40px;background:#6E6E6E;color:#fff;flex-direction:column;gap:1px;box-shadow:0 2px 0 #3a3a3a}
 .mid{align-items:center;gap:8px}.tall{display:flex;flex-direction:column;gap:4px;align-items:stretch;justify-content:center}.tall span{text-align:center;font:800 10px system-ui,sans-serif;color:#D0D0D0;letter-spacing:.08em}
 .aux{margin-top:6px}.brand{text-align:center;color:#E0E0E0;font-size:19px;line-height:1.15;margin-top:14px}.brand b{font-style:italic;font-weight:800}
-.led{width:16px;height:6px;border-radius:3px;background:#e8e8e8;margin:-8px 0 10px 22px;transition:background .05s}
+.led{width:14px;height:5px;border-radius:3px;background:#e8e8e8;margin:-8px 0 10px 18px;transition:background .05s}
 .led.on{background:#ff2b2b;box-shadow:0 0 6px 1px #ff2b2b}
 /* firmware (fw.js) */
 .fwv{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
