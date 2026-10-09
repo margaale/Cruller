@@ -413,6 +413,8 @@
       held = { t: setTimeout(() => { held.r = setInterval(() => step(i, dir), 60); }, 400) };
     });
     addEventListener('pointerup', stop);
+    addEventListener('scroll', fitSide, { passive: true }); // (the list beside the editor kept in sight)
+    addEventListener('resize', fitSide);
     addEventListener('pointercancel', stop);
     q('pe').addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
@@ -655,8 +657,6 @@
     const col = side.parentNode.getBoundingClientRect();
     side.style.maxHeight = Math.max(240, Math.min(innerHeight - 12, col.bottom) - Math.max(12, col.top)) + 'px';
   }
-  addEventListener('scroll', fitSide, { passive: true });
-  addEventListener('resize', fitSide);
 
   function render() {
     const has = !!pf, g = group();
