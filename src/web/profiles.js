@@ -2,8 +2,9 @@
 //
 // The folders under /profile on its SD card (GET /rt4k/ls, as sd.js reads them), the profile it has
 // loaded, loading one and saving its current settings as a new one: the console's "prof get",
-// "prof load <path>" and "prof save <path>" (POST /rt4k/ask), with paths relative to /profile; and
-// copying one under a new name (GET /rt4k/get, POST /rt4k/put). Each folder has its own address
+// "prof load <path>" and "prof save <path>" (POST /rt4k/ask), with paths relative to /profile;
+// copying one under a new name (GET /rt4k/get, POST /rt4k/put), and deleting one (the RT4K's rm, as
+// the SD card view does). Each folder has its own address
 // (#rt4k/profiles/<path>). Uses sd.js's helpers (window.sdInternals).
 
 (() => {
@@ -68,6 +69,7 @@
     prof: svg('<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>'),
     copy: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>'),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
+    del: svg('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>'),
   };
 
   // --- Cruller ----------------------------------------------------------------------------------------
@@ -180,7 +182,8 @@
       const act = (on ? '<span class="pill on">Loaded</span>' :
         '<button class=pfload data-p="' + esc(path) + '"' + off + ' aria-label="Load ' + esc(plain(e.name)) + '">' + (busy === path ? 'Loading…' : 'Load') + '</button>') +
         '<button class="ib pfcopy" data-n="' + esc(e.name) + '"' + off + ' title="Copy" aria-label="Copy ' + esc(plain(e.name)) + '">' + ICON.copy + '</button>' +
-        '<a class="ib pfedit" href="#rt4k/editor/' + path.split('/').map(encodeURIComponent).join('/') + '" title="Edit" aria-label="Edit ' + esc(plain(e.name)) + '">' + ICON.edit + '</a>';
+        '<a class="ib pfedit" href="#rt4k/editor/' + path.split('/').map(encodeURIComponent).join('/') + '" title="Edit" aria-label="Edit ' + esc(plain(e.name)) + '">' + ICON.edit + '</a>' +
+        '<button class="ib del pfdel" data-n="' + esc(e.name) + '"' + off + ' title="Delete" aria-label="Delete ' + esc(plain(e.name)) + '">' + ICON.del + '</button>';
       return '<tr' + (on ? ' class=cur' : '') + '><td class=n title="' + esc(e.name) + '"><span class=fn><span class="ico f">' + ICON.prof + '</span>' +
         '<span class=nm>' + esc(plain(e.name)) + '</span></span></td><td class=act>' + act + '</td></tr>';
     }).join('');
@@ -302,6 +305,21 @@
     });
   }
 
+  // Deletes a profile of the folder shown, asked first (saying when it's the one loaded, or an SVS input's).
+  async function remove(name) {
+    if (busy || dir === null || asleep()) return;
+    const path = join(dir, name), n = sd.sameName(dir, SVS_DIR) ? slotOf(name) : 0;
+    const also = (sameLoaded(path) ? ' It\'s the profile loaded now: the RT4K keeps running its settings.' : '') +
+      (n ? ' It\'s input ' + n + '\'s profile (Auto Load SVS): the input will have none.' : '');
+    if (!(await window.askUser('Delete ' + plain(name) + '?', 'The profile will be deleted from the RT4K\'s SD card. This can\'t be undone.' + also, 'Delete', true))) return;
+    await run(path, 'Deleting ' + plain(name), async () => {
+      status('Deleting ' + plain(name) + '…');
+      const r = await ask('rm ' + join(ROOT, path), 'rm');
+      if (!r.startsWith('rm ok')) throw new Error(r);
+      return 'Deleted ' + plain(name);
+    });
+  }
+
   function build() {
     q('pf').innerHTML =
       '<div class=panel style="max-width:1100px">' +
@@ -313,7 +331,7 @@
       '<table class="files pft" id=pftbl><colgroup><col><col class=ca></colgroup><tbody id=pft></tbody></table><div id=pfe class=empty hidden>No profiles in this folder</div>' +
       '<div id=pfz class=asleep hidden><p id=pfzt></p><button id=pfzb class=primary>Turn the RT4K on</button></div>' +
       '<div class=small>Loading a profile can change the RT4K\'s input and output resolution, as it was saved. ' +
-      'Folders, renames and deletes are in the <a class=more href="#rt4k/sd/profile">SD card</a> view.</div></div>';
+      'Folders and renames are in the <a class=more href="#rt4k/sd/profile">SD card</a> view.</div></div>';
     q('pfr').onclick = () => { readLoaded(); list(dir || ''); };
     q('pfn').onclick = saveNew;
     q('pfzb').onclick = () => {
@@ -323,9 +341,10 @@
       setTimeout(() => { if (waking) { waking = false; showAsleep(); } }, 10000);
     };
     q('pft').onclick = (ev) => {
-      const b = ev.target.closest('button.pfload'), c = ev.target.closest('button.pfcopy');
+      const b = ev.target.closest('button.pfload'), c = ev.target.closest('button.pfcopy'), d = ev.target.closest('button.pfdel');
       if (b && !busy) load(b.dataset.p);
       if (c && !busy) copy(c.dataset.n);
+      if (d && !busy) remove(d.dataset.n);
     };
     addEventListener('beforeunload', (ev) => { if (busy) { ev.preventDefault(); ev.returnValue = ''; } });
   }
