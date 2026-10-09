@@ -75,6 +75,16 @@ for (const m of doc.maps) {
   check(lay.tiles.length > 5 && !lay.tabs.some((t) => t.tab === 'Other'), m.firmware + ': ' + lay.tiles.length + ' tiles, every other in a known submenu');
 }
 
+// The input: read by the input alone (0x57e9: a 1.93 profile's HD-15 connector was 4, now 1), all four
+// bytes written.
+{
+  const m = e.mapFor(doc, '1.95.0'), k = m.settings.findIndex((s) => s.label === 'Input Source'), [c] = e.codecs([m.settings[k]]);
+  const b = new Uint8Array(22876);
+  b[0x2e8] = 4; b[0x57e9] = 0x17; // HD15 YPbPr, saved on 1.93
+  check(e.decode(m.settings[k], c, b).value === 'HD15/YPbPr', 'a 1.93 profile\'s input read: ' + e.decode(m.settings[k], c, b).value);
+  check(e.encode(m.settings[k], c, b, 'HDMI') && b[0x2e8] === 5 && b[0x57e9] === 0 && b[0x57ea] === 2 && b[0x57eb] === 4, 'HDMI written in its four bytes');
+}
+
 // The map's arrays: inside the body, and none running into another (only one field in two menus shares one).
 for (const m of doc.maps) {
   const arr = m.settings.filter((s) => s.each).map((s) => [s.bytes[0][0], s.bytes[0][0] + s.each.count * s.each.stride, s.label])
