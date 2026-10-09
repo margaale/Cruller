@@ -179,7 +179,7 @@
     const tiles = [], tabs = (m.tabs || []).map(([tab, items]) => ({ tab, menus: items.map(([item, title]) => ({ item, title, idx: [] })) }));
     const menus = tabs.flatMap((t) => t.menus), other = { item: 'Other', title: '', idx: [] };
     m.settings.forEach((s, i) => {
-      if (s.hidden) return; // (kept in the map, not shown: the saving device's ID)
+      if (s.hidden) return; // (not laid out: the saving device's ID has a line of its own)
       if (/^RetroTINK-\S+ \S+ Main Menu/.test(s.path)) return tiles.push(i);
       const title = s.path.split(' › ').pop();
       (menus.find((x) => x.title === title) || other).idx.push(i);
@@ -294,6 +294,7 @@
       '<button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
       '<div id=pes class=small></div>' +
       '<div id=pebody hidden>' +
+      '<div id=pedev class="row pedev"><span class=small>Device ID</span><span id=pedid class=mono></span><button id=pedc title="Empty the ID of the RT4K that saved it">Clear</button></div>' +
       '<div id=petl class=petl></div>' +
       '<div class="row pesl"><label>Signal <select id=pesig></select></label>' +
       '<label>Audio input <select id=peport></select></label>' +
@@ -322,6 +323,12 @@
       render();
     };
     q('peport').onchange = () => { if (pf) { pf.port = +q('peport').value; render(); } };
+    q('pedc').onclick = () => {
+      const s = map && map.settings[deviceAt()];
+      if (!pf || !s) return;
+      for (const [o, n] of s.bytes) pf.body.fill(0, o, o + n);
+      render();
+    };
     q('pe').addEventListener('change', (ev) => {
       const el = ev.target.closest('[data-i]');
       if (!el || !pf || el.tagName === 'BUTTON') return;
@@ -363,6 +370,9 @@
   // HDMI 4).
   const PORTS = ['HD-15', 'RCA', 'SCART', 'Port 3', 'HDMI', 'Port 5', 'Port 6', 'Port 7'];
   const PORT_AT = 0x57eb; // input_port, beside the input source (0x57e9) on struct ver 109
+
+  // The saving device's ID: in the map, not laid out with the rest (only Clear changes it).
+  const deviceAt = () => map.settings.findIndex((s) => s.hidden && s.label === 'Saved on device');
 
   const elementOf = (s) => (!s.each ? 0 : s.each.by === 'mode' ? pf.mode : pf.port);
   const slotOf = (s) => (s.each && s.each.srd !== undefined ? pf.slot : -1);
@@ -442,6 +452,13 @@
     q('pesv').disabled = !has || !!busy || asleep();
     q('peu').disabled = !changed() || !!busy;
     if (!has) return;
+
+    // the ID of the RT4K that saved it: shown, and emptied with Clear (nothing else writes it)
+    const dev = map.settings[deviceAt()], id = dev ? hexOf(pf.body, dev.bytes) : '';
+    q('pedev').hidden = !dev;
+    q('pedid').textContent = /[1-9a-f]/.test(id) ? id : '(empty)';
+    q('pedc').disabled = !/[1-9a-f]/.test(id) || !!busy;
+    q('pedev').classList.toggle('chg', !!dev && dev.bytes.some(([o, n]) => differs(o, n)));
 
     // the main menu's settings, as tiles
     q('petl').innerHTML = lay.tiles.map((i) => {
