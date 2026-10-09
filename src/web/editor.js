@@ -123,7 +123,8 @@
       if (fit) return { type: 'number', fit, min: s.min, max: s.max, step: s.step };
       if (s.values && s.values.length) {
         const parts = (s.bytes || []).map((r, k) => k).filter((k) => !derived(s.bytes[k]));
-        return { type: 'list', values: s.values, parts: parts.length ? parts : s.bytes.map((r, k) => k) };
+        const all = parts.length ? parts : s.bytes.map((r, k) => k);
+        return { type: 'list', values: s.values, parts: all, match: s.match || all }; // (match: the parts a value is read by; all are written)
       }
       return { type: 'raw' };
     }
@@ -228,7 +229,7 @@
       return { value: +v.toFixed(d), hex };
     }
     if (codec.type === 'list') {
-      const mine = pick(hex, codec.parts), hit = codec.values.find((x) => pick(x[1], codec.parts) === mine);
+      const mine = pick(hex, codec.match), hit = codec.values.find((x) => pick(x[1], codec.match) === mine);
       return { value: hit ? hit[0] : null, hex };
     }
     return { value: null, hex };
@@ -304,7 +305,7 @@
       '<div id=petl class=petl></div>' +
       '<div class=pebar><span class=pegrp><span class=pelab>Input signal mode</span><button type=button id=pesig class="pev pdd" aria-haspopup=listbox></button></span>' +
       '<label class=pelab title="A change to a setting kept per mode or per rate goes to every mode and rate"><input type=checkbox id=peall> Every mode</label>' +
-      '<span class=grow></span><span class=pegrp><span class=pelab>Audio input</span><button type=button id=peport class="pev pdd" aria-haspopup=listbox title="The settings kept per audio input (Audio Input) show this one\'s"></button></span></div>' +
+      '</div>' +
       '<div class=pebar><span class=pelab>Advanced Settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
       '<input id=peq class=pefind placeholder="Find a setting" autocomplete=off></div>' +
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
@@ -329,10 +330,6 @@
         render();
       });
     };
-    q('peport').onclick = () => {
-      if (!pf) return;
-      openList(q('peport'), PORTS.map((n, k) => ({ value: k, label: n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') })), pf.port, (v) => { pf.port = v; render(); });
-    };
     q('pedc').onclick = () => {
       const s = map && map.settings[deviceAt()];
       if (!pf || !s) return;
@@ -348,7 +345,9 @@
     q('pe').addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
       if (!b || !pf) return;
-      if (b.classList.contains('pdd') && b.dataset.i !== undefined) {
+      if (b.id === 'peport') {
+        openList(b, PORTS.map((n, k) => ({ value: k, label: n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') })), pf.port, (v) => { pf.port = v; render(); });
+      } else if (b.classList.contains('pdd') && b.dataset.i !== undefined) {
         const i = +b.dataset.i;
         openList(b, cs[i].values.map(([v]) => ({ value: v, label: v })), decode(map.settings[i], cs[i], pf.body, ...at(map.settings[i])).value, (v) => write(i, v));
       } else if (b.dataset.tab !== undefined) {
@@ -370,6 +369,7 @@
     const where = every ? Array.from({ length: s.each.count }, (x, k) => [k, -1]) : [at(s)];
     if (every && s.each.srd !== undefined) for (let k = 0; k < 32; k++) if ((k & 7) < DIVS.length) where.push([0, k]);
     if (!where.every(([k, slot]) => encode(s, cs[i], pf.body, v, k, slot))) status('That value can\'t be written.', true);
+    if (s.label === 'Input Source' && pf.body[PORT_AT] < PORTS.length) pf.port = pf.body[PORT_AT]; // (its audio settings show, as the new input's)
     render();
   }
 
@@ -427,7 +427,7 @@
         (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>';
     }
     if (c.type === 'list') {
-      return '<button type=button class="pev pdd' + tone + '" data-i=' + i + ' aria-haspopup=listbox' + off + '>' + esc(d.value === null ? '? (' + d.hex + ')' : d.value) + '</button>';
+      return '<button type=button class="pev pdd' + tone + '" data-i=' + i + ' aria-haspopup=listbox' + off + '><span>' + esc(d.value === null ? '? (' + d.hex + ')' : d.value) + '</span></button>';
     }
     return '<span class="pev mono">' + esc(d.hex) + '</span>';
   }
@@ -538,18 +538,21 @@
     q('pedev').classList.toggle('chg', !!dev && dev.bytes.some(([o, n]) => differs(o, n)));
 
     // the main menu's settings, as tiles
-    q('petl').innerHTML = lay.tiles.map((i) => {
+    const tiles = lay.tiles.map((i) => {
       const s = map.settings[i], t = tip(i);
       return '<div class="pti' + (changedHere(i) ? ' chg' : '') + (whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '><span class="pelab' + (s.note ? ' tip' : '') + '">' + esc(s.label) + '</span>' + control(s, cs[i], i) + '</div>';
-    }).join('');
+    });
+    // the audio input whose settings show (Audio Input's, kept per port), beside the input: the profile's own first
+    tiles.splice(lay.tiles.findIndex((i) => map.settings[i].label === 'Input Source') + 1, 0, '<div class=pti title="The settings kept per audio input (Audio Input) show this one\'s"><span class=pelab>Audio Input</span>' +
+      '<button type=button id=peport class="pev pdd" aria-haspopup=listbox><span>' + esc(PORTS[pf.port] + (pf.port === pf.body[PORT_AT] ? ' (this profile\'s)' : '')) + '</span></button></div>');
+    q('petl').innerHTML = tiles.join('');
 
-    // the signal picked (a mode, or a rate), the audio input picked
+    // the signal picked (a mode, or a rate)
     closeList();
-    q('pesig').textContent = pf.slot >= 0 ? rateName(pf.slot, samplesPerLine()) : modeName(pf.mode);
+    q('pesig').innerHTML = '<span>' + esc(pf.slot >= 0 ? rateName(pf.slot, samplesPerLine()) : modeName(pf.mode)) + '</span>';
     q('pesig').title = pf.slot >= 0
       ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from ' + modeName(pf.mode) + ' (pick a mode to change that)'
       : 'The settings kept per input mode show this one\'s';
-    q('peport').textContent = PORTS[pf.port] + (pf.port === pf.body[PORT_AT] ? ' (this profile\'s)' : '');
 
     // a search: every setting found, under its submenu; else the tab and submenu picked
     const menus = lay.tabs.flatMap((t) => t.menus);

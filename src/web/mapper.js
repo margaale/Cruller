@@ -190,7 +190,8 @@
   // (["first"], ["last"] or both: the walk stopped before that end, so min or max is only how far it got).
   // How the run went (a setting not back as it was) stays out. Written by hand, not by a run (one replaces
   // them): each (kept per input mode or audio input; srd: where its 32 Sample Rate Detection slots start, kept
-  // per detected rate instead), readonly, hidden (not laid out with the rest), note (what the value means,
+  // per detected rate instead), readonly, hidden (not laid out with the rest), match (the parts of its bytes
+  // a list's value is read by; all are written), note (what the value means,
   // when the menu shows something else: Free-Form's factors are kept as pixels over the output's size),
   // when (applies only while another setting has some values).
 
