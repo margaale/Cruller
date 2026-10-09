@@ -253,6 +253,9 @@ static void decide(void) {
         svs_profile(input, file, sizeof(file));
         if (file[0] && snprintf(w, sizeof(w), "SVS/%s", file) < (int)sizeof(w)) from = "svs";
         else w[0] = 0;
+    } else if (k < 0 && !strcmp(want_from, "svs") && input == last_input) { // (and so it stays, on that input)
+        memcpy(w, want, sizeof(w));
+        from = want_from;
     }
     const bool input_changed = last_input >= 0 && input != last_input;
     if (k != king || strcmp(w, want)) {
