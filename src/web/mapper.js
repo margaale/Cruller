@@ -193,7 +193,9 @@
   // per detected rate instead), readonly, hidden (not laid out with the rest), match (the parts of its bytes
   // a list's value is read by; all are written), note (what the value means,
   // when the menu shows something else: Free-Form's factors are kept as pixels over the output's size),
-  // when (applies only while another setting has some values).
+  // when (applies only while another setting has some values; hide: true when the menu drops it otherwise,
+  // or the values it drops it at; else it
+  // shows N/A).
 
   function compact(r) {
     const c = { path: r.path.join(' › ') };
