@@ -934,7 +934,7 @@ function showing(p) {
   for (let y = 0; y < rows; y++) for (let x = 0; x < w; x++) { const j = y * stp + x; if (p.d[j] > 32 || p.d[2048 + j] & 192) return true; }
   return false;
 }
-let osdPos = 0, osdPosReading = false;
+let osdPos = 0, osdPosReading = false, menuShut = -1e9; // (menuShut: since when the menu's plane is blank; long ago at first, so the first menu reads)
 async function readOsdPos() {
   if (osdPosReading) return;
   osdPosReading = true;
@@ -990,9 +990,12 @@ function conn() {
     else if (u[0] === 2) {
       const n = u[2], d = u.subarray(3 + n);
       if (u[1] === 1 && ST.key) { ST.lat = Math.round(performance.now() - ST.key); ST.key = 0; keySeen(ST.lat); }
-      const was = planes[0];
       planes[u[1] - 1] = d.length ? { r: new TextDecoder().decode(u.subarray(3, 3 + n)), d: d.slice() } : null;
-      if (u[1] === 1 && !showing(was) && showing(planes[0])) readOsdPos(); // (the menu shows up)
+      if (u[1] === 1) { // the menu opened (its plane blank for 1.5 s, not a moment between two of its pages)
+        const now = performance.now();
+        if (!showing(planes[0])) menuShut = menuShut || now;
+        else { if (menuShut && now - menuShut > 1500) readOsdPos(); menuShut = 0; }
+      }
       draw();
     }
   };
