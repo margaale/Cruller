@@ -219,9 +219,19 @@ static void done(bool ok) { // the pending profile: loaded (or not)
     xSemaphoreGive(lock);
 }
 
+// What the RT4K has loaded, asked now: Cruller's own copy is asked again 3 s after the SVS's input
+// changes (the RT4K's own S<n>), as late as a load after it, so it may be from before.
+static bool rt4k_profile_now(char *out, size_t size) {
+    char r[GAMEID_PROFILE_MAX + 48];
+    if (!console_query("prof get", "prof loaded=", r, sizeof(r), 2000)) return rt4k_info_profile(out, size);
+    const char *l = strstr(r, "prof loaded="), *f = strstr(r, " file=");
+    snprintf(out, size, "%s", l && l[12] == '1' && f ? f + 6 : "");
+    return true;
+}
+
 static void load(void) {
     char cur[GAMEID_PROFILE_MAX + 16] = "", cmd[GAMEID_PROFILE_MAX + 16], r[96] = "";
-    if (rt4k_info_profile(cur, sizeof(cur)) && same_path(cur, pending)) { // it has it already
+    if (rt4k_profile_now(cur, sizeof(cur)) && same_path(cur, pending)) { // it has it already
         say("%s loaded already%s%s", pending, "", "");
         done(true);
         return;
