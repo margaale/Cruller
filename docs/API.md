@@ -50,6 +50,7 @@ The API's version is a whole number: `api` in the TXT, `api_version` in `/api/v1
 | `POST /api/v1/svs` | The SVS Bridge's report. |
 | `POST /api/v1/svs/unpair` | Forget the paired SVS Bridge. |
 | `POST /api/v1/svs/profiles` | Each input's profile, as the page read the RT4K's card, to keep. |
+| `GET /api/v1/gameid/state` | What gameID knows: each console's game, the one on screen, the profile loaded. |
 | `GET /api/v1/gameid/consoles` | The consoles gameID asks which game they run. |
 | `POST /api/v1/gameid/consoles` | Replace them. |
 | `GET /api/v1/gameid/games` | The gameDB: each game and its profile. |
@@ -226,3 +227,23 @@ Ten consoles at most. A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its
 `id` (compared as written): `{"ok": true, "replaced": false}`. `POST /api/v1/gameid/games/delete`
 with `{"id": "SCUS-97481"}` removes it: `{"ok": true, "found": true}`. A body that isn't one of
 these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "…"}`.
+
+`GET /api/v1/gameid/state` answers what gameID knows as it asks the consoles (every 2 s):
+
+```json
+{"consoles": [{"name": "PS2", "on": true, "game": "SCUS-97481", "game_name": "God of War II", "kind": "ps2",
+               "on_screen": true}],
+ "svs_input": 3, "playing": {"console": "PS2", "game": "SCUS-97481", "game_name": "God of War II"},
+ "profile": "PS2/God of War II.rt4", "from": "gamedb", "pending": "", "loaded": "PS2/God of War II.rt4",
+ "note": "loaded PS2/God of War II.rt4", "note_age_s": 12}
+```
+
+| Key | Value |
+|---|---|
+| `consoles` | Each console, in the order kept: `on` (it answered lately), the `game` it runs (`""`: none it can tell) and its `game_name` when it says one, the `kind` of console (`ps2`, `n64`…: from what it reports, else its name; matched to the SVS tab's), `on_screen` (its game is the one that counts). |
+| `svs_input` | The SVS switch's input, as its bridge last reported it (`0`: none). |
+| `playing` | The game on screen (`null`: none). |
+| `profile`, `from` | The profile for it, and from where: `gamedb`, `other` (its console's, for a game the gameDB hasn't), `svs` (its console went off, or was disabled: the input's own `S<n>`); `""`: none. |
+| `pending` | A profile about to load: after an input change (the RT4K's own `S<n>` first), once the RT4K comes on, or while it sleeps. |
+| `loaded` | What gameID last loaded. |
+| `note`, `note_age_s` | What it last did, or why it waits, and how long ago. |

@@ -147,7 +147,66 @@ static void test_full(void) {
     CHECK(stored == GAMEID_GAMES_MAX && gameid_game_find("SLUS-00999", &f) && !gameid_game_find("SLUS-01000", &f));
 }
 
+static void test_asking(void) {
+    char host[GAMEID_HOST_MAX];
+    uint16_t port = 0;
+    const char *path = NULL;
+    CHECK(gameid_split_url("http://10.10.10.88/api/currentState", host, sizeof(host), &port, &path) && !strcmp(host, "10.10.10.88") && port == 80 &&
+        !strcmp(path, "/api/currentState"));
+    CHECK(gameid_split_url("http://n64digital.local:8080/gameid?x=1", host, sizeof(host), &port, &path) && port == 8080 && !strcmp(path, "/gameid?x=1"));
+    CHECK(!gameid_split_url("https://a/", host, sizeof(host), &port, &path) && !gameid_split_url("http://a", host, sizeof(host), &port, &path));
+    CHECK(!gameid_split_url("http://u@a/", host, sizeof(host), &port, &path) && !gameid_split_url("http://a:0/", host, sizeof(host), &port, &path) &&
+        !gameid_split_url("http://a:99999/", host, sizeof(host), &port, &path) && !gameid_split_url("http://a/b c", host, sizeof(host), &port, &path));
+
+    // a reply: its status and body (Content-Length, chunked, neither)
+    const char *body;
+    size_t n;
+    char r1[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 156\r\n\r\n"
+                "{\n\t\"currentMode\":\t\"PS2\",\n\t\"gameName\":\t\"God of War II\",\n\t\"gameID\":\t\"SCUS-97481\",\n\t\"currentChannel\":\t1,\n"
+                "\t\"playCount\":\t2,\n\t\"rssi\":\t-60,\n\t\"currentSize\":\t\"8MB\"\n}";
+    CHECK(gameid_reply(r1, strlen(r1), &body, &n) == 200 && n == strlen(r1) - (size_t)(strstr(r1, "\r\n\r\n") + 4 - r1));
+    gameid_report_t rep;
+    CHECK(gameid_read_report(body, n, &rep) && !strcmp(rep.id, "SCUS-97481") && !strcmp(rep.name, "God of War II") && !strcmp(rep.mode, "PS2"));
+    char r2[] = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n6\r\n3E5055\r\n10\r\nB6-2E92DA52-N-45\r\n0\r\n\r\n";
+    CHECK(gameid_reply(r2, strlen(r2), &body, &n) == 200 && n == 22 && !memcmp(body, "3E5055B6-2E92DA52-N-45", 22));
+    CHECK(gameid_read_report(body, n, &rep) && !strcmp(rep.id, "3E5055B6-2E92DA52-N-45") && !rep.mode[0]);
+    char r3[] = "HTTP/1.0 404 Not Found\r\n\r\n<html>no</html>";
+    CHECK(gameid_reply(r3, strlen(r3), &body, &n) == 404 && !gameid_read_report(body, n, &rep)); // an error page: not a game
+    char r4[] = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nshort";
+    CHECK(gameid_reply(r4, strlen(r4), &body, &n) == 0); // cut short
+    char r5[] = "SSH-2.0-dropbear\r\n";
+    CHECK(gameid_reply(r5, strlen(r5), &body, &n) == 0);
+    CHECK(gameid_read_report("\r\n", 2, &rep) && !rep.id[0]);                                  // no game: an empty ID
+    CHECK(!gameid_read_report("{\"currentMode\":\"PS2\"}", 21, &rep));                      // JSON without gameID
+    CHECK(gameid_read_report("{\"gameID\":\"\",\"currentMode\":\"PS2\"}", 33, &rep) && !rep.id[0] && !strcmp(rep.mode, "PS2"));
+
+    // the console it is
+    CHECK(!strcmp(gameid_kind("PS2", "Living room"), "ps2") && !strcmp(gameid_kind("PS1", ""), "ps1") && !strcmp(gameid_kind("GC", ""), "gamecube"));
+    CHECK(!strcmp(gameid_kind("", "N64Digital"), "n64") && !strcmp(gameid_kind("", "My PlayStation 2"), "ps2") && !strcmp(gameid_kind("", "PS1 Digital"), "ps1"));
+    CHECK(!strcmp(gameid_kind("", "Console 1"), "") && !strcmp(gameid_kind("PS3", "x"), ""));
+}
+
+static void test_pick(void) {
+    gameid_console_t c[3] = {{"PS2", "http://a/", "", 0, true}, {"N64", "http://b/", "", 0, true}, {"PS2 two", "http://c/", "", 5, true}};
+    gameid_seen_t s[3] = {{true, {"SCUS-97481", "", "PS2"}, "ps2", 10}, {true, {"3E5055B6", "", ""}, "n64", 20}, {false, {"", "", ""}, "", 0}};
+    CHECK(gameid_pick(c, s, 3, 0, NULL) == 1);        // no SVS: the last that changed
+    CHECK(gameid_pick(c, s, 3, 2, "ps2") == 0);       // input 2 is the PS2's: the N64 isn't on screen
+    CHECK(gameid_pick(c, s, 3, 3, "n64") == 1);
+    CHECK(gameid_pick(c, s, 3, 4, "snes") == -1);     // neither's input
+    CHECK(gameid_pick(c, s, 3, 4, "") == 1);          // the input's console not known: both count, the last
+    s[2] = (gameid_seen_t){true, {"SLUS-20946", "", "PS2"}, "ps2", 30};
+    CHECK(gameid_pick(c, s, 3, 5, "ps2") == 2 && gameid_pick(c, s, 3, 2, "ps2") == 0); // set to input 5: there only
+    s[1].game.id[0] = 0;                                // the N64 runs no game it can tell
+    CHECK(gameid_pick(c, s, 3, 0, NULL) == 2);
+    c[2].enabled = false;
+    CHECK(gameid_pick(c, s, 3, 0, NULL) == 0);
+    s[1] = (gameid_seen_t){true, {"X", "", ""}, "", 40}; // a console whose kind isn't known counts on any input
+    CHECK(gameid_pick(c, s, 3, 2, "ps2") == 1);
+}
+
 int main(void) {
+    RUN(test_asking);
+    RUN(test_pick);
     RUN(test_profiles);
     RUN(test_consoles);
     RUN(test_game_text);

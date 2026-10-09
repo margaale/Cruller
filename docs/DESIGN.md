@@ -63,6 +63,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 | mirror | 2 | any | polls the RT4K's OSD planes for the page's screen mirror |
 | rfc2217 | 2 | any | RFC 2217 server on port 2217 |
 | power | 2 | any | RT4K power state probes; asks its firmware and model when it comes on, and keeps them |
+| gameid | 2 | any | asks gameID's consoles which game they run (every 2 s) and loads the profile for the one on screen ([GAMEID.md](GAMEID.md)) |
 | wdt, ping | 2 | any | watchdog feeder; gateway pings (no traffic for 10 s: let the watchdog reset) |
 | led | 1 | any | status LED |
 | tcpip_thread | 1 | any | lwIP (SDK) |
@@ -168,7 +169,7 @@ Small records (`store.h`: the Wi-Fi credentials, the settings, the RT4K's firmwa
 
 1. **M0, foundation (done 2026-09-25):** CMake project, flash layout with partition table, migration from DonutShop by OTA with the Wi-Fi credentials, station mode with the portal fallback, mDNS, Cruller-to-Cruller OTA with rollback.
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
-3. **M2, gameID ([GAMEID.md](GAMEID.md)):** the consoles and the gameDB kept, with their API (done). Still to do: asking the consoles (HTTP; HTTPS later), loading the profiles (with the SVS switch's input), the page's view, finding consoles on the network.
+3. **M2, gameID ([GAMEID.md](GAMEID.md)):** the consoles and the gameDB kept, with their API and the page's view; the consoles asked over HTTP and the profiles loaded, with the SVS switch's input (done). Still to do: finding consoles on the network, `.local` names, HTTPS.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, the API (`/api/v1`), RFC 2217. LED patterns still to do.
 5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete), firmware updates from RetroTINK's repository, the profiles view (the loaded profile, loading one, saving the current settings as a new one, copying one) and each SVS input's profile (the RT4K's /profile/SVS/S<n>_ files). Still to do: Extron/TESmart/MT-VIKI serial, IR, editing profiles.
 

@@ -55,6 +55,7 @@ target_sources(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core/creds.c
     ${CRULLER_ROOT}/src/core/gameid.c
     ${CRULLER_ROOT}/src/core/gameid_core.c
+    ${CRULLER_ROOT}/src/core/gameid_run.c
     ${CRULLER_ROOT}/src/core/http.c
     ${CRULLER_ROOT}/src/core/json.c
     ${CRULLER_ROOT}/src/core/ota_fetch.c

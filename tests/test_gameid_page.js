@@ -38,5 +38,16 @@ check(JSON.stringify(g.readGame('{"currentMode":"PS2","gameName":"God of War II"
 check(JSON.stringify(g.readGame('3E5055B6-2E92DA52-N-45\n')) === '{"id":"3E5055B6-2E92DA52-N-45","name":""}', 'an N64Digital\'s, as text');
 check(g.readGame('{"currentMode":"PS2"}').id === '', 'JSON without a game: none');
 
+// What Cruller knows, as the view says it.
+check(g.liveText(null, false) === 'Not asked' && g.liveText(null, true) === '…' && g.liveText({ on: false }, true) === 'Off', 'a console not asked, not known yet, off');
+check(g.liveText({ on: true, game: '' }, true) === 'No game' && g.liveText({ on: true, game: 'SCUS-97481', game_name: 'God of War II' }, true) === 'God of War II' &&
+  g.liveText({ on: true, game: 'SLUS-00214', game_name: '' }, true) === 'SLUS-00214', 'a console on: its game, by name when it says one');
+const playing = { console: 'PS2', game: 'SCUS-97481', game_name: 'God of War II' };
+check(g.nowText({ playing, profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: '', loaded: 'ps2/gow2.RT4' }) === 'God of War II on PS2: loaded PS2/GoW2 (from the gameDB)', 'loaded: ' + g.nowText({ playing, profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: '', loaded: 'ps2/gow2.RT4' }));
+check(g.nowText({ playing, profile: 'PS2/Any.rt4', from: 'other', pending: 'PS2/Any.rt4', loaded: '' }) === 'God of War II on PS2: loading PS2/Any (from its console)', 'loading');
+check(g.nowText({ playing, profile: '', from: '', pending: '', loaded: '' }) === 'God of War II on PS2: no profile for it', 'a game with no profile');
+check(g.nowText({ playing: null, profile: 'SVS/S4_PS2.rt4', from: 'svs', pending: '', loaded: 'SVS/S4_PS2.rt4' }) === 'Its console went off: loaded SVS/S4_PS2 (from its SVS input)', 'back to the input\'s');
+check(g.nowText({ playing: null, profile: '', from: '', pending: '', loaded: '' }) === 'No game on screen' && g.nowText(null) === '', 'nothing');
+
 console.log(failures ? `gameid.js: ${failures} of ${checks} checks failed` : `gameid.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);

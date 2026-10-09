@@ -18,6 +18,7 @@
 #include "cfgfs.h"
 #include "creds.h"
 #include "gameid.h"
+#include "gameid_run.h"
 #include "health.h"
 #include "freeze.h"
 #include "json.h"
@@ -1807,6 +1808,10 @@ static void handle(request_t *r) {
     else if (post && (!strcmp(r->path, "/api/v1/svs/unpair") || !strcmp(r->path, "/api/svs/unpair"))) handle_svs_unpair(r);
     else if (post && !strcmp(r->path, "/api/v1/svs/profiles")) handle_svs_profiles(r);
     else if ((get || post) && !strcmp(r->path, "/api/v1/gameid/consoles")) handle_gameid_consoles(r, post);
+    else if (get && !strcmp(r->path, "/api/v1/gameid/state")) {
+        const size_t n = gameid_state_json(scratch.gameid.buf, sizeof(scratch.gameid.buf));
+        respond(r->fd, n ? 200 : 503, n ? "OK" : "Service Unavailable", "application/json", n ? scratch.gameid.buf : "{\"consoles\":[]}");
+    }
     else if (get && !strcmp(r->path, "/api/v1/gameid/games")) handle_gameid_games_get(r);
     else if (post && !strcmp(r->path, "/api/v1/gameid/games")) handle_gameid_games_put(r);
     else if (post && !strcmp(r->path, "/api/v1/gameid/games/delete")) handle_gameid_games_delete(r);

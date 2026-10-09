@@ -177,10 +177,11 @@ of its own. Saving them replaces each changed one where it is, after one confirm
 A console that reports which game it runs (a MemCard PRO2 or PRO, a PS1Digital, an N64Digital) can
 have each game load its own RT4K profile. The gameID view keeps what that works from: the consoles,
 each as its address on your network (a MemCard's IP alone will do), and the gameDB, each game's ID
-with the profile for it, picked from the RT4K's SD card. **Its game** asks a console, from your
-browser, which game it runs, to add it to the gameDB in a click. A MemCard PRO2 answers with its own
-web page on (WebUI v2 off). Cruller asking the consoles itself and loading the profiles come next
-([GAMEID.md](docs/GAMEID.md)).
+with the profile for it, picked from the RT4K's SD card. Cruller asks the consoles every 2 s and loads
+the profile for the game on screen; the view shows what each runs and what was loaded. **Its game**
+adds the game a console runs to the gameDB in a click. With an SVS switch, only the console on the
+input on screen counts, and back on its input its game's profile loads again after the input's own.
+A MemCard PRO2 answers with its own web page on (WebUI v2 off). More in [GAMEID.md](docs/GAMEID.md).
 
 ### SVS
 
