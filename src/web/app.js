@@ -65,7 +65,8 @@ function route() {
   document.body.classList.toggle('setup', tab === 'setup');
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
-  const view = ['firmware', 'profiles', 'sd', 'editor'].includes(sub) ? sub : 'live';
+  if (tab === 'rt4k' && sub === 'profiles') return location.replace('#rt4k/sd/profile' + rest.map((p) => '/' + p).join('')); // (the old Profiles view: its folders in the SD card view)
+  const view = ['firmware', 'sd', 'editor'].includes(sub) ? sub : 'live';
   document.querySelectorAll('[data-subview]').forEach((e) => { e.hidden = e.dataset.subview !== view; });
   // the sidebar: the section shown, its name over the page (the sidebar closes on a phone)
   const at = tab === 'rt4k' ? 'rt4k/' + view : tab;
@@ -76,7 +77,6 @@ function route() {
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
-  if (tab === 'rt4k' && view === 'profiles' && window.profOpen) window.profOpen(rest); // rest: the folder under /profile (profiles.js)
   if (tab === 'rt4k' && view === 'editor' && window.peOpen) window.peOpen(rest); // rest: a profile's path under /profile (editor.js)
   if (tab === 'rt4k' && view === 'live') fit();
   if (tab === 'svs' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
@@ -119,7 +119,7 @@ function st(s) {
   if (window.fwPutProgress) window.fwPutProgress(s.put); // the firmware updater's progress bar (fw.js)
   if (window.sdStatus) window.sdStatus(s); // the SD card view reads the folder again once the RT4K is on
   if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power
-  if (window.profStatus) window.profStatus(s); // profiles: read again once the RT4K is on, the loaded one now and then
+  if (window.profStatus) window.profStatus(s); // the SVS folder read again once the RT4K is on
   if (window.peStatus) window.peStatus(s); // the editor: the RT4K's power and firmware
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;

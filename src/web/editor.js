@@ -310,7 +310,7 @@
       '<div class=pebar><span class=pelab>Advanced Settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
       '<input id=peq class=pefind placeholder="Find a setting" autocomplete=off></div>' +
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
-      '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/profiles">Profiles</a> view.</div>' +
+      '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/sd/profile">SD card</a> view (its /profile folder).</div>' +
       '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. The settings ' +
       'and where they live come from mapping the RT4K\'s menus (Debug tab, Settings map).</div></div>';
     q('peo').onclick = () => q('pef').click();

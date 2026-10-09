@@ -3,8 +3,9 @@
 // Folders come from GET /rt4k/ls (the RT4K's "ls", one entry a line) and files from GET /rt4k/get
 // (RTL1 get, in verified pieces), which the browser downloads on its own. Uploads go to POST
 // /rt4k/put with their SHA-256 (sha256.js), which the RT4K checks; new folders, renames and deletes
-// are the RT4K's own mkdir, mv and rm (POST /rt4k/ask). Each folder has its own address
-// (#rt4k/sd/<path>), so the browser's back button walks back up.
+// are the RT4K's own mkdir, mv and rm (POST /rt4k/ask). A profile in /profile can be loaded (its "prof
+// load") or opened in the editor (#rt4k/editor/<path>); the one loaded (Cruller's status says it) is
+// marked. Each folder has its own address (#rt4k/sd/<path>), so the browser's back button walks back up.
 
 (() => {
   'use strict';
@@ -81,6 +82,7 @@
   // --- state ------------------------------------------------------------------------------------------
 
   let dir = null;          // the folder shown ('' = root; null: nothing yet)
+  let loaded = '';         // the profile the RT4K has loaded, its path under /profile ('' none)
   let entries = [];
   let shown = [];          // entries as the table shows them (row buttons point into it)
   let total = 0;           // the RT4K's own count (more than entries when the listing didn't fit)
@@ -105,12 +107,23 @@
     down: svg('<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>'),
     ren: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
     del: svg('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>'),
+    load: svg('<path d="M7 4.5v15l12-7.5z"/>'),
+    edit: svg('<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/>'),
   };
+
+  // A profile the RT4K can load: a .rt4 or .rt6 under /profile. Its path from there ("SVS/S1_SNES.rt4"),
+  // else null.
+  const PROFILE_DIR = 'profile';
+  function profilePath(dir, name) {
+    const d = (dir || '').toLowerCase(); // (FAT: no case)
+    if (!/\.rt[46]$/i.test(name) || !(d === PROFILE_DIR || d.startsWith(PROFILE_DIR + '/'))) return null;
+    return join(dir.slice(PROFILE_DIR.length + 1), name);
+  }
 
   // --- Cruller ----------------------------------------------------------------------------------------
 
-  async function ask(cmd, expect) {
-    const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect), { method: 'POST', body: cmd });
+  async function ask(cmd, expect, timeout) {
+    const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect) + (timeout ? '&timeout=' + timeout : ''), { method: 'POST', body: cmd });
     const t = (await r.text()).trim();
     if (!r.ok) throw new Error(r.status === 504 ? 'the RT4K did not answer' : t);
     return t;
@@ -213,11 +226,14 @@
         : '<span class=fn><span class="ico f">' + ICON.file + '</span><span class=nm>' + esc(e.name) + '<small class=msz>' + size(e.size) + '</small></span></span>';
       // Downloads are plain links: the browser saves the file as it comes, in its own downloads
       // list, with the size from Content-Length (the name from Content-Disposition, and download= here).
-      const act = (e.dir ? '' : '<a class="btn ib" href="' + getUrl(join(dir, e.name)) + '" download="' + esc(e.name) + '" title="Download" ' +
+      const pp = e.dir ? null : profilePath(dir, e.name), on = pp && loaded && sameName(pp, loaded);
+      const act = (pp ? '<button class=ib data-a=load data-i=' + i + off + ' title="Load it on the RT4K" aria-label="Load ' + esc(e.name) + '">' + ICON.load + '</button>' +
+        '<a class="btn ib" href="#rt4k/editor/' + pp.split('/').map(encodeURIComponent).join('/') + '" title="Edit" aria-label="Edit ' + esc(e.name) + '">' + ICON.edit + '</a>' : '') +
+        (e.dir ? '' : '<a class="btn ib" href="' + getUrl(join(dir, e.name)) + '" download="' + esc(e.name) + '" title="Download" ' +
         'aria-label="Download ' + esc(e.name) + '">' + ICON.down + '</a>') +
         '<button class=ib data-a=ren data-i=' + i + off + ' title="Rename" aria-label="Rename ' + esc(e.name) + '">' + ICON.ren + '</button>' +
         '<button class="ib del" data-a=del data-i=' + i + off + ' title="Delete" aria-label="Delete ' + esc(e.name) + '">' + ICON.del + '</button>';
-      return '<tr' + (e.dir ? ' class=d' : '') + '><td class=n title="' + esc(e.name) + '">' + name + '</td>' +
+      return '<tr' + (e.dir ? ' class=d' : on ? ' class=cur title="Loaded now"' : '') + '><td class=n title="' + esc(e.name) + '">' + name + '</td>' +
         '<td class="num sz">' + (e.dir ? '' : size(e.size)) + '</td><td class="num when">' + when(e.mtime) + '</td><td class=act>' + act + '</td></tr>';
     }).join('');
   }
@@ -356,6 +372,20 @@
     });
   }
 
+  // Loads a profile of the folder shown on the RT4K: it reprograms the scaler, and can change the input
+  // and the output resolution, as the profile was saved (seconds).
+  async function load(e) {
+    const pp = profilePath(dir, e.name);
+    if (!pp) return;
+    await run('Loading ' + e.name, async () => {
+      progress('Loading ' + e.name, 0, 0);
+      const r = await ask('prof load ' + pp, 'prof', 15000);
+      if (r !== 'prof load ok') throw new Error(r);
+      loaded = pp;
+      return 'Loaded ' + e.name;
+    });
+  }
+
   async function remove(e) {
     const sure = await window.askUser('Delete ' + e.name + '?', (e.dir ? 'The folder and everything in it will be deleted' :
       'The file will be deleted') + ' from the RT4K\'s SD card. This can\'t be undone.', 'Delete', true);
@@ -397,7 +427,8 @@
       const b = ev.target.closest('button[data-a]');
       const e = b && shown[+b.dataset.i];
       if (!e || busy) return;
-      if (b.dataset.a === 'ren') rename(e);
+      if (b.dataset.a === 'load') load(e);
+      else if (b.dataset.a === 'ren') rename(e);
       else remove(e);
     };
     box.querySelectorAll('th[data-k]').forEach((th) => {
@@ -443,6 +474,10 @@
   // the page's remote or with its own remote): the folder is read again once it's on.
   function onStatus(s) {
     if (onPut && s.put) onPut(s.put);
+    if ('rt4k_profile' in s && s.rt4k_profile !== loaded) { // (the profile loaded, as Cruller keeps it)
+      loaded = s.rt4k_profile;
+      if (q('sdt') && !busy && !asleep() && dir !== null) render();
+    }
     const was = power;
     power = s.rt4k_power;
     if (power !== 'standby') waking = false; // starting (or on): the status says so from now on
@@ -453,5 +488,5 @@
 
   window.sdOpen = open;
   window.sdStatus = onStatus;
-  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when }; // tests/test_sd.js
+  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when, profilePath }; // tests/test_sd.js
 })();

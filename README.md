@@ -31,9 +31,8 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 - **RT4K firmware updates without the SD card**: pick a release or experimental version from
   [RetroTINK's firmware repository](https://github.com/RetroTINK-LLC/firmware). It's checked
   against its SHA-256, written to the RT4K's card and installed by the RT4K itself.
-- **Profiles**: the ones in the SD card's `/profile` folder, which one is loaded, load one with a
-  click, save the RT4K's current settings as a new one, or copy one to start another from.
-- **The SD card, over the network**: browse it, download, upload, make folders, rename and delete.
+- **The SD card, over the network**: browse it, download, upload, make folders, rename and delete;
+  in `/profile`, load a profile with a click or open it in the profile editor, the loaded one marked.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
   screen and the console on each input, and each input's profile picked from the RT4K's
@@ -126,7 +125,7 @@ while it's on.
 
 ### RetroTINK
 
-The sidebar groups the RT4K's views: Live screen, Profiles, Editor, SD card and Firmware. On a phone
+The sidebar groups the RT4K's views: Live screen, Editor, SD card and Firmware. On a phone
 it opens from the menu button.
 
 - **Live screen**: the RT4K's menu as it looks on your TV (see the screenshot at the top of this
@@ -160,6 +159,10 @@ list), make folders, rename, and delete files or whole folders. Transfers go at 
 4 MB `.rbf` takes some 45 s, one after another. The RT4K has to be on: in standby the view says so
 and offers to turn it on, then shows the folder as soon as it answers (turning it on with its own
 remote works too). It has no clock, so files written over the network are dated 2020-01-01.
+
+In `/profile`, each profile has two more buttons: **Load** (the RT4K loads it; this can change its
+input and output resolution, as the profile was saved) and **Edit** (it opens in the profile editor).
+The one the RT4K has loaded is marked.
 
 ### SVS
 

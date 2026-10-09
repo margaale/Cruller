@@ -68,5 +68,9 @@ check(sd.size(39.094) === '39 B', 'a rate in bytes, rounded');
 check(sd.size(0) === '0 B' &&sd.size(1536) === '1.5 KB' && sd.size(45810) === '45 KB' && sd.size(4580256) === '4.4 MB', 'sizes');
 check(sd.when(1577836800) === '2020-01-01 00:00', 'dates as stored on the card');
 
+// A profile the RT4K can load: .rt4 or .rt6 under /profile (any case), its path from there.
+check(sd.profilePath('profile', 'Top.rt4') === 'Top.rt4' && sd.profilePath('profile/SVS', 'S1_SNES.RT4') === 'SVS/S1_SNES.RT4' && sd.profilePath('Profile/Sony PS2', 'a.rt6') === 'Sony PS2/a.rt6', 'profiles under /profile');
+check(sd.profilePath('', 'Top.rt4') === null && sd.profilePath('profiles', 'a.rt4') === null && sd.profilePath('profile', 'notes.txt') === null && sd.profilePath('firmware', 'a.rt4') === null, 'not profiles');
+
 console.log(failures ? `sd.js: ${failures} of ${checks} checks failed` : `sd.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);
