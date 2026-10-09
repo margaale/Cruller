@@ -62,8 +62,20 @@ for (const m of doc.maps) {
   m.settings.forEach((s, i) => {
     if (!s.when) return;
     const o = m.settings[dep[i]];
-    check(dep[i] >= 0 && s.when.is.every((v) => (o.values || []).some(([shown]) => shown === v)), m.firmware + ' ' + s.label + ' depends on ' + s.when.label + ': ' + (o ? 'its values ' + s.when.is.join(', ') : 'not found'));
+    check(dep[i] >= 0 && [...s.when.is, ...(Array.isArray(s.when.hide) ? s.when.hide : [])].every((v) => (o.values || []).some(([shown]) => shown === v)), m.firmware + ' ' + s.label + ' depends on ' + s.when.label + ': ' + (o ? 'its values ' + s.when.is.join(', ') : 'not found'));
+    if (Array.isArray(s.when.hide)) check(!s.when.hide.some((v) => s.when.is.includes(v)), s.label + ' hidden only where it does not apply');
   });
+}
+
+// A submenu's input: the setting found, the values it has.
+for (const m of doc.maps) {
+  for (const [tab, items] of m.tabs) {
+    for (const [item, title, w] of items) {
+      if (!w) continue;
+      const o = m.settings.find((s) => s.path === w.path && s.label === w.label);
+      check(o && w.is.length && w.is.every((v) => o.values.some(([shown]) => shown === v)), tab + ' › ' + item + ' needs ' + w.label + ': ' + (o ? w.is.join(', ') : 'not found'));
+    }
+  }
 }
 
 // The layout: every setting once (but the hidden), the main menu's as tiles, the advanced menu's each in a
@@ -73,6 +85,16 @@ for (const m of doc.maps) {
   const shown = m.settings.map((s, i) => i).filter((i) => !m.settings[i].hidden);
   check(placed.length === shown.length && placed.every((i, k) => i === shown[k]) && shown.length < m.settings.length, m.firmware + ': every setting placed once, the hidden none');
   check(lay.tiles.length > 5 && !lay.tabs.some((t) => t.tab === 'Other'), m.firmware + ': ' + lay.tiles.length + ' tiles, every other in a known submenu');
+}
+
+// The input: read by the input alone (0x57e9: a 1.93 profile's HD-15 connector was 4, now 1), all four
+// bytes written.
+{
+  const m = e.mapFor(doc, '1.95.0'), k = m.settings.findIndex((s) => s.label === 'Input Source'), [c] = e.codecs([m.settings[k]]);
+  const b = new Uint8Array(22876);
+  b[0x2e8] = 4; b[0x57e9] = 0x17; // HD15 YPbPr, saved on 1.93
+  check(e.decode(m.settings[k], c, b).value === 'HD15/YPbPr', 'a 1.93 profile\'s input read: ' + e.decode(m.settings[k], c, b).value);
+  check(e.encode(m.settings[k], c, b, 'HDMI') && b[0x2e8] === 5 && b[0x57e9] === 0 && b[0x57ea] === 2 && b[0x57eb] === 4, 'HDMI written in its four bytes');
 }
 
 // The map's arrays: inside the body, and none running into another (only one field in two menus shares one).
