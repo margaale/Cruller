@@ -17,7 +17,7 @@ Cruller is firmware for a Raspberry Pi Pico 2 W that plugs into the RetroTINK 4K
 where you would otherwise connect a PC. It talks to the RT4K over its USB serial port and serves a
 web page over Wi-Fi, so the scaler can live behind the TV and still be managed from your phone.
 
-![The RetroTINK tab: the RT4K's menu mirrored live, its remote, and the serial console](docs/images/live-screen.png)
+![Live screen: the RT4K's menu mirrored live, its remote, and the serial console](docs/images/live-screen.png)
 
 > [!NOTE]
 > Cruller is young: every release so far is an alpha. Automatic game profiles (gameID) are next.
@@ -31,10 +31,13 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 - **RT4K firmware updates without the SD card**: pick a release or experimental version from
   [RetroTINK's firmware repository](https://github.com/RetroTINK-LLC/firmware). It's checked
   against its SHA-256, written to the RT4K's card and installed by the RT4K itself.
-- **The SD card, over the network**: browse it, download, upload, make folders, rename and delete.
+- **The SD card, over the network**: browse it, download, upload, make folders, rename and delete;
+  in `/profile`, load a profile with a click or open it in the profile editor, the loaded one marked;
+  tick several to edit them together.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
-  screen and the console on each input.
+  screen and the console on each input, and each input's profile picked from the RT4K's
+  `/profile/SVS` (its `S<n>_….rt4`, which it loads with Auto Load SVS).
 - **Home Assistant and scripts**: a [Home Assistant integration](https://github.com/margaale/cruller-hacs)
   that finds Cruller by itself, a versioned JSON API, and the RT4K's serial port on the network
   (RFC 2217), where each client gets only the replies to its own commands.
@@ -88,7 +91,7 @@ You only do this once over a cable. Later updates happen over the air.
 3. Copy the file to that drive. The Pico restarts into Cruller by itself.
 
 The factory image holds the partition table and Cruller together. The other file in each release,
-`cruller.uf2`, is the update that the Cruller tab installs over the air.
+`cruller.uf2`, is the update that the Cruller section installs over the air.
 
 ### 2. Put it on your Wi-Fi
 
@@ -121,12 +124,15 @@ while it's on.
 
 ## Using it
 
-### The RetroTINK tab
+### RetroTINK
+
+The sidebar groups the RT4K's views: Live screen, Editor, SD card and Firmware. On a phone
+it opens from the menu button.
 
 - **Live screen**: the RT4K's menu as it looks on your TV (see the screenshot at the top of this
   page). It stops polling while the RT4K is in standby, and offers to turn it on.
 - **Remote**: every key of the RT4K's remote. The power key asks before turning the RT4K off. While
-  this tab is open, your keyboard's arrows, Enter, Escape (back) and Tab (menu) work too.
+  Live screen is open, your keyboard's arrows, Enter, Escape (back) and Tab (menu) work too.
 - **Console**: type any RT4K serial command, such as `remote menu` or `ver`. You see the replies to
   your own commands.
 
@@ -155,9 +161,20 @@ list), make folders, rename, and delete files or whole folders. Transfers go at 
 and offers to turn it on, then shows the folder as soon as it answers (turning it on with its own
 remote works too). It has no clock, so files written over the network are dated 2020-01-01.
 
-### The SVS tab
+In `/profile`, each profile has two more buttons: **Load** (the RT4K loads it; this can change its
+input and output resolution, as the profile was saved) and **Edit** (it opens in the profile editor).
+The one the RT4K has loaded is marked. Tick several (or every one in the folder) and **Edit them
+together**.
 
-![The SVS tab: eight inputs with their consoles, the one on screen lit, and the recent switches](docs/images/svs-tab.png)
+The editor lists the profiles open beside it, with what's done with them: add more from the SD card
+or this computer, close one, undo, download, save. One shows at a time; with **Multi Edit** on, the
+ones ticked are edited together: a setting shows its value when they agree and *Mixed* when they
+don't (its tooltip says who has what), and a value picked goes to all of them, each keeping the rest
+of its own. Saving them replaces each changed one where it is, after one confirmation that names them.
+
+### SVS
+
+![SVS: eight inputs with their consoles, the one on screen lit, and the recent switches](docs/images/svs-tab.png)
 
 The RT4K can't tell when an [SVS](https://scalablevideoswitch.com/) switch changes input, so the
 [SVS Bridge](https://github.com/margaale/svs-bridge) tells Cruller. There's nothing to set up on
@@ -169,9 +186,9 @@ screen lit, the output that goes to the RetroTINK, and the recent switches. **Un
 for another bridge. With "Auto Load SVS" on, the RT4K itself loads
 `/profile/SVS/S<input>_….rt4` when the input changes. Per-console game profiles come next.
 
-### The Cruller tab
+### Cruller
 
-![The Cruller tab: the serial link, Wi-Fi, clients, memory, this Cruller, and its firmware updates](docs/images/cruller-tab.png)
+![Cruller: the serial link, Wi-Fi, clients, memory, this Cruller, and its firmware updates](docs/images/cruller-tab.png)
 
 - **Serial link to the RT4K**: key-to-screen time, bytes lost, traffic, and the adapter's settings.
 - **Wi-Fi**: the network, its signal, and a way to change it.
@@ -191,17 +208,18 @@ mirror, tasks), and the logs.
 
 **Home Assistant.** Install the [Cruller integration](https://github.com/margaale/cruller-hacs)
 through HACS (as a custom repository). Home Assistant finds Cruller on your network by itself, as
-"Cruller" or by its name. You get the RT4K as a remote (power it on and off, press its keys, send
-console commands), its power state, its firmware version and model, and whether it's plugged in,
-for your automations. The SVS
-switch's input comes from the [SVS Bridge's integration](https://github.com/margaale/svs-bridge-hacs).
+"Cruller" or by its name, with the RT4K as a device of its own behind it (its model and firmware in
+its info). You get the RT4K as a remote (power it on and off, press its keys, send console
+commands), its power state, whether a newer firmware is out on its channel (Release or
+Experimental), and whether it's plugged in, for your automations. The SVS switch's input comes from
+the [SVS Bridge's integration](https://github.com/margaale/svs-bridge-hacs).
 To load an SVS profile (`/profile/SVS/S3_….rt4`, with "Auto Load SVS" on), send the RT4K the same
 line the switch does:
 
 ```yaml
 action: remote.send_command
 target:
-  entity_id: remote.cruller_retrotink_4k
+  entity_id: remote.retrotink_4k
 data:
   command: SVS NEW INPUT=3
 ```
@@ -264,8 +282,10 @@ and install it again.
 - **The RT4K shows as "Standby".** It's asleep: **Turn the RT4K on** (on the screen, in the SD card
   view) or the power key on the page's remote wakes it. Reading the SD card and writing an update to
   it need it on.
-- **`Cruller_Setup` appeared again.** Cruller couldn't join your network when it started (the router
-  was off, say) and waits in setup mode. Restart it once the network is back, or set it up again.
+- **`Cruller_Setup` appeared again.** Cruller couldn't join your network when it started (after a
+  power cut the router can take longer to boot than Cruller). It tries your network again every
+  minute and restarts on it once it's back; while a phone is on `Cruller_Setup`, only every 10
+  minutes, so it doesn't get in the way of setting it up again.
 - **An update from GitHub failed.** The page says why and offers the image to download, so you can
   install it with **Install from a file…**.
 
@@ -297,6 +317,10 @@ The Pico's boot ROM starts the newer of its two copies, and a local build is bui
 any CI build of the same version. Pass `CRULLER_VERSION` and `CRULLER_BUILD` to go above the one
 installed. A local build takes its version from `src/version.cmake`, and CI passes its own.
 
+`CRULLER_DEBUG=0` builds it without the developer tools: the `/debug` routes that act on the RT4K
+or the board, the RTL1 failure capture and the USB trace (16 KB of RAM). The Debug section then hides
+their buttons. The routes that only read stay.
+
 `scripts/build.sh esp32`, in an ESP-IDF 6.1 shell, builds the ESP32-S3 port into `build/esp32`.
 
 ## Development
@@ -321,9 +345,10 @@ src/core/            The common code (HTTP, WebSocket, console, RTL1, RFC 2217, 
 src/platform/rp2/    The Raspberry Pi Pico 2 W: startup, Wi-Fi and the setup portal, the RT4K's
                      USB host, flash (A/B slots, settings), watchdog
 src/platform/esp32/  The ESP32-S3 port, an ESP-IDF project (no RT4K link yet)
-src/web/             The page, embedded as C arrays at build time
+src/web/             The page, embedded as C arrays at build time (its JavaScript minified in CI)
 tests/               Host tests of src/core and the page
-scripts/             build.sh, and tls_roots.sh for the Pico's HTTPS roots
+scripts/             build.sh, tls_roots.sh for the Pico's HTTPS roots, minify-web.sh for the
+                     page's JavaScript in the CI's images
 docs/                DESIGN.md, RTL1.md (the RT4K's binary protocol), SVS.md (the SVS Bridge)
 ```
 
@@ -405,6 +430,8 @@ are in [docs/SVS.md](docs/SVS.md).
 ## Acknowledgements
 
 - [RetroTINK](https://www.retrotink.com/), for the RetroTINK 4K and its serial interface.
+- PIPe's [RT4K Profiler](https://rt4k-profiler.pipe.hr/), for the names of the RT4K's input modes and the
+  mode each group of detected sample rates belongs to, as the profile editor shows them.
 - Built on the [Pico SDK](https://github.com/raspberrypi/pico-sdk),
   [FreeRTOS](https://www.freertos.org/), [lwIP](https://savannah.nongnu.org/projects/lwip/),
   [TinyUSB](https://github.com/hathach/tinyusb), [Mbed TLS](https://github.com/Mbed-TLS/mbedtls)

@@ -22,6 +22,7 @@ env:
   ARM_GCC_RELEASE: "14.2.Rel1"
   ESP_IDF_VERSION: "v6.1"
   GITVERSION_VERSION: "6.x"
+  ESBUILD_VERSION: "0.28.2" # scripts/minify-web.sh, which minifies the page's JavaScript for the images
 
 jobs:
   version:
@@ -60,6 +61,12 @@ jobs:
         with:
           node-version: 22
       - run: bash tests/run.sh
+      # The page's JavaScript minified, as the images embed it: its tests again (not check_page and
+      # check_api, which read the sources).
+      - name: Tests on the minified page
+        run: |
+          bash scripts/minify-web.sh
+          for t in editor mapper profiles sd fw; do node tests/test_$t.js; done
 
   # Raspberry Pi RP2 boards: Pico SDK, target src/platform/rp2.
   rp2:
@@ -84,6 +91,12 @@ jobs:
           release: ${{ env.ARM_GCC_RELEASE }}
 
       - run: sudo apt-get install -y ninja-build
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Minify the page's JavaScript
+        run: bash scripts/minify-web.sh
 
       - name: Pico SDK, TinyUSB, FreeRTOS
         run: |
@@ -124,7 +137,7 @@ jobs:
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
         run: |
           bash scripts/build.sh rp2 Release
-          ninja -C build/rp2 cruller_bench # built so it keeps building; not published
+          ninja -C build/rp2 cruller_bench cruller_nodebug # built so they keep building; not published
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.uf2 installs a new board
       # (BOOTSEL, then drop it on the drive); cruller.uf2 is the OTA image the Cruller tab looks for.
@@ -170,6 +183,13 @@ jobs:
           path: .ccache
           key: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
           restore-keys: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-
+
+      # On the runner: ESP-IDF's container has no node, and builds the workspace it mounts.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Minify the page's JavaScript
+        run: bash scripts/minify-web.sh
 
       - name: Build
         uses: espressif/esp-idf-ci-action@v1

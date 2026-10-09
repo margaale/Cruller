@@ -28,7 +28,7 @@
 #include "ws.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
-#define MAIN_TASK_STACK    2048 // words
+#define MAIN_TASK_STACK    512 // words: it peaked at 124 (CYW43 start included), then only logs
 
 static uint32_t ms_since_boot(void) {
     return to_ms_since_boot(get_absolute_time());

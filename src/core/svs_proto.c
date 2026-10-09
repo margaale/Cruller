@@ -249,3 +249,85 @@ size_t svs_switch_json(const svs_switch_t *sw, char *out, size_t size) {
     ADD("}");
     return o < size ? o : 0;
 }
+
+// --- each input's profile ----------------------------------------------------------------------------
+
+// The line at *p (its "\r" left out), *p moved past it. False at the end.
+static bool next_line(const char **p, const char **line, size_t *len) {
+    if (!**p) return false;
+    const size_t n = strcspn(*p, "\n");
+    *line = *p;
+    *len = n && (*p)[n - 1] == '\r' ? n - 1 : n;
+    *p += (*p)[n] ? n + 1 : n;
+    return true;
+}
+
+// A line "<input>\t<name>": its input, and where its name is. False if it isn't one.
+static bool profile_line(const char *line, size_t len, int *input, const char **name, size_t *name_len) {
+    size_t i = 0;
+    int n = 0;
+    while (i < len && i < 3 && line[i] >= '0' && line[i] <= '9') n = n * 10 + (line[i++] - '0');
+    if (!i || n < 1 || n > SVS_INPUTS_MAX || i >= len || line[i] != '\t') return false;
+    *name = line + i + 1;
+    *name_len = len - i - 1;
+    if (!*name_len || *name_len > SVS_PROFILE_MAX) return false;
+    for (size_t k = 0; k < *name_len; k++) {
+        if ((unsigned char)(*name)[k] < 0x20) return false;
+    }
+    *input = n;
+    return true;
+}
+
+bool svs_profiles_parse(const char *body, char *out, size_t size, const char **error) {
+    const char *p = body, *line, *name;
+    size_t len, name_len;
+    int n;
+    uint32_t given = 0; // bit n - 1: input n has a line
+    while (next_line(&p, &line, &len)) {
+        if (!len) continue;
+        if (!profile_line(line, len, &n, &name, &name_len)) {
+            *error = "each line: an input (1-32), a tab, and the profile's file name (150 bytes at most)";
+            return false;
+        }
+        if (given & (1u << (n - 1))) {
+            *error = "an input given twice";
+            return false;
+        }
+        given |= 1u << (n - 1);
+    }
+    size_t o = 0;
+    for (int input = 1; input <= SVS_INPUTS_MAX; input++) {
+        if (!(given & (1u << (input - 1)))) continue;
+        for (p = body; next_line(&p, &line, &len);) {
+            if (len && profile_line(line, len, &n, &name, &name_len) && n == input) {
+                ADD("%d\t%.*s\n", input, (int)name_len, name);
+                break;
+            }
+        }
+    }
+    if (o >= size) {
+        *error = "too long for Cruller to keep (1 KB at most)";
+        return false;
+    }
+    out[o] = 0;
+    return true;
+}
+
+size_t svs_profiles_json(const char *text, char *out, size_t size) {
+    size_t o = 0;
+    const char *p = text, *line, *name;
+    size_t len, name_len;
+    int n;
+    ADD("{");
+    for (bool first = true; next_line(&p, &line, &len);) {
+        if (!profile_line(line, len, &n, &name, &name_len)) continue;
+        char raw[SVS_PROFILE_MAX + 1], esc[2 * SVS_PROFILE_MAX + 8];
+        memcpy(raw, name, name_len);
+        raw[name_len] = 0;
+        svs_json_escape(esc, sizeof(esc), raw);
+        ADD("%s\"%d\":\"%s\"", first ? "" : ",", n, esc);
+        first = false;
+    }
+    ADD("}");
+    return o < size ? o : 0;
+}

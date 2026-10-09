@@ -33,7 +33,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 
 - `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings, firmware downloads from GitHub) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `tls.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. It uses only FreeRTOS, lwIP's sockets and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures).
 - `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
-- `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time.
+- `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time. The CI's images embed its JavaScript minified (`scripts/minify-web.sh`, esbuild: 234 KB down to 129 KB); a local build, as it is.
 - `third_party/littlefs`: reads DonutShop's filesystem once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
 - `src/version.cmake`: the version, for every target.
 
@@ -90,6 +90,10 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 
 `src/core/rt4k_info_core.c` (pure, host-tested) reads the RT4K's firmware version (`ver`'s `FW Version:`) and model (`model=`) from every reply, whoever asked: the power probe that notices it's on is a `ver`, so usually only `model` is left. Each time the RT4K comes on it asks what it hasn't heard since, one question at a time, 3 tries each. `rt4k_info.c` keeps them in `store.h` (`STORE_RT4K`, sectors 4 and 5 of the data partition on the Pico), written only once both answers are in and only when they differ from the kept copy: a restart, or the same firmware again, writes nothing. So the page (the firmware view, the header chip) and `/api/v1/state` have them while the RT4K sleeps; the page's status says whether they're from since it last came on (`rt4k_fw_fresh`). The firmware updater still asks `model` itself before writing: the kept copy is for showing, not for picking the `.rbf`.
 
+It also knows the profile the RT4K has loaded (`prof get`'s `prof loaded=`), only while it's on and not kept. The RT4K says nothing when it loads one (its menu, its IR remote, Auto Load SVS: checked on the console, 1.91.0), so it's asked every 10 s without hearing it, and 3 s after what may have changed it: an SVS input change (`svs.c`), a `prof load ok`, a `Serial Remote: prof…`. Anyone's `prof get` reply counts, the page's too, and those replies are what tells the power state it's on meanwhile: the power probe's `ver` only goes out after 10 s of silence, so while on, one question every 10 s either way. `/api/v1/state` has it as `rt4k.profile`, the page's status as `rt4k_profile`, and the page stops asking itself when it's there.
+
+`store.h` keeps small records (2 KB at most) across restarts, and a save that changes nothing writes nothing (`store_save` compares the kept copy first), so its callers save whenever they like without wearing the flash. On the Pico each record takes two alternating sectors of the data partition in its key's order (`STORE_SECTOR_OFFSET`): a new record is a key at the end and a magic. `svs.c` keeps each SVS input's profile there (`STORE_SVS_PROFILES`, sectors 6 and 7): the page sends them after each read of `/profile/SVS` (`POST /api/v1/svs/profiles`), and `GET /api/v1/svs` gives them back, so the SVS tab shows them while the RT4K sleeps.
+
 ## Interfaces
 
 - **Web page** (`/`): screen mirror of the RT4K's OSD in a 16:9 frame, remote control, terminal, power state, firmware updater for the RT4K, the RT4K's SD card (browse, download, upload, new folders, rename, delete), Cruller updates (from its GitHub releases, or a file). Live data over a WebSocket (`/ws`); the page never polls. Page code kept as real files in `src/web` is embedded at build time (`src/web/embed.cmake`).
@@ -102,7 +106,7 @@ An OSD transfer waits until the RT4K has answered the last command (it ignores t
 - **RT4K firmware updates**: the page reads RetroTINK's firmware index on GitHub, downloads the zip, checks it against the SHA-256 in the index, unzips it in the browser, writes the files through Cruller and runs `fwup check` / `fwup go`.
 - **`POST /update`, `POST /update/fetch`**: a Cruller image uploaded as the request body, or downloaded by Cruller itself from its GitHub releases (see "OTA").
 - **Status**: `GET /status` (JSON, also pushed over the WebSocket), the page's: it changes with the page, so clients outside it use `GET /api/v1/state`.
-- **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/console`, `/debug/usbtrace`, `/debug/freeze`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`.
+- **Debug routes** (not for automations): `/debug/tasks` (`?stacks`), `/debug/memory`, `/debug/tcp`, `/debug/console`, `/debug/freeze`, which only read; and the developer tools, which a build with `CRULLER_DEBUG=0` leaves out (`src/platform/platform.h`, 16 KB of the Pico 2 W's RAM): `/debug/usbtrace`, `/debug/lastfail`, `POST /debug/raw`, `/debug/flow`, `/debug/baud`, `/debug/gap`, `/debug/portal`, `/debug/wedge`, `/debug/fault`. The status says which (`"dev_tools"`), and the Debug tab shows their buttons only when they're there.
 
 ## Flash layout
 
@@ -152,7 +156,7 @@ Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (millis
 ## Networking
 
 - **Provisioning:** an access point with DHCP and DNS captive portal, listing nearby networks.
-- **Station:** join with a timeout, reconnect in the background, and fall back to the portal after repeated failures. Never block forever.
+- **Station:** join with a timeout, reconnect in the background, and fall back to the portal after repeated failures. Never block forever: the portal tries the saved network every minute (every 10 with a phone on it) and restarts on it once it's back, since after a power cut the router can take longer to boot than Cruller.
 - **mDNS:** `cruller.local`.
 - **Health:** gateway pings every 2 s; no reply for 10 s stops feeding the watchdog (the network can die while everything else runs). To be made configurable.
 
@@ -166,7 +170,7 @@ JSON files in littlefs, with a schema version. The importer reads the DonutShop 
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
 3. **M2, gameID:** console polling (HTTP and HTTPS), gameDB, profile switching with DonutShop's rules (SRS/S0), and the configuration UI. Not started.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, the API (`/api/v1`), RFC 2217. LED patterns still to do.
-5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete) and firmware updates from RetroTINK's repository. Still to do: Extron/TESmart/MT-VIKI serial, IR, profiles.
+5. **M4, extras (partly done):** RT4K SD file transfers, the SD card view (browse, download, upload, new folders, rename, delete), firmware updates from RetroTINK's repository, the profiles view (the loaded profile, loading one, saving the current settings as a new one, copying one) and each SVS input's profile (the RT4K's /profile/SVS/S<n>_ files). Still to do: Extron/TESmart/MT-VIKI serial, IR, editing profiles.
 
 ### M0 results (2026-09-25)
 

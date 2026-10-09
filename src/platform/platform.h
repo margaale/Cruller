@@ -18,6 +18,14 @@
 // Task stacks are sized in 32-bit words, as in the FreeRTOS kernel; PLAT_STACK(words) is what this
 // target's xTaskCreate() takes (ESP-IDF counts bytes).
 
+// The developer tools: the /debug routes that act on the RT4K or the board (raw bytes, baud, flow
+// control, the test portal, a wedged network, a fault), the RTL1 failure capture (/debug/lastfail) and
+// the USB trace (/debug/usbtrace). On unless the build says CRULLER_DEBUG=0 (16 KB of the Pico 2 W's
+// RAM). The diagnostics that only read (/debug/tasks, memory, tcp, console, freeze) stay either way.
+#ifndef CRULLER_DEBUG
+#define CRULLER_DEBUG 1
+#endif
+
 // --- time --------------------------------------------------------------------------------------------
 
 uint32_t plat_ms(void); // milliseconds since boot (wraps after 49 days: compare differences)

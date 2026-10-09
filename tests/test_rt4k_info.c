@@ -50,7 +50,7 @@ static void test_asks_when_it_comes_on(void) {
     answer_ver();
     CHECK(asks(poll(true), "model")); // at once, not after the retry wait
     answer_model();
-    CHECK(!poll(true));
+    CHECK(asks(poll(true), "prof get")); // then the loaded profile
     rt4k_info_t i;
     CHECK(rt4k_info_core_get(&i));
     CHECK(!strcmp(i.version, "1.89.0"));
@@ -73,9 +73,97 @@ static void test_anyone_asking_counts(void) {
     CHECK(asks(poll(true), "ver"));
     answer_ver();
     answer_model();
-    CHECK(!poll(true));
+    rt4k_info_core_line("[COM] prof loaded=0");
+    CHECK(!poll(true)); // the profile too: nothing to ask
     rt4k_info_t i;
     CHECK(rt4k_info_core_get(&i));
+}
+
+// --- the loaded profile -------------------------------------------------------------------------------
+
+// On, version and model said: what's asked next.
+static void on_and_known(void) {
+    now = 0;
+    rt4k_info_core_init(NULL);
+    poll(true);
+    answer_ver();
+    poll(true);
+    answer_model();
+}
+
+static void test_profile_read(void) {
+    on_and_known();
+    char p[RT4K_INFO_PROFILE_MAX + 1];
+    CHECK(!rt4k_info_core_profile(p, sizeof(p))); // not said yet
+    CHECK(asks(poll(true), "prof get"));
+    uint32_t seq = rt4k_info_core_seq();
+    rt4k_info_core_line("[COM] prof loaded=1 dir=/profile file=SVS/S4_PS2.rt4");
+    CHECK(rt4k_info_core_profile(p, sizeof(p)) && !strcmp(p, "SVS/S4_PS2.rt4"));
+    CHECK(rt4k_info_core_seq() != seq);
+    seq = rt4k_info_core_seq();
+    rt4k_info_core_line("[COM] prof loaded=1 dir=/profile file=SVS/S4_PS2.rt4"); // the same: no push
+    CHECK(rt4k_info_core_seq() == seq);
+    rt4k_info_core_line("[COM] prof loaded=0");
+    CHECK(rt4k_info_core_profile(p, sizeof(p)) && !p[0] && rt4k_info_core_seq() != seq);
+    rt4k_info_core_line("[COM] prof loaded=1 dir=/profile file=_CRT Emulation/Splash - Sony KD-34XBR970 - 4K HDR v2.rt4");
+    CHECK(rt4k_info_core_profile(p, sizeof(p)) && !strcmp(p, "_CRT Emulation/Splash - Sony KD-34XBR970 - 4K HDR v2.rt4"));
+    rt4k_info_core_line("[COM] prof loaded=1 dir=/profile");                     // no file: left alone
+    CHECK(rt4k_info_core_profile(p, sizeof(p)) && p[0]);
+}
+
+static void test_profile_every_10_s(void) {
+    on_and_known();
+    CHECK(asks(poll(true), "prof get"));
+    rt4k_info_core_line("[COM] prof loaded=0");
+    int quiet = 0;
+    while (!poll(true)) quiet++;
+    CHECK((quiet + 1) * 200 >= RT4K_INFO_PROFILE_MS && quiet * 200 < RT4K_INFO_PROFILE_MS + 400);
+    // Someone else's "prof get" (the page's) counts: the next waits 10 s from it.
+    rt4k_info_core_line("[COM] prof loaded=0");
+    for (int t = 0; t < 30; t++) poll(true);
+    rt4k_info_core_line("[COM] prof loaded=0");
+    quiet = 0;
+    while (!poll(true)) quiet++;
+    CHECK((quiet + 1) * 200 >= RT4K_INFO_PROFILE_MS);
+}
+
+static void test_profile_soon(void) {
+    // A switch of input (Auto Load SVS), a load, the remote's profile buttons: asked 3 s later.
+    const char *nudges[] = {NULL, "[COM] prof load ok", "[COM] Serial Remote: prof1"};
+    for (int k = 0; k < 3; k++) {
+        on_and_known();
+        poll(true);
+        rt4k_info_core_line("[COM] prof loaded=0");
+        poll(true);
+        if (nudges[k]) rt4k_info_core_line(nudges[k]);
+        else rt4k_info_core_profile_soon();
+        int quiet = 0;
+        while (!poll(true)) quiet++;
+        CHECK((quiet + 1) * 200 >= RT4K_INFO_SOON_MS && quiet * 200 < RT4K_INFO_SOON_MS + 400);
+    }
+}
+
+static void test_profile_unknown_asleep(void) {
+    on_and_known();
+    poll(true);
+    rt4k_info_core_line("[COM] prof loaded=1 dir=/profile file=A.rt4");
+    const uint32_t seq = rt4k_info_core_seq();
+    char p[RT4K_INFO_PROFILE_MAX + 1];
+    poll(false);
+    CHECK(!rt4k_info_core_profile(p, sizeof(p)) && rt4k_info_core_seq() != seq);
+    int asked = 0;
+    for (int t = 0; t < 100; t++) asked += !!poll(false);
+    CHECK(!asked);                                            // asleep: never asked
+    rt4k_info_core_profile_soon();                            // (an input change meanwhile)
+    CHECK(asks(poll(true), "ver"));                           // on again: the rest first, then it
+}
+
+static void test_profile_long_path(void) {
+    on_and_known();
+    char line[400], p[RT4K_INFO_PROFILE_MAX + 1];
+    snprintf(line, sizeof(line), "[COM] prof loaded=1 dir=/profile file=%0300d.rt4", 7);
+    rt4k_info_core_line(line);
+    CHECK(rt4k_info_core_profile(p, sizeof(p)) && strlen(p) == RT4K_INFO_PROFILE_MAX);
 }
 
 static void test_one_write_for_both(void) {
@@ -220,6 +308,11 @@ int main(void) {
         {"retries_after_a_while", test_retries_after_a_while},
         {"other_lines", test_other_lines},
         {"saved_garbage", test_saved_garbage},
+        {"profile_read", test_profile_read},
+        {"profile_every_10_s", test_profile_every_10_s},
+        {"profile_soon", test_profile_soon},
+        {"profile_unknown_asleep", test_profile_unknown_asleep},
+        {"profile_long_path", test_profile_long_path},
     };
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
         current = tests[i].name;

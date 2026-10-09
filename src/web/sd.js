@@ -3,8 +3,9 @@
 // Folders come from GET /rt4k/ls (the RT4K's "ls", one entry a line) and files from GET /rt4k/get
 // (RTL1 get, in verified pieces), which the browser downloads on its own. Uploads go to POST
 // /rt4k/put with their SHA-256 (sha256.js), which the RT4K checks; new folders, renames and deletes
-// are the RT4K's own mkdir, mv and rm (POST /rt4k/ask). Each folder has its own address
-// (#rt4k/sd/<path>), so the browser's back button walks back up.
+// are the RT4K's own mkdir, mv and rm (POST /rt4k/ask). A profile in /profile can be loaded (its "prof
+// load") or opened in the editor (#rt4k/editor/<path>), or several ticked and edited together; the one
+// loaded (Cruller's status says it) is marked. Each folder has its own address (#rt4k/sd/<path>), so the browser's back button walks back up.
 
 (() => {
   'use strict';
@@ -81,8 +82,10 @@
   // --- state ------------------------------------------------------------------------------------------
 
   let dir = null;          // the folder shown ('' = root; null: nothing yet)
+  let loaded = '';         // the profile the RT4K has loaded, its path under /profile ('' none)
   let entries = [];
   let shown = [];          // entries as the table shows them (row buttons point into it)
+  let picked = new Set();  // the profiles of this folder ticked to edit together, by name
   let total = 0;           // the RT4K's own count (more than entries when the listing didn't fit)
   let sortKey = 'name', sortDesc = false;
   let loading = 0;         // the listing request that counts (later ones win)
@@ -105,12 +108,23 @@
     down: svg('<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>'),
     ren: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
     del: svg('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>'),
+    load: svg('<path d="M7 4.5v15l12-7.5z"/>'),
+    edit: svg('<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/>'),
   };
+
+  // A profile the RT4K can load: a .rt4 or .rt6 under /profile. Its path from there ("SVS/S1_SNES.rt4"),
+  // else null.
+  const PROFILE_DIR = 'profile';
+  function profilePath(dir, name) {
+    const d = (dir || '').toLowerCase(); // (FAT: no case)
+    if (!/\.rt[46]$/i.test(name) || !(d === PROFILE_DIR || d.startsWith(PROFILE_DIR + '/'))) return null;
+    return join(dir.slice(PROFILE_DIR.length + 1), name);
+  }
 
   // --- Cruller ----------------------------------------------------------------------------------------
 
-  async function ask(cmd, expect) {
-    const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect), { method: 'POST', body: cmd });
+  async function ask(cmd, expect, timeout) {
+    const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect) + (timeout ? '&timeout=' + timeout : ''), { method: 'POST', body: cmd });
     const t = (await r.text()).trim();
     if (!r.ok) throw new Error(r.status === 504 ? 'the RT4K did not answer' : t);
     return t;
@@ -171,7 +185,7 @@
 
   function crumbs() {
     const parts = dir ? dir.split('/') : [];
-    let html = parts.length ? '<a href="' + hrefFor('') + '">SD card</a>' : '<b>SD card</b>';
+    let html = '<h2>' + (parts.length ? '<a href="' + hrefFor('') + '">SD card</a>' : 'SD card') + '</h2>';
     parts.forEach((p, i) => {
       html += '<span>/</span>';
       html += i === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a href="' + hrefFor(parts.slice(0, i + 1).join('/')) + '">' + esc(p) + '</a>';
@@ -197,12 +211,23 @@
 
   function render() {
     crumbs();
+    // the profiles ticked: a column of ticks in a profiles' folder, every one here at its head; with any ticked,
+    // a bar to edit them together
+    const can = profilePath(dir, 'x.rt4') !== null, profs = entries.filter((e) => !e.dir && profilePath(dir, e.name));
+    picked = new Set([...picked].filter((n) => profs.some((e) => e.name === n)));
+    q('sdtbl').classList.toggle('pk', can);
+    q('sdpa').checked = profs.length > 0 && picked.size === profs.length;
+    q('sdpa').indeterminate = picked.size > 0 && picked.size < profs.length;
+    q('sdpa').disabled = !profs.length;
+    q('sdsel').hidden = !picked.size;
+    q('sdseln').textContent = picked.size === 1 ? '1 profile ticked' : picked.size + ' profiles ticked';
+    q('sdsele').textContent = picked.size === 1 ? 'Edit it' : 'Edit them together';
     document.querySelectorAll('#sd th[data-k]').forEach((th) => {
       th.setAttribute('aria-sort', th.dataset.k === sortKey ? (sortDesc ? 'descending' : 'ascending') : 'none');
     });
     ['sdu', 'sdn', 'sdr'].forEach((id) => { q(id).disabled = busy || asleep(); });
     // No colspan: with the date column hidden (narrow screens) it would make a fourth, empty one.
-    const up = dir ? '<tr class=up><td class=n><a href="' + hrefFor(dir.split('/').slice(0, -1).join('/')) + '">' +
+    const up = dir ? '<tr class=up><td class=ck></td><td class=n><a href="' + hrefFor(dir.split('/').slice(0, -1).join('/')) + '">' +
       '<span class=ico>' + ICON.dir + '</span>..</a></td><td class=sz></td><td class=when></td><td></td></tr>' : '';
     q('sde').hidden = entries.length > 0;
     shown = sortEntries(entries, sortKey, sortDesc);
@@ -213,11 +238,15 @@
         : '<span class=fn><span class="ico f">' + ICON.file + '</span><span class=nm>' + esc(e.name) + '<small class=msz>' + size(e.size) + '</small></span></span>';
       // Downloads are plain links: the browser saves the file as it comes, in its own downloads
       // list, with the size from Content-Length (the name from Content-Disposition, and download= here).
-      const act = (e.dir ? '' : '<a class="btn ib" href="' + getUrl(join(dir, e.name)) + '" download="' + esc(e.name) + '" title="Download" ' +
+      const pp = e.dir ? null : profilePath(dir, e.name), on = pp && loaded && sameName(pp, loaded);
+      const act = (pp ? '<button class=ib data-a=load data-i=' + i + off + ' title="Load it on the RT4K" aria-label="Load ' + esc(e.name) + '">' + ICON.load + '</button>' +
+        '<a class="btn ib" href="#rt4k/editor/' + pp.split('/').map(encodeURIComponent).join('/') + '" title="Edit" aria-label="Edit ' + esc(e.name) + '">' + ICON.edit + '</a>' : '') +
+        (e.dir ? '' : '<a class="btn ib" href="' + getUrl(join(dir, e.name)) + '" download="' + esc(e.name) + '" title="Download" ' +
         'aria-label="Download ' + esc(e.name) + '">' + ICON.down + '</a>') +
         '<button class=ib data-a=ren data-i=' + i + off + ' title="Rename" aria-label="Rename ' + esc(e.name) + '">' + ICON.ren + '</button>' +
         '<button class="ib del" data-a=del data-i=' + i + off + ' title="Delete" aria-label="Delete ' + esc(e.name) + '">' + ICON.del + '</button>';
-      return '<tr' + (e.dir ? ' class=d' : '') + '><td class=n title="' + esc(e.name) + '">' + name + '</td>' +
+      const tick = pp ? '<input type=checkbox data-pick="' + esc(e.name) + '"' + (picked.has(e.name) ? ' checked' : '') + ' aria-label="Tick ' + esc(e.name) + '">' : '';
+      return '<tr' + (e.dir ? ' class=d' : on ? ' class=cur title="Loaded now"' : '') + '><td class=ck>' + tick + '</td><td class=n title="' + esc(e.name) + '">' + name + '</td>' +
         '<td class="num sz">' + (e.dir ? '' : size(e.size)) + '</td><td class="num when">' + when(e.mtime) + '</td><td class=act>' + act + '</td></tr>';
     }).join('');
   }
@@ -226,6 +255,7 @@
   async function list(d, note) {
     const mine = ++loading;
     const moved = d !== dir;
+    if (moved) picked = new Set();
     dir = d;
     crumbs();
     if (asleep()) { // read once it's on (onStatus)
@@ -356,6 +386,20 @@
     });
   }
 
+  // Loads a profile of the folder shown on the RT4K: it reprograms the scaler, and can change the input
+  // and the output resolution, as the profile was saved (seconds).
+  async function load(e) {
+    const pp = profilePath(dir, e.name);
+    if (!pp) return;
+    await run('Loading ' + e.name, async () => {
+      progress('Loading ' + e.name, 0, 0);
+      const r = await ask('prof load ' + pp, 'prof', 15000);
+      if (r !== 'prof load ok') throw new Error(r);
+      loaded = pp;
+      return 'Loaded ' + e.name;
+    });
+  }
+
   async function remove(e) {
     const sure = await window.askUser('Delete ' + e.name + '?', (e.dir ? 'The folder and everything in it will be deleted' :
       'The file will be deleted') + ' from the RT4K\'s SD card. This can\'t be undone.', 'Delete', true);
@@ -370,15 +414,15 @@
   function build() {
     const box = q('sd');
     box.innerHTML =
-      '<div class=panel id=sdbox style="max-width:1100px">' +
-      '<div class="row sdh"><nav id=sdc class="crumbs grow" aria-label="Folder"></nav>' +
+      '<div class=panel id=sdbox>' +
+      '<div class="row sdh"><nav id=sdc class=crumbs aria-label="Folder"></nav><span id=sds class="small grow"></span>' +
       '<div class=row><button id=sdu class=primary>Upload</button><button id=sdn>New folder</button>' +
       '<button id=sdr title="Read the folder again">Refresh</button></div></div>' +
       '<input type=file id=sdf multiple hidden>' +
-      '<div id=sds class=small></div>' +
+      '<div id=sdsel class=sdsel hidden><span id=sdseln class=grow></span><button id=sdselc>Clear</button><button id=sdsele class=primary></button></div>' +
       '<div id=sdp class=sdp hidden><div id=sdpt class="small mono"></div><progress id=sdpb></progress></div>' +
       '<table class=files id=sdtbl>' +
-      '<thead><tr><th data-k=name>Name</th><th data-k=size class="num cs sz">Size</th><th data-k=mtime class="num cw when">Modified</th><th class=ca></th></tr></thead>' +
+      '<thead><tr><th class=ck><input type=checkbox id=sdpa aria-label="Tick every profile here"></th><th data-k=name>Name</th><th data-k=size class="num cs sz">Size</th><th data-k=mtime class="num cw when">Modified</th><th class=ca></th></tr></thead>' +
       '<tbody id=sdt></tbody></table><div id=sde class=empty hidden>This folder is empty</div>' +
       '<div id=sdz class=asleep hidden><p id=sdzt></p><button id=sdzb class=primary>Turn the RT4K on</button></div>' +
       '<div class=small>Drop files here to upload them to this folder. ' +
@@ -393,11 +437,31 @@
       showAsleep();
       setTimeout(() => { if (waking) { waking = false; showAsleep(); } }, 10000); // it didn't take: offer it again
     };
+    q('sdt').onchange = (ev) => {
+      const c = ev.target.closest('input[data-pick]');
+      if (!c) return;
+      if (c.checked) picked.add(c.dataset.pick); else picked.delete(c.dataset.pick);
+      render();
+    };
+    q('sdpa').onchange = () => {
+      picked = new Set(q('sdpa').checked ? entries.filter((e) => !e.dir && profilePath(dir, e.name)).map((e) => e.name) : []);
+      render();
+    };
+    q('sdselc').onclick = () => { picked = new Set(); render(); };
+    // the ticked profiles in the editor, in the folder's order
+    q('sdsele').onclick = () => {
+      const paths = shown.filter((e) => picked.has(e.name)).map((e) => join(dir, e.name));
+      picked = new Set();
+      render();
+      location.hash = '#rt4k/editor';
+      window.peOpenSet(paths);
+    };
     q('sdt').onclick = (ev) => {
       const b = ev.target.closest('button[data-a]');
       const e = b && shown[+b.dataset.i];
       if (!e || busy) return;
-      if (b.dataset.a === 'ren') rename(e);
+      if (b.dataset.a === 'load') load(e);
+      else if (b.dataset.a === 'ren') rename(e);
       else remove(e);
     };
     box.querySelectorAll('th[data-k]').forEach((th) => {
@@ -443,6 +507,10 @@
   // the page's remote or with its own remote): the folder is read again once it's on.
   function onStatus(s) {
     if (onPut && s.put) onPut(s.put);
+    if ('rt4k_profile' in s && s.rt4k_profile !== loaded) { // (the profile loaded, as Cruller keeps it)
+      loaded = s.rt4k_profile;
+      if (q('sdt') && !busy && !asleep() && dir !== null) render();
+    }
     const was = power;
     power = s.rt4k_power;
     if (power !== 'standby') waking = false; // starting (or on): the status says so from now on
@@ -453,5 +521,5 @@
 
   window.sdOpen = open;
   window.sdStatus = onStatus;
-  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when }; // tests/test_sd.js
+  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when, profilePath }; // tests/test_sd.js
 })();

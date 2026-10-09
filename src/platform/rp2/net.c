@@ -29,6 +29,8 @@
 #define PORTAL_SSID         "Cruller_Setup"
 #define SETUP_JOIN_MS       20000   // the setup wizard's join attempt
 #define SETUP_CLOSE_MS      20000   // after it worked: the portal stays up this long, then Cruller restarts
+#define RETRY_MS            60000   // in the portal: the saved network tried again this often (a router
+#define RETRY_BUSY_MS       600000  // slower to boot than Cruller), or this seldom with a phone on the portal
 
 static volatile net_state_t state = NET_STARTING;
 static char ip_str[16];
@@ -336,17 +338,13 @@ size_t net_setup_json(char *out, size_t size) {
     return n > 0 && (size_t)n < size ? (size_t)n : 0;
 }
 
-static void setup_join(void) {
-    setup.rssi = 0;
-    for (int i = 0; i < scan_count; i++) {
-        if (!strcmp(scan_list[i].ssid, setup.ssid)) setup.rssi = scan_list[i].rssi;
-    }
-    printf("net: setup: joining \"%s\" with the portal up\n", setup.ssid);
+// Joins a network with the portal up: SETUP_OK once it has an address; otherwise the station leaves.
+static net_setup_state_t portal_join(const char *ssid, const char *pass) {
     cyw43_arch_enable_sta_mode();
     sta_hostname();
-    const uint32_t auth = setup.pass[0] ? CYW43_AUTH_WPA2_MIXED_PSK : CYW43_AUTH_OPEN;
+    const uint32_t auth = pass[0] ? CYW43_AUTH_WPA2_MIXED_PSK : CYW43_AUTH_OPEN;
     net_setup_state_t result = SETUP_FAILED;
-    if (cyw43_arch_wifi_connect_async(setup.ssid, setup.pass[0] ? setup.pass : NULL, auth) == 0) {
+    if (cyw43_arch_wifi_connect_async(ssid, pass[0] ? pass : NULL, auth) == 0) {
         for (const uint32_t t0 = now_ms(); now_ms() - t0 < SETUP_JOIN_MS;) {
             vTaskDelay(pdMS_TO_TICKS(250));
             const int link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
@@ -356,6 +354,17 @@ static void setup_join(void) {
             if (link == CYW43_LINK_FAIL) break;
         }
     }
+    if (result != SETUP_OK) cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    return result;
+}
+
+static void setup_join(void) {
+    setup.rssi = 0;
+    for (int i = 0; i < scan_count; i++) {
+        if (!strcmp(scan_list[i].ssid, setup.ssid)) setup.rssi = scan_list[i].rssi;
+    }
+    printf("net: setup: joining \"%s\" with the portal up\n", setup.ssid);
+    net_setup_state_t result = portal_join(setup.ssid, setup.pass);
     if (result == SETUP_OK) {
         cyw43_arch_lwip_begin();
         ip4addr_ntoa_r(netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]), setup.ip, sizeof(setup.ip));
@@ -365,13 +374,35 @@ static void setup_join(void) {
         snprintf(c.pass, sizeof(c.pass), "%s", setup.pass);
         if (!creds_save(&c)) result = SETUP_FAILED;
         setup.restart_at_ms = now_ms() + SETUP_CLOSE_MS;
-    } else {
-        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
     }
     printf("net: setup: \"%s\" %s%s%s\n", setup.ssid, result == SETUP_OK ? "joined, IP " : "failed",
         result == SETUP_OK ? setup.ip : "", result == SETUP_OK ? "; restarting in 20 s" : "");
     setup.st = result;
     setup.version++;
+}
+
+// --- the saved network, tried again from the portal ---------------------------------------------------
+//
+// After a power cut Cruller can start before the router, fail to join and land in the portal: the
+// saved network is tried every RETRY_MS, and once it's back Cruller restarts on it. Trying takes the
+// radio off the portal's channel for a few seconds, so with a phone on the portal (someone in the
+// wizard, maybe) it waits up to RETRY_BUSY_MS.
+
+static bool portal_busy(void) {
+    int n = 8;
+    uint8_t macs[8 * 6];
+    cyw43_wifi_ap_get_stas(&cyw43_state, &n, macs);
+    return n > 0;
+}
+
+static void retry_saved(void) {
+    printf("net: trying \"%s\" again\n", creds.ssid);
+    const net_setup_state_t r = portal_join(creds.ssid, creds.pass);
+    if (r == SETUP_OK) {
+        printf("net: \"%s\" is back, restarting on it\n", creds.ssid);
+        plat_reboot();
+    }
+    printf("net: \"%s\" still not there (%d)\n", creds.ssid, (int)r);
 }
 
 static void portal_forever(void) {
@@ -394,7 +425,8 @@ static void portal_forever(void) {
     set_ip(&gw);
     state = NET_PORTAL;
     status_led_set(LED_PORTAL);
-    for (;;) { // the HTTP task serves the portal; the wizard's join runs here
+    uint32_t tick_ms = now_ms(), tried_ms = tick_ms;
+    for (;;) { // the HTTP task serves the portal; the wizard's join and the saved network's retry run here
         vTaskDelay(pdMS_TO_TICKS(200));
         if (setup.requested) {
             setup.requested = false;
@@ -403,6 +435,13 @@ static void portal_forever(void) {
         if (setup.st == SETUP_OK && (int32_t)(now_ms() - setup.restart_at_ms) >= 0) {
             printf("net: setup done, restarting on \"%s\"\n", setup.ssid);
             plat_reboot();
+        }
+        if (creds.ssid[0] && now_ms() - tick_ms >= RETRY_MS && setup.st != SETUP_JOINING && setup.st != SETUP_OK) {
+            tick_ms = now_ms();
+            if (now_ms() - tried_ms >= RETRY_BUSY_MS || !portal_busy()) {
+                retry_saved();
+                tried_ms = tick_ms = now_ms();
+            }
         }
     }
 }

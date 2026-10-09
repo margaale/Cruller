@@ -9,17 +9,32 @@
 :root{--bg:#121315;--panel:#1B1D21;--raised:#23262B;--line:#2E3238;--rule:#26292E;--text:#ECEAE4;--soft:#B3B7BD;--muted:#A3A7AE;--faint:#8A8E95;--accent:#E8618C;--ok:#4CC38A;--warn:#F0B44C;--blue:#4FB3D9;--well:#0E0F11;
 --sans:'IBM Plex Sans',system-ui,sans-serif;--head:'Chakra Petch','IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace}
 *{box-sizing:border-box}
+html{scrollbar-gutter:stable} /* (a scrollbar coming and going would resize the live screen and its remote, over and over) */
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 var(--sans)}
+body{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}
+.sbar{position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;gap:20px;padding:18px 12px;border-right:1px solid var(--rule);background:var(--bg)}
+.sbar .logo{height:28px;padding:0 10px}
+.snav{display:flex;flex-direction:column;gap:2px}
+.snav .sgrp{padding:0 10px 6px;font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}.snav .sgrp:empty{margin:10px 10px 8px;padding:0;border-top:1px solid var(--rule)}
+.snav a{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500;font-size:14px}
+.snav a svg{flex:none;color:var(--faint)}.snav a:hover{background:var(--raised);color:var(--text)}
+.snav a[aria-current]{background:var(--raised);color:var(--text);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}.snav a[aria-current] svg{color:var(--accent)}
+.page{min-width:0}
+.sidecol{margin-top:auto;align-self:flex-start;width:40px;height:40px;padding:0;display:grid;place-items:center;border-color:transparent;color:var(--faint)}.sidecol:hover{color:var(--text);background:var(--raised)}
+@media (min-width:861px){ /* (collapsed: a desktop's; a phone keeps its slide-in sidebar) */
+body.sidemini{grid-template-columns:68px minmax(0,1fr)}body.sidemini .sbar{padding:18px 10px;align-items:center}body.sidemini .sbar .logo{padding:0}body.sidemini .sbar .logo span,body.sidemini .snav span{display:none}
+body.sidemini .snav{width:100%}body.sidemini .snav a{justify-content:center;padding:10px 0}body.sidemini .snav .sgrp{height:0;padding:0;overflow:hidden}body.sidemini .snav .sgrp:empty{height:auto;margin:10px 4px 8px}
+body.sidemini .sidecol{align-self:center}body.sidemini .sidecol svg{transform:scaleX(-1)}
+}
 header{display:flex;align-items:center;gap:14px;height:64px;padding:0 24px;border-bottom:1px solid var(--rule)}
+.ptitle{margin:0;font:700 20px var(--head);letter-spacing:.02em}
+.navbtn{display:none;width:40px;height:40px;padding:0;place-items:center;border-color:transparent}.logo.mlogo{display:none}
 .logo{display:flex;align-items:center;gap:10px;font:700 22px var(--head);letter-spacing:.02em}
-nav.tabs{display:flex;align-self:stretch;gap:4px;margin-left:16px}
-nav.tabs a{display:flex;align-items:center;padding:0 14px;color:var(--muted);text-decoration:none;font-weight:500;border-bottom:2px solid transparent}
-nav.tabs a[aria-current]{color:var(--text);font-weight:600;border-color:var(--accent)}
 .grow{flex-grow:1}
 .chip{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:#C9CCD1;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
 .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:#E0453F}
-main{padding:20px 24px;max-width:1440px;margin:auto}
+main{padding:20px 24px}
 [hidden]{display:none!important}
 .panel{background:var(--panel);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
 h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
@@ -36,6 +51,82 @@ h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:u
 .tbl td{padding:5px 6px 5px 0;border-top:1px solid var(--rule);font-family:var(--mono);white-space:nowrap}
 .tbl td:first-child{font-family:var(--sans);color:var(--soft);white-space:normal}
 .tbl .r{text-align:right}
+#pes.bad{color:#F07A74}.pe0{padding:18px 0;color:var(--faint)}
+.peg{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--well)}
+.pelab{font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.pehd,.pebar{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.pename{font:600 16px var(--mono)}.pedev{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}.pep .sdh .row{flex-wrap:wrap}#pedid{font-size:13px;color:var(--soft)}.pedev.chg #pedid{color:var(--accent)}
+.pemini{height:26px;padding:0 10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;border-radius:6px}
+/* The profiles open, listed beside the editor with what's done with them (no taller than the window shows of it: editor.js fitSide;
+   the list scrolls, the buttons always at its foot): the one shown marked, a changed one in colour; with
+   Multi Edit a tick each (those ticked edited together; a setting they differ in shows Mixed). Over the editor on a narrow screen. */
+/* The editor at least as tall as the window (the header 65 px and main's padding off): more, it goes on; its box and the list beside it stretch to its foot. */
+.pep{min-height:calc(100vh - 105px);min-height:calc(100dvh - 105px)}
+.pewrap{flex:1 0 auto;display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px}.pewrap>.pe0{align-self:start}.pewrap>#pebody{display:flex;flex-direction:column}.peg>.pew{flex:1 0 auto}
+.pefiles{position:sticky;top:12px;box-sizing:border-box;height:100%;max-height:calc(100vh - 24px);display:flex;flex-direction:column;gap:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--well)}
+.pefh{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px;padding:0 4px}
+.pemt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--soft);cursor:pointer}.pemt input{width:14px;height:14px;margin:0;padding:0;flex:none}
+.pefl{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+.pefr{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 2px 0 8px;border-radius:6px}.pefr:hover{background:var(--raised)}
+.pefr.on{background:var(--raised);box-shadow:inset 2px 0 0 var(--accent)}.pefr input{width:14px;height:14px;margin:0;padding:0;flex:none}
+.pefn{flex:1;min-width:0;height:32px;padding:0;border:0;border-radius:0;background:none;justify-content:flex-start;font:500 13px var(--mono);color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pefr.on .pefn{color:var(--text)}.pefr.chg .pefn{color:var(--accent)}.pefr.chg .pefn::after{content:" •"}
+.pefr .pex{flex:none;width:26px;height:26px;padding:0;border:0;font:500 16px/1 var(--sans);color:var(--faint);opacity:0}.pefr:hover .pex,.pefr.on .pex,.pefr .pex:focus-visible{opacity:1}.pefr .pex:hover{color:#F07A74}
+.pefe{padding:6px 4px;font-size:13px;color:var(--faint)}
+.pefb{margin-top:auto;display:flex;flex-direction:column;gap:12px;padding-top:12px;border-top:1px solid var(--rule)}.pefa{display:flex;flex-direction:column;gap:6px}.pefa button{width:100%;height:34px;font-size:13px;padding:0 10px}.pefa .row{gap:6px}
+.pewrap>.pe0{padding:18px 4px}
+@media (max-width:760px){.pewrap{grid-template-columns:minmax(0,1fr)}.pefiles{position:static;height:auto;max-height:none}}
+@media (max-width:640px){.pep{min-height:calc(100vh - 97px);min-height:calc(100dvh - 97px)}}
+.pev.mix,.pev.mix::placeholder,#pedid.mix{color:var(--faint);font-style:italic}
+/* The profiles of a folder to add, ticked (those open already ticked and greyed). */
+dialog.pick{max-width:520px;width:calc(100% - 32px);padding:20px 20px 16px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px #000a}
+dialog.pick::backdrop{background:#0008;backdrop-filter:blur(2px)}dialog.pick h3{margin:0 0 10px;font:700 19px var(--head)}
+.pepl{max-height:min(50vh,420px);overflow-y:auto;margin:10px 0 14px;border-top:1px solid var(--rule)}
+.pepl>button,.pepl>label{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 8px;border:0;border-bottom:1px solid var(--rule);border-radius:0;background:none;font:500 14px var(--sans);color:var(--text);text-align:left;cursor:pointer;justify-content:flex-start}
+.pepl>button:hover,.pepl>label:hover{background:var(--raised)}.pepl .ico{display:inline-flex;color:var(--warn)}.pepl input{width:16px;height:16px;margin:0;padding:0;flex:none}.pepl label.in{color:var(--faint);cursor:default}
+.pebar label,.pegrp{display:flex;align-items:center;gap:6px;min-width:0}.pebar input[type=checkbox]{width:14px;height:14px;min-height:0;padding:0;flex:none}
+.petl{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));border-bottom:1px solid var(--line);margin-right:-1px}
+.pti{display:flex;flex-direction:column;gap:2px;padding:8px 14px 6px;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);min-width:0;margin-bottom:-1px}
+.pti .pev{font:600 18px var(--mono);height:30px;padding:0;text-align:left;text-align-last:left;max-width:100%;justify-content:flex-start}.pti.chg .pelab{color:var(--accent)}
+.pev{appearance:none;-webkit-appearance:none;width:auto;max-width:240px;height:28px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);font:500 14px var(--mono);text-align:right;text-align-last:right;cursor:pointer;-moz-appearance:textfield}
+.pev::-webkit-inner-spin-button,.pev::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.pev:hover:not(:disabled){border-color:var(--line)}.pev:focus{outline:none;border-color:var(--accent);background:var(--panel)}.pev:disabled{cursor:default;opacity:1}
+.pev.off{color:#F07A74}
+.pen{position:relative;display:inline-flex;align-items:center;flex:none}
+.pestep{position:absolute;top:50%;transform:translateY(-50%);width:24px;height:24px;padding:0;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--soft);font:600 14px/1 var(--mono);touch-action:manipulation;user-select:none;opacity:0;pointer-events:none;transition:opacity .12s}
+.pestep[data-step="-1"]{right:calc(100% + 4px)}.pestep[data-step="1"]{left:calc(100% + 4px)}
+.per:hover .pestep:not(:disabled),.per:focus-within .pestep:not(:disabled){opacity:1;pointer-events:auto}
+.pestep:hover{color:var(--text);border-color:var(--soft);background:var(--raised)}.pestep:active{background:var(--line)}
+button.pev{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+button.pdd::after{content:"";flex:none;width:11px;height:11px;background:var(--faint);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;transition:transform .15s,background-color .15s}
+button.pdd:hover::after,button.pdd:focus-visible::after{background:var(--soft)}button.pdd[aria-expanded=true]::after{transform:rotate(180deg);background:var(--accent)}
+.pti button.pdd::after{width:13px;height:13px}.pti button.pdd{width:100%;justify-content:space-between}button.pev>span{min-width:0;overflow:hidden;text-overflow:ellipsis}button.pev:disabled::after{display:none}button.pev:disabled{color:var(--soft)}
+button.pdd[aria-expanded=true]{border-color:var(--accent);background:var(--panel)}
+.pelist{position:absolute;z-index:40;overflow-y:auto;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 12px 32px #000a;font:500 14px var(--mono);outline:none}
+.peo{position:relative;padding:6px 14px 6px 28px;border-radius:5px;color:var(--soft);cursor:pointer;white-space:nowrap}
+.peo.act{background:var(--raised);color:var(--text)}
+.peo.on{color:var(--accent);font-weight:600}
+.peo.on::before{content:"";position:absolute;left:10px;top:50%;width:5px;height:9px;margin-top:-6px;border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(45deg)}
+.pelg{padding:8px 10px 4px;font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.pebar .pev{text-align:left;text-align-last:left;max-width:320px;color:var(--text);justify-content:flex-start}
+.peseg{display:flex;border:1px solid var(--line);border-radius:6px;overflow-x:auto;max-width:100%;scrollbar-width:none}
+.peseg button{height:28px;border:0;border-radius:0;padding:0 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
+.peseg button+button{border-left:1px solid var(--line)}.peseg button[aria-selected]{background:var(--text);color:var(--bg)}
+.pefind{width:200px;height:28px;font-size:13px;border-radius:6px}
+.pew{display:grid;grid-template-columns:200px minmax(0,1fr);align-items:start}
+.penav{display:flex;flex-direction:column;border-right:1px solid var(--line);align-self:stretch}
+.penav button{justify-content:space-between;height:34px;border:0;border-bottom:1px solid var(--rule);border-radius:0;padding:0 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);text-align:left}
+.penav button[aria-current]{background:var(--text);color:var(--bg)}.penav button[aria-current] .peb{color:var(--bg)}
+.peb{font:600 11px var(--mono);color:var(--accent);margin-left:8px}
+.penav button.na{color:var(--faint)}.penav button.na[aria-current]{background:var(--soft);color:var(--bg)}.pena{column-span:all;padding:8px 16px 0;font-size:12px;color:var(--warn)}
+.pepane{columns:2 320px;column-gap:0;column-rule:1px solid var(--line);padding:4px 0}
+.peh{break-inside:avoid;padding:8px 16px 10px}
+.peh h3{display:flex;align-items:center;gap:8px;margin:0 0 4px;font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.peh h3::before{content:"";width:7px;height:7px;border:1px solid var(--muted);flex:none}
+.per{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:30px;margin-left:3px;padding-left:13px;padding-right:28px;border-left:1px solid var(--line)}
+.pln{font:500 14px var(--mono);color:var(--text);min-width:0}.pelab.tip,.pln.tip{text-decoration:underline dotted var(--faint);text-underline-offset:3px}
+.per.chg .pln,.per.chg .pev{color:var(--accent)}.per.na,.pti.na{opacity:.4}
+@media (max-width:760px){.pew{grid-template-columns:minmax(0,1fr)}.penav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.penav button{flex:none;border-bottom:0;border-right:1px solid var(--rule)}.pepane{columns:1}.petl{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.pegrp{flex-wrap:wrap}.pti .pev{font-size:16px}.pefind{width:100%}}
 .tbl td.warn{color:var(--warn)}.tbl td.good{color:var(--ok)}
 .pill{padding:2px 9px;border-radius:6px;background:#2B2F35;color:var(--faint);font:12px var(--mono)}
 .pill.on{background:#1F3A2C;color:var(--ok)}
@@ -65,7 +156,7 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .upd{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px}
 @media (max-width:1000px){.upd{grid-template-columns:minmax(0,1fr)}}
 /* SVS tab */
-.svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(156px,1fr));gap:8px}
 .svs-grid div{min-height:64px;padding:6px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--faint);min-width:0}
 .svs-grid div b{font:700 15px/1 var(--head);color:var(--muted)}
 .svs-grid div>span{font:600 14px/1.2 var(--sans);color:var(--soft);overflow-wrap:anywhere}
@@ -73,12 +164,16 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .svs-grid div.on{background:#3A1E2A;border-color:var(--accent);color:var(--text)}
 .svs-grid div.on>span{color:var(--text)}
 .svs-grid .con{width:84px;height:56px;color:var(--soft)}
-.con .b{fill-opacity:.14;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round}
-.con .k{fill-opacity:.3;stroke:currentColor;stroke-width:1}
-.con .l{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
 .svs-grid div.on .con{color:var(--text)}
 .svs-grid div.empty .con,.svs-grid div.empty>span{color:var(--faint)}
 .svs-grid div.empty>span{font-weight:500}
+/* SVS tab: each input's profile, in its card (profiles.js) */
+.svs-grid select{margin-top:6px;height:34px;padding:0 8px;font-size:13px}
+.svs-grid div.on select{border-color:#6A3448}
+.svs-grid small.svp-warn{color:var(--warn)}
+#vps:empty{display:none}#vps.bad{color:#F07A74}
+.svp-asleep{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;font-size:14px;color:var(--soft)}
+@media (max-width:640px){.svs-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.svs-grid select{height:44px}}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
 dialog#ask p:empty{display:none}
@@ -87,15 +182,10 @@ button:disabled{opacity:.5;cursor:default}
 input,select{font:14px var(--sans);color:var(--text);background:var(--well);border:1px solid var(--line);border-radius:8px;height:38px;padding:0 10px;width:100%}
 pre{margin:0;background:var(--well);border-radius:8px;padding:10px 12px;font:12px/1.55 var(--mono);color:#C9CCD1;overflow:auto;white-space:pre-wrap}
 a.more{color:var(--accent);text-decoration:none;font-weight:500;font-size:14px}
-.sub{display:flex;gap:6px;margin-bottom:16px}
-.sub a{padding:7px 14px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;border:1px solid transparent}
-.sub a[aria-current]{background:var(--raised);color:var(--text);border-color:var(--line)}
-.sub span.soon{padding:7px 14px;color:#6B6F76;font-size:14px}
-.soon b{font-size:10px;letter-spacing:.06em;color:var(--warn);border:1px dashed var(--warn);border-radius:999px;padding:1px 6px;margin-left:6px}
 /* RetroTINK: screen, console, remote */
 /* The remote sits next to the screen panel, scaled (app.js fitRemote) to exactly its height. */
 .stage{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"screen remote" "console console";gap:16px}
-.rwrap{grid-area:remote;position:relative;width:238px}
+.rwrap{grid-area:remote;position:relative;width:180px}
 .rwrap .remote{position:absolute;top:0;left:0;transform-origin:0 0}
 .screen{position:relative}
 canvas#tv{display:block;width:100%;aspect-ratio:16/9;image-rendering:pixelated;background:#000;border-radius:8px}
@@ -110,21 +200,27 @@ canvas#tv:fullscreen{border-radius:0}
 .asleep p{margin:0;max-width:440px;line-height:1.5}
 .live{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--muted)}
 #rx{height:170px}
-/* The RT4K remote, laid out like the real one; big dark labels on light keys (design: RemoteA). */
-.remote{width:300px;background:#161616;border:4px solid #050505;border-radius:40px;padding:22px 18px 18px;box-shadow:inset 0 1px 0 #2a2a2a,0 6px 18px #0008;font-family:system-ui,'Segoe UI',Arial,sans-serif}
-.remote button{margin:0;padding:0;height:30px;width:100%;background:#A6A6A6;color:#0B0B0B;border:0;border-radius:7px;font:800 12px system-ui,sans-serif;box-shadow:0 2px 0 #5c5c5c;display:flex;align-items:center;justify-content:center}
-.remote button:active{background:#cfcfcf;box-shadow:none;transform:translateY(2px)}
-.rg{display:grid;gap:7px;margin:0 0 12px}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-.top{grid-template-columns:60px minmax(0,1fr);gap:10px;align-items:center}
-.grp{background:#D9D9D9;padding:6px;border-radius:6px;margin:0;gap:5px}.grp button{height:26px;background:#9A9A9A;font-size:11px;border-radius:5px;box-shadow:none}
-.remote .pwr{height:60px;background:#C9202B;color:#fff;border-radius:14px;box-shadow:0 2px 0 #7a1016}
-.remote .g3:not(.grp):not(.nav):not(.mid) button{height:34px;font-size:15px}
-.nav{align-items:center;gap:8px}.nav .arw{height:64px;background:#B4B4B4;border-radius:50%}.nav .ok{height:64px;border-radius:50%;background:#7E7E7E;color:#fff;font-size:13px;box-shadow:0 2px 0 #3a3a3a}
-.nav .side{height:40px;background:#6E6E6E;color:#fff;flex-direction:column;gap:1px;box-shadow:0 2px 0 #3a3a3a}
-.mid{align-items:center;gap:8px}.tall{display:flex;flex-direction:column;gap:4px;align-items:stretch;justify-content:center}.tall span{text-align:center;font:800 10px system-ui,sans-serif;color:#D0D0D0;letter-spacing:.08em}
-.aux{margin-top:6px}.brand{text-align:center;color:#E0E0E0;font-size:19px;line-height:1.15;margin-top:14px}.brand b{font-style:italic;font-weight:800}
-.led{width:16px;height:6px;border-radius:3px;background:#e8e8e8;margin:-8px 0 10px 22px;transition:background .05s}
-.led.on{background:#ff2b2b;box-shadow:0 0 6px 1px #ff2b2b}
+/* The RT4K remote, drawn after a photo of the real one: its body 224 x 902, each key where and as big as on it (the
+   places are in the markup); the type is Segoe UI's size and shape, the system's elsewhere. */
+.remote{--key:#6b6b6d;--key-hi:#838385;--key-lo:#565657;--body:#2a2a2b;width:224px;height:902px;box-sizing:border-box;border:1px solid #050505;border-radius:10px 10px 50% 50%/10px 10px 16px 16px;background:linear-gradient(90deg,#58585b 0%,#3a3a3c 3%,var(--body) 9%,var(--body) 91%,#3a3a3c 97%,#58585b 100%);box-shadow:0 6px 18px #0008,inset 0 0 0 1.5px #6a6a6d,inset 0 3px 2px -1px #8a8a8d,inset 0 -3px 3px -1px #0d0d0d,inset 0 0 0 4px #2e2e30;font-family:'Segoe UI',system-ui,-apple-system,Roboto,'Helvetica Neue',Arial,sans-serif;color:#f2f2f2;user-select:none}
+.remote>*{position:absolute;box-sizing:border-box}
+.remote button{margin:0;padding:0;border:0;border-radius:4px;color:#fff;font:400 12px 'Segoe UI',system-ui,-apple-system,Roboto,'Helvetica Neue',Arial,sans-serif;display:flex;align-items:center;justify-content:center;cursor:pointer;background:linear-gradient(180deg,var(--key-hi) 0%,var(--key) 55%,var(--key-lo) 100%);box-shadow:0 0 0 1px #0d0d0d,0 2px 3px #0007,inset 0 1px 0 #ffffff26}
+.remote button:active{transform:translateY(1px);box-shadow:0 0 0 1px #0d0d0d,inset 0 1px 3px #0009}
+.remote svg{display:block}
+.remote .kl{font:400 12.5px/12px 'Segoe UI',system-ui,-apple-system,Roboto,'Helvetica Neue',Arial,sans-serif;color:#f1f1f1;text-align:center;white-space:nowrap}
+.remote .k{border-radius:3px}.remote .num{border-radius:3px;font-size:21px;padding-bottom:3px}.remote .sq,.remote .safe{border-radius:6px}.remote .safe{font-size:13px}
+.remote .pwr{border-radius:6px;background:linear-gradient(180deg,#ef6b67 0%,#d6403c 55%,#a92521 100%);box-shadow:0 0 0 1px #5a1210,0 2px 3px #0007,inset 0 1px 0 #ffffff33}
+.remote .padring{border-radius:50%;background:var(--body)}
+.remote .seg{position:absolute;inset:0;width:100%;height:100%;border-radius:0;clip-path:path('M114.13 16.8A69 69 0 0 0 23.87 16.8L49.11 42.04A33.5 33.5 0 0 1 88.89 42.04Z');background:radial-gradient(circle closest-side,var(--key-lo) 50%,var(--key) 80%,var(--key-hi) 100%);box-shadow:none;align-items:flex-start;padding-top:12px;transform:var(--rot)}
+.remote .seg:active{transform:var(--rot);box-shadow:none;filter:brightness(1.18)}
+.remote .ok{position:absolute;border-radius:50%}
+.remote .rock{display:flex;flex-direction:column;border-radius:7px;overflow:hidden;background:linear-gradient(180deg,var(--key-hi) 0%,var(--key) 50%,var(--key-lo) 100%);box-shadow:0 0 0 1px #0d0d0d,0 2px 3px #0007,inset 0 1px 0 #ffffff26}
+.remote .rock button{background:transparent;box-shadow:none;border-radius:0;font-size:11.5px}
+.remote .rock span{height:39px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;border-top:1px solid #ffffff38;border-bottom:1px solid #00000059;background:linear-gradient(180deg,#ffffff12,#0000001f)}
+.remote .brand{text-align:center;font-size:28.5px;line-height:34px;font-weight:300}.remote .brand b{font:italic 700 28.5px Arial,Helvetica,sans-serif}
+.remote .brand4k{text-align:center;font-size:21px;line-height:26px}
+.remote .led{left:43.5px;top:37px;width:15px;height:5px;border-radius:1px;background:#f4f4f4;box-shadow:0 0 2px #fff6;transition:background .05s}
+.remote .led.on{background:#ff2b2b;box-shadow:0 0 6px 1px #ff2b2b}
 /* firmware (fw.js) */
 .fwv{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
 .fwv button{justify-content:space-between;height:44px;background:var(--panel);width:100%}
@@ -143,15 +239,15 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .steps li[data-state=fail] .si{border-color:#E0453F;color:#E0453F}.steps li[data-state=fail] .si::before{content:'✕'}.steps li[data-state=fail] .sd{color:#F07A74}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* SD card (sd.js) */
-.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font:600 18px var(--head);min-width:0}
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font:500 14px var(--sans);min-width:0}.crumbs h2 a{color:inherit;margin-left:-6px}
 .crumbs a{color:var(--muted);text-decoration:none;padding:2px 6px;border-radius:6px}.crumbs a:hover{color:var(--text);background:var(--raised)}
 .crumbs span{color:#6B6F76}.crumbs b{padding:2px 6px;font-weight:700;overflow-wrap:anywhere}
 #sds.bad{color:#F07A74}
-.sdh{flex-wrap:wrap}
+.sdh{flex-wrap:wrap}.sdh>.small{text-align:right}
 .sdp{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--raised);border-radius:10px}
 #sdbox.drop{outline:2px dashed var(--accent);outline-offset:-2px}
 .files{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
-.files .cs{width:96px}.files .cw{width:150px}.files .ca{width:116px}
+.files .cs{width:96px}.files .cw{width:150px}.files .ca{width:186px}
 .files th{font-weight:500;font-size:12px;color:var(--faint);text-align:left;padding:0 8px 8px;cursor:pointer;user-select:none}
 .files th[aria-sort=ascending]::after{content:' ▲';font-size:9px}.files th[aria-sort=descending]::after{content:' ▼';font-size:9px}
 .files th[aria-sort=ascending],.files th[aria-sort=descending]{color:var(--text)}
@@ -164,16 +260,22 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .files .ico{display:inline-flex;margin-right:10px;color:var(--warn);flex:none}.files .ico.f{color:var(--faint)}
 .files tr.up a{display:flex;align-items:center;color:var(--muted);text-decoration:none;height:40px;font-family:var(--mono)}
 #sde{color:var(--faint);text-align:center;padding:20px 0;border-top:1px solid var(--rule);margin-top:-12px}
+.files a.ib{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;border:1px solid transparent;border-radius:8px}
+.files td.act>*{vertical-align:middle}
+.files tr.cur td{background:#3A1E2A}.files tr.cur .ico{color:var(--accent)}
 .files td.act{text-align:right;padding-right:4px;text-overflow:clip}
 .files .ib{width:34px;height:34px;padding:0;border-color:transparent;color:var(--soft)}.files .ib:hover:not(:disabled){border-color:var(--line);color:var(--text)}
 .files .ib.del:hover:not(:disabled){border-color:#5A2A28;color:#F07A74}
 .files .msz{display:none}
+/* In a profiles' folder a column of ticks (every one at its head), and with any ticked, a bar to edit them together. */
+.files .ck{width:34px;padding:0 0 0 8px;cursor:default}.files th.ck{padding:0 0 8px 8px}.files:not(.pk) .ck{display:none}.files .ck input{display:block;width:16px;height:16px;margin:0;padding:0}
+.sdsel{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border-radius:10px;background:var(--raised);font-size:14px}
 /* Narrow screens: no date, the size under the name, names wrap instead of being cut. */
-@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:98px}.files td{padding:0 4px}.files .ib{width:30px}.sub a{white-space:nowrap}.sub span.soon{display:none}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
+@media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:156px}.files td{padding:0 4px}.files .ib{width:30px}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
 .files td.n{white-space:normal;overflow-wrap:break-word;height:auto;padding-top:6px;padding-bottom:6px}.files td.n a,.files .fn{height:auto;min-height:28px}
 .files .msz{display:block;font:12px var(--mono);color:var(--faint)}}
 /* setup wizard (portal) */
-body.setup header nav,body.setup header .chip{display:none}
+body.setup{grid-template-columns:minmax(0,1fr)}body.setup .sbar,body.setup .navbtn,body.setup .ptitle,body.setup header .chip{display:none}body.setup .logo.mlogo{display:flex}
 .wiz{max-width:430px;margin:auto;display:flex;flex-direction:column;gap:16px;min-height:calc(100vh - 110px)}
 .wiz-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.wiz-bar div{height:4px;border-radius:2px;background:#2B2F35}.wiz-bar div.on{background:var(--accent)}
 .wiz-page{display:flex;flex-direction:column;gap:14px;flex-grow:1}
@@ -195,14 +297,22 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 .chart{width:100%;height:130px;display:block;background:var(--well);border-radius:8px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font:12px var(--mono)}.legend i{display:inline-block;width:8px;height:8px;margin-right:6px}
 #d-rx,#lg{height:200px}
-@media (max-width:1000px){.grid3{grid-template-columns:minmax(0,1fr)}.span2,.span3{grid-column:auto}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.stage{grid-template-columns:minmax(0,1fr);grid-template-areas:"screen" "remote" "console"}.rwrap{width:auto!important;height:auto!important}.rwrap .remote{position:static;transform:none!important;margin:auto}}
-@media (max-width:640px){header{padding:0 12px;gap:8px}.logo span{display:none}#rt4k-chip{display:none}#chip-rt4k{padding:8px}nav.tabs{margin-left:0}nav.tabs a{padding:0 8px}.hide-sm{display:none}main{padding:16px}}
+@media (max-width:1000px){.grid3{grid-template-columns:minmax(0,1fr)}.span2,.span3{grid-column:auto}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.stage{grid-template-columns:minmax(0,1fr);grid-template-areas:"screen" "remote" "console"}.rwrap{width:auto!important}}
+@media (max-width:640px){header{padding:0 12px;gap:8px}header .logo span{display:none}#rt4k-chip{display:none}#chip-rt4k{padding:8px}.hide-sm{display:none}main{padding:16px}}
+@media (max-width:860px){body{grid-template-columns:minmax(0,1fr)}.sbar{position:fixed;inset:0 auto 0 0;width:min(272px,84vw);z-index:60;transform:translateX(-102%);transition:transform .2s ease;box-shadow:none}body.navopen .sbar{transform:none;box-shadow:0 0 0 100vmax #0009}.navbtn{display:grid}.logo.mlogo{display:flex}header{gap:10px}.sidecol{display:none}.ptitle{font-size:18px}}
 </style>
 </head>
 <body>
-<header>
+<aside class="sbar" id="side">
 <div class="logo"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#E8618C" stroke-width="4" aria-hidden="true"><circle cx="14" cy="14" r="10"/></svg><span>Cruller</span></div>
-<nav class="tabs" aria-label="Sections"><a href="#rt4k" data-tab="rt4k">RetroTINK</a><a href="#svs" data-tab="svs">SVS</a><a href="#cruller" data-tab="cruller">Cruller</a><a href="#debug" data-tab="debug">Debug</a></nav>
+<nav class="snav" aria-label="Sections"><div class="sgrp">RetroTINK</div><a href="#rt4k" data-nav="rt4k/live" title="Live screen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg><span>Live screen</span></a><a href="#rt4k/editor" data-nav="rt4k/editor" title="Editor"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/></svg><span>Editor</span></a><a href="#rt4k/sd" data-nav="rt4k/sd" title="SD card"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9 7v3"/><path d="M12 7v3"/><path d="M15 7v3"/></svg><span>SD card</span></a><a href="#rt4k/firmware" data-nav="rt4k/firmware" title="Firmware"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg><span>Firmware</span></a><div class="sgrp"></div><a href="#svs" data-nav="svs" title="SVS"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="8" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="16" cy="12" r="1.2"/></svg><span>SVS</span></a><a href="#cruller" data-nav="cruller" title="Cruller"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg><span>Cruller</span></a><a href="#debug" data-nav="debug" title="Debug"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg><span>Debug</span></a></nav>
+<button class="sidecol" id="sidecol" aria-label="Collapse the sidebar" title="Collapse the sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M16 10l-2 2 2 2"/></svg></button>
+</aside>
+<div class="page">
+<header>
+<button class="navbtn" id="navbtn" aria-label="Sections" aria-controls="side" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+<div class="logo mlogo"><svg width="24" height="24" viewBox="0 0 28 28" fill="none" stroke="#E8618C" stroke-width="4" aria-hidden="true"><circle cx="14" cy="14" r="10"/></svg></div>
+<h1 class="ptitle" id="ptitle"></h1>
 <div class="grow"></div>
 <div class="chip" id="chip-rt4k"><span class="dot" id="rt4k-dot"></span><span id="rt4k-chip">Connecting…</span></div>
 <div class="chip hide-sm" id="chip-wifi" hidden><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 9a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r=".8"/></svg><span id="wifi-chip"></span></div>
@@ -212,7 +322,6 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <main>
 <!-- RetroTINK -->
 <section data-view="rt4k">
-<div class="sub"><a href="#rt4k" data-sub="live">Live screen</a><a href="#rt4k/firmware" data-sub="firmware">Firmware</a><a href="#rt4k/sd" data-sub="sd">SD card</a><span class="soon">Profiles<b>SOON</b></span></div>
 
 <div data-subview="live" class="stage">
 <div class="panel" style="grid-area:screen">
@@ -225,23 +334,18 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <pre id="rx"></pre>
 <form onsubmit="return cmd('cm')"><input id="cm" placeholder="Command, e.g. remote menu" autocomplete="off" autocapitalize="none"></form>
 </div>
-<div class="rwrap"><div class="remote" id="remote"><div class="led" id="led"></div><div class="rg top"><button class="pwr" data-c="remote pwr" data-confirm="Turn the RT4K off?" aria-label="Power"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" style="display:block;margin:auto"><path d="M12 3v8"/><path d="M6.6 6.6a7.5 7.5 0 1 0 10.8 0"/></svg></button><div class="rg g3 grp"><button data-c="remote input">INPUT</button><button data-c="remote output">OUT</button><button data-c="remote scaler">SCL</button><button data-c="remote sfx">SFX</button><button data-c="remote adc">ADC</button><button data-c="remote prof">PROF</button></div></div>
-<div class="rg g3"><button data-c="remote prof1">1</button><button data-c="remote prof2">2</button><button data-c="remote prof3">3</button><button data-c="remote prof4">4</button><button data-c="remote prof5">5</button><button data-c="remote prof6">6</button><button data-c="remote prof7">7</button><button data-c="remote prof8">8</button><button data-c="remote prof9">9</button><button data-c="remote prof10">10</button><button data-c="remote prof11">11</button><button data-c="remote prof12">12</button></div>
-<div class="rg g3 nav"><button class="side" data-c="remote menu"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>MENU</button><button class="arw" data-c="remote up" aria-label="Up"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 6l7 10H5z"/></svg></button><button class="side" data-c="remote back"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>BACK</button><button class="arw" data-c="remote left" aria-label="Left"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 12l10-7v14z"/></svg></button><button class="ok" data-c="remote ok">ENTER</button><button class="arw" data-c="remote right" aria-label="Right"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 12L8 5v14z"/></svg></button><button class="side" data-c="remote diag"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>DIAG</button><button class="arw" data-c="remote down" aria-label="Down"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 18L5 8h14z"/></svg></button><button class="side" data-c="remote stat"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M4 7l3-3 3 3"/><path d="M17 20V4M14 17l3 3 3-3"/></svg>STAT</button></div>
-<div class="rg g3 mid"><div class="tall"><button data-c="remote gain">GAIN</button><span>AUTO</span><button data-c="remote phase">PHA</button></div><div class="tall"><button data-c="remote pause" aria-label="Pause"><svg width="22" height="14" viewBox="0 0 34 20" fill="currentColor" aria-hidden="true"><path d="M2 2l12 8-12 8z"/><path d="M19 2h4v16h-4zM27 2h4v16h-4z"/></svg></button><button data-c="safemode">SAFE</button></div><div class="tall"><button data-c="remote genlock">GEN</button><span>SYNC</span><button data-c="remote buffer">BUF</button></div></div>
-<div class="rg g4"><button data-c="remote res4k">4K</button><button data-c="remote res1080p">1080p</button><button data-c="remote res1440p">1440p</button><button data-c="remote res480p">480p</button><button data-c="remote res1">RES1</button><button data-c="remote res2">RES2</button><button data-c="remote res3">RES3</button><button data-c="remote res4">RES4</button></div>
-<div class="rg g4 aux"><button data-c="remote aux1">AUX1</button><button data-c="remote aux2">AUX2</button><button data-c="remote aux3">AUX3</button><button data-c="remote aux4">AUX4</button><button data-c="remote aux5">AUX5</button><button data-c="remote aux6">AUX6</button><button data-c="remote aux7">AUX7</button><button data-c="remote aux8">AUX8</button></div>
-<div class="brand">Retro<b>TINK</b><br><span style="font-size:15px;font-weight:700">4K</span></div></div></div>
+<div class="rwrap"><div class="remote" id="remote"><div class="led" id="led"></div><button class="pwr" data-c="remote pwr" data-confirm="Turn the RT4K off?" aria-label="Power" style="left:28px;top:56px;width:46px;height:45px"><svg width="20" height="22.2" viewBox="0 0 20 22.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:translate(0px,0.5px)"><path d="M10 1.1V11"/><path d="M4.54 5.99A8.5 8.5 0 1 0 15.46 5.99"/></svg></button><span class="kl" style="left:70px;top:42.7px;width:60px;height:12px">INPUT</span><span class="kl" style="left:110.5px;top:42.7px;width:60px;height:12px">OUT</span><span class="kl" style="left:151px;top:42.7px;width:60px;height:12px">SCL</span><button class="k" data-c="remote input" aria-label="Input" style="left:85px;top:56px;width:30px;height:16px"></button><button class="k" data-c="remote output" aria-label="Output" style="left:125.5px;top:56px;width:30px;height:16px"></button><button class="k" data-c="remote scaler" aria-label="Scaler" style="left:166px;top:56px;width:30px;height:16px"></button><button class="k" data-c="remote sfx" aria-label="SFX" style="left:85px;top:85px;width:30px;height:16px"></button><button class="k" data-c="remote adc" aria-label="ADC" style="left:125.5px;top:85px;width:30px;height:16px"></button><button class="k" data-c="remote prof" aria-label="Profiles" style="left:166px;top:85px;width:30px;height:16px"></button><span class="kl" style="left:70px;top:102.7px;width:60px;height:12px">SFX</span><span class="kl" style="left:110.5px;top:102.7px;width:60px;height:12px">ADC</span><span class="kl" style="left:151px;top:102.7px;width:60px;height:12px">PROF</span><button class="num" data-c="remote prof1" style="left:28px;top:121px;width:46px;height:27px">1</button><button class="num" data-c="remote prof2" style="left:89px;top:121px;width:46px;height:27px">2</button><button class="num" data-c="remote prof3" style="left:150px;top:121px;width:46px;height:27px">3</button><button class="num" data-c="remote prof4" style="left:28px;top:159px;width:46px;height:27px">4</button><button class="num" data-c="remote prof5" style="left:89px;top:159px;width:46px;height:27px">5</button><button class="num" data-c="remote prof6" style="left:150px;top:159px;width:46px;height:27px">6</button><button class="num" data-c="remote prof7" style="left:28px;top:198px;width:46px;height:27px">7</button><button class="num" data-c="remote prof8" style="left:89px;top:198px;width:46px;height:27px">8</button><button class="num" data-c="remote prof9" style="left:150px;top:198px;width:46px;height:27px">9</button><button class="num" data-c="remote prof10" style="left:28px;top:236px;width:46px;height:27px">10</button><button class="num" data-c="remote prof11" style="left:89px;top:236px;width:46px;height:27px">11</button><button class="num" data-c="remote prof12" style="left:150px;top:236px;width:46px;height:27px">12</button><span class="kl" style="left:20.5px;top:266.7px;width:60px;height:12px">MENU</span><span class="kl" style="left:143.5px;top:266.7px;width:60px;height:12px">BACK</span><button class="sq" data-c="remote menu" aria-label="Menu" style="left:31px;top:282px;width:39px;height:39px"><svg width="16" height="13" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:translate(-3px,-3.5px)"><path d="M1.3 1.3h13.4M1.3 6.5h13.4M1.3 11.7h13.4"/></svg></button><button class="sq" data-c="remote back" aria-label="Back" style="left:154px;top:282px;width:39px;height:39px"><svg width="17" height="14.5" viewBox="0 0 17 14.5"  aria-hidden="true" style="transform:translate(3px,-4.2px)"><path d="M0 5 7 0v10z" fill="currentColor"/><path d="M6 5h4.3a5 5 0 0 1 5 5v4.5" fill="none" stroke="currentColor" stroke-width="3"/></svg></button><button class="sq" data-c="remote diag" aria-label="Diagnostics" style="left:31px;top:406px;width:39px;height:39px"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:translate(-2.3px,4.2px)"><circle cx="8" cy="8" r="6.2"/><path d="M12.6 12.6l5.9 5.9" stroke-width="2.8"/></svg></button><button class="sq" data-c="remote stat" aria-label="Status" style="left:154px;top:406px;width:39px;height:39px"><svg width="24" height="17" viewBox="0 0 24 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true" style="transform:translate(5px,4.2px)"><path d="M0 8.5h5.5V1H11v15h6V8.5h7"/></svg></button><span class="kl" style="left:20.5px;top:446.7px;width:60px;height:12px">DIAG</span><span class="kl" style="left:143.5px;top:446.7px;width:60px;height:12px">STAT</span><div class="padring" style="left:32.5px;top:284px;width:159px;height:159px"></div><div class="pad" style="left:43px;top:294.5px;width:138px;height:138px"><button class="seg" data-c="remote up" aria-label="Up" style="--rot:rotate(0deg)"><svg width="13" height="10" viewBox="0 0 13 10" fill="currentColor" aria-hidden="true"><path d="M6.5 0L13 10H0z"/></svg></button><button class="seg" data-c="remote right" aria-label="Right" style="--rot:rotate(90deg)"><svg width="13" height="10" viewBox="0 0 13 10" fill="currentColor" aria-hidden="true"><path d="M6.5 0L13 10H0z"/></svg></button><button class="seg" data-c="remote down" aria-label="Down" style="--rot:rotate(180deg)"><svg width="13" height="10" viewBox="0 0 13 10" fill="currentColor" aria-hidden="true"><path d="M6.5 0L13 10H0z"/></svg></button><button class="seg" data-c="remote left" aria-label="Left" style="--rot:rotate(270deg)"><svg width="13" height="10" viewBox="0 0 13 10" fill="currentColor" aria-hidden="true"><path d="M6.5 0L13 10H0z"/></svg></button><button class="ok" data-c="remote ok" style="left:46px;top:46px;width:46px;height:46px">ENTER</button></div><div class="rock" style="left:31px;top:465px;width:43px;height:100px"><button data-c="remote gain" style="height:32px">GAIN</button><span>AUTO</span><button data-c="remote phase" style="height:29px;padding-bottom:5px">PHA</button></div><div class="rock" style="left:150px;top:465px;width:43px;height:100px"><button data-c="remote genlock" style="height:32px">GEN</button><span>SYNC</span><button data-c="remote buffer" style="height:29px;padding-bottom:5px">BUF</button></div><button class="sq" data-c="remote pause" aria-label="Pause" style="left:93px;top:470px;width:38px;height:38px"><svg width="26" height="14" viewBox="0 0 26 14" fill="currentColor" aria-hidden="true"><path d="M1.5 0.8l9.2 6.2-9.2 6.2z"/><path d="M14.5 0.8h3v12.4h-3zM20.6 0.8h3v12.4h-3z"/></svg></button><button class="safe" data-c="safemode" style="left:93px;top:523px;width:38px;height:38px">SAFE</button><span class="kl" style="left:15px;top:572.23px;width:60px;height:12px;font-size:12px">4K</span><button data-c="remote res4k" aria-label="4K" style="left:28px;top:586px;width:34px;height:20px"></button><span class="kl" style="left:59.67px;top:572.23px;width:60px;height:12px;font-size:12px">1080p</span><button data-c="remote res1080p" aria-label="1080p" style="left:72.67px;top:586px;width:34px;height:20px"></button><span class="kl" style="left:104.33px;top:572.23px;width:60px;height:12px;font-size:12px">1440p</span><button data-c="remote res1440p" aria-label="1440p" style="left:117.33px;top:586px;width:34px;height:20px"></button><span class="kl" style="left:149px;top:572.23px;width:60px;height:12px;font-size:12px">480p</span><button data-c="remote res480p" aria-label="480p" style="left:162px;top:586px;width:34px;height:20px"></button><span class="kl" style="left:15px;top:609.23px;width:60px;height:12px;font-size:12px">RES1</span><button data-c="remote res1" aria-label="RES1" style="left:28px;top:624px;width:34px;height:20px"></button><span class="kl" style="left:59.67px;top:609.23px;width:60px;height:12px;font-size:12px">RES2</span><button data-c="remote res2" aria-label="RES2" style="left:72.67px;top:624px;width:34px;height:20px"></button><span class="kl" style="left:104.33px;top:609.23px;width:60px;height:12px;font-size:12px">RES3</span><button data-c="remote res3" aria-label="RES3" style="left:117.33px;top:624px;width:34px;height:20px"></button><span class="kl" style="left:149px;top:609.23px;width:60px;height:12px;font-size:12px">RES4</span><button data-c="remote res4" aria-label="RES4" style="left:162px;top:624px;width:34px;height:20px"></button><span class="kl" style="left:15px;top:685.73px;width:60px;height:12px;font-size:12px">AUX1</span><button data-c="remote aux1" aria-label="AUX1" style="left:28px;top:701px;width:34px;height:21px"></button><span class="kl" style="left:59.67px;top:685.73px;width:60px;height:12px;font-size:12px">AUX2</span><button data-c="remote aux2" aria-label="AUX2" style="left:72.67px;top:701px;width:34px;height:21px"></button><span class="kl" style="left:104.33px;top:685.73px;width:60px;height:12px;font-size:12px">AUX3</span><button data-c="remote aux3" aria-label="AUX3" style="left:117.33px;top:701px;width:34px;height:21px"></button><span class="kl" style="left:149px;top:685.73px;width:60px;height:12px;font-size:12px">AUX4</span><button data-c="remote aux4" aria-label="AUX4" style="left:162px;top:701px;width:34px;height:21px"></button><span class="kl" style="left:15px;top:724.23px;width:60px;height:12px;font-size:12px">AUX5</span><button data-c="remote aux5" aria-label="AUX5" style="left:28px;top:739px;width:34px;height:21px"></button><span class="kl" style="left:59.67px;top:724.23px;width:60px;height:12px;font-size:12px">AUX6</span><button data-c="remote aux6" aria-label="AUX6" style="left:72.67px;top:739px;width:34px;height:21px"></button><span class="kl" style="left:104.33px;top:724.23px;width:60px;height:12px;font-size:12px">AUX7</span><button data-c="remote aux7" aria-label="AUX7" style="left:117.33px;top:739px;width:34px;height:21px"></button><span class="kl" style="left:149px;top:724.23px;width:60px;height:12px;font-size:12px">AUX8</span><button data-c="remote aux8" aria-label="AUX8" style="left:162px;top:739px;width:34px;height:21px"></button><div class="brand" style="left:0px;top:796.7px;width:224px;height:34px">Retro<b>TINK</b></div><div class="brand4k" style="left:0px;top:835.2px;width:224px;height:26px">4K</div></div></div>
 </div>
 
 <div data-subview="firmware" id="fw"></div>
 <div data-subview="sd" id="sd"></div>
+<div data-subview="editor" id="pe"></div>
 </section>
 
 <!-- Cruller -->
 <section data-view="cruller" class="grid3">
 <div class="panel span2">
-<div class="row"><h2 class="grow">Serial link to the RT4K</h2><span class="dot" id="c-dot"></span><span id="c-link" style="font-size:14px"></span></div>
+<div class="row"><h2 class="grow">Serial link to the RT4K</h2><span class="dot" id="c-dot"></span><span id="c-link" class="small"></span></div>
 <div class="metrics">
 <div class="metric"><span>Key → screen</span><span class="big" id="c-lat">–</span><span class="small" id="c-lat2">press a key on the remote</span></div>
 <div class="metric"><span>Bytes lost</span><span class="big" id="c-drop">–</span><span class="small">commands that did not fit</span></div>
@@ -310,14 +414,14 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <!-- SVS: the Scalable Video Switch, through its bridge (docs/SVS.md) -->
 <section data-view="svs" class="grid3">
 <div class="panel span3">
-<div class="row"><h2 class="grow">Inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span></div>
+<div class="row"><h2 class="grow">Inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span>
+<button class="refresh svs-more" id="vpr" title="Read /profile/SVS again" aria-label="Read /profile/SVS again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
 <div class="small" id="v-since"></div>
 <div class="small svs-wait">The SVS Bridge finds this Cruller on the network by itself and starts reporting the switch's input. Nothing to set up here.</div>
 <div class="svs-grid svs-more" id="v-grid" hidden></div>
 <div class="small svs-more" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
 <div class="small" id="v-noname" hidden>Pick each input's module and the console on it in the SVS Bridge's SVS tab: they show up here.</div>
-<div class="small svs-more">With "Auto Load SVS" on, the RT4K loads <span class="mono">/profile/SVS/S&lt;input&gt;_….rt4</span> when the switch changes input. Per-console game profiles (gameID) come here next.</div>
-</div>
+<div class="svs-more" id="v-prof" style="display:flex;flex-direction:column;gap:8px"></div></div>
 
 <div class="panel svs-more">
 <h2>SVS Bridge</h2>
@@ -444,10 +548,10 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="panel"><h2>Tools</h2>
 <form class="row" onsubmit="return cmd('d-cm')"><input id="d-cm" placeholder="Raw command…" autocomplete="off" autocapitalize="none"><button class="primary">Send</button></form>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-<a class="btn" href="/debug/usbtrace" target="_blank">USB trace</a>
-<button onclick="tool('/debug/portal?minutes=10')">Test setup portal</button>
-<button onclick="tool('/debug/flow?on=1')">Flow control on</button>
-<button onclick="tool('/debug/flow?on=0')">Flow control off</button>
+<a class="btn" href="/debug/usbtrace" target="_blank" data-dev>USB trace</a>
+<button onclick="tool('/debug/portal?minutes=10')" data-dev>Test setup portal</button>
+<button onclick="tool('/debug/flow?on=1')" data-dev>Flow control on</button>
+<button onclick="tool('/debug/flow?on=0')" data-dev>Flow control off</button>
 </div><div class="small" id="d-tool"></div></div>
 
 <div class="panel span2"><div class="row"><h2 class="grow">Cruller log</h2></div><pre id="lg"></pre></div>
@@ -455,10 +559,12 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="small">What each core was running at the last samples; after a watchdog reset it shows the moments before it.</div>
 <table class="tbl"><thead><tr><th>Core</th><th>Task</th><th class="r">Watchdog left</th><th class="r">Fed</th></tr></thead><tbody id="z-rows"></tbody></table>
 <a class="more" href="/debug/freeze" target="_blank">Every sample →</a></div>
+<div class="panel span3" id="mp"></div>
 <div class="panel span2"><div class="row"><h2 class="grow">Tasks</h2><span class="small">on request: reading the stacks pauses both cores for a few ms</span><button onclick="stacks()">Read tasks</button></div>
 <table class="tbl"><thead><tr><th>Task</th><th>State</th><th class="r">Priority</th><th class="r">Stack never used</th></tr></thead><tbody id="t-rows"><tr><td colspan="4" class="small">Not read yet</td></tr></tbody></table></div>
 </section>
 </main>
+</div>
 <div id="busy" class="busy" hidden role="status" aria-live="polite">
 <div class="busy-box">
 <div class="ring" id="busy-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44" class="track"/><circle cx="50" cy="50" r="44" class="arc" id="busy-arc"/></svg><span id="busy-num"></span><span id="busy-icon"></span></div>
@@ -478,6 +584,9 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <script src="/sha256.js" defer></script>
 <script src="/fw.js" defer></script>
 <script src="/sd.js" defer></script>
+<script src="/profiles.js" defer></script>
+<script src="/editor.js" defer></script>
+<script src="/mapper.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>

@@ -33,5 +33,15 @@ bool svs_get(svs_state_t *out);
 // The switch as last described; its switch_seq (0, and *out left alone, if none since boot).
 uint32_t svs_get_switch(svs_switch_t *out);
 
-// Changes with every input change and every new description (the WebSocket pushes the status then).
+// Changes with every input change, every new description and new profiles (the WebSocket pushes the
+// status then).
 uint32_t svs_version(void);
+
+// Each input's profile as the page last read the RT4K's card (svs_proto.h's text), kept across
+// restarts (store.h) so the page and Home Assistant have them while the RT4K sleeps.
+void svs_profiles_start(void);         // loads what was kept; before the tasks that ask
+const char *svs_profiles_text(void);   // "" when none (the HTTP task's: it's the one that sets them)
+uint32_t svs_profiles_seq(void);       // changes when they do (0: none kept)
+// Keeps them if they changed (*changed), the flash written only then (or again after a failed write).
+// False if that write failed.
+bool svs_profiles_set(const char *text, bool *changed);

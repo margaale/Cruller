@@ -34,7 +34,10 @@
 #define MEMP_NUM_ARP_QUEUE          10
 #define MEMP_NUM_NETCONN            20
 #define MEMP_NUM_TCP_PCB            24
-#define PBUF_POOL_SIZE              24
+// Received frames, one each (~1.5 KB). What a connection holds unread is at most its window (TCP_WND:
+// 8 segments), so 16 take a bulk upload (an update, an SD card file) and the rest beside it; it peaked
+// at 3 in everyday use. Running out drops frames (TCP sends them again), it doesn't fail.
+#define PBUF_POOL_SIZE              16
 
 #define LWIP_ARP                    1
 #define LWIP_ETHERNET               1
