@@ -923,6 +923,30 @@ function out(t) { append('rx', t); }
 let ws, font = null;
 const planes = [null, null], BG = [[5, 7, 12], [233, 237, 243], [32, 192, 32], [208, 32, 32]];
 
+// Where the RT4K puts its menu: OSD/Firmware › On Screen Display › Position (0 Left, 1 Center, 2 Right),
+// byte 0x17cc of its live settings (struct ver 109, as the settings map has it). Read each time the menu
+// shows up, so one changed in the menu itself shows the next time it opens.
+const OSD_POS_AT = 0x17cc;
+// Whether a plane shows anything: a character, or a cell's background (the plane comes, blank, with no menu).
+function showing(p) {
+  if (!p) return false;
+  const k = kv(p.r), rows = k.rows || 0, w = k.width || k.cols || 0, stp = k.stride || w;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < w; x++) { const j = y * stp + x; if (p.d[j] > 32 || p.d[2048 + j] & 192) return true; }
+  return false;
+}
+let osdPos = 0, osdPosReading = false;
+async function readOsdPos() {
+  if (osdPosReading) return;
+  osdPosReading = true;
+  try {
+    const r = await fetch('/api/v1/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: 'peek ' + OSD_POS_AT + ' 1' }) });
+    const v = await r.json(), m = /peek [0-9a-f]+ ([0-9a-f]{2})/i.exec(((v.results && v.results[0] && v.results[0].reply) || []).join(' '));
+    const p = m ? parseInt(m[1], 16) : -1;
+    if (p >= 0 && p <= 2 && p !== osdPos) { osdPos = p; draw(); }
+  } catch (e) { /* as it was: read again next time */ }
+  osdPosReading = false;
+}
+
 function send(t) {
   if (ws && ws.readyState === 1) { ws.send(t); return true; }
   return false;
@@ -966,7 +990,9 @@ function conn() {
     else if (u[0] === 2) {
       const n = u[2], d = u.subarray(3 + n);
       if (u[1] === 1 && ST.key) { ST.lat = Math.round(performance.now() - ST.key); ST.key = 0; keySeen(ST.lat); }
+      const was = planes[0];
       planes[u[1] - 1] = d.length ? { r: new TextDecoder().decode(u.subarray(3, 3 + n)), d: d.slice() } : null;
+      if (u[1] === 1 && !showing(was) && showing(planes[0])) readOsdPos(); // (the menu shows up)
       draw();
     }
   };
@@ -1074,8 +1100,9 @@ function draw() {
   if (!font) return;
   const mk = planes[0] ? kv(planes[0].r) : {}, ph = (mk.rows || 32) * 16, sc = H * (2048 / 2160) / ph;
   if (planes[0] && !(planes[1] && sameAsMessages(planes[0], planes[1]))) {
-    const c = render(planes[0]);
-    blit(g, c, 0, 0, c.width, c.height, W * 0.031, H * 0.974 - c.height * sc, sc);
+    const c = render(planes[0]), pw = c.width * sc; // (as the RT4K's Position puts it: its left margin mirrored on the right)
+    const x = osdPos === 1 ? (W - pw) / 2 : osdPos === 2 ? W * (1 - 0.031) - pw : W * 0.031;
+    blit(g, c, 0, 0, c.width, c.height, x, H * 0.974 - c.height * sc, sc);
   }
   // Secondary plane: only its content (it's left-aligned inside a 32-column box).
   if (planes[1]) {
