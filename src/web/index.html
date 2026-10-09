@@ -57,6 +57,33 @@ h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:u
 .pehd,.pebar{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .pename{font:600 16px var(--mono)}.pedev{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}.pep .sdh .row{flex-wrap:wrap}#pedid{font-size:13px;color:var(--soft)}.pedev.chg #pedid{color:var(--accent)}
 .pemini{height:26px;padding:0 10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;border-radius:6px}
+/* The profiles open, listed beside the editor with what's done with them (no taller than the window shows of it: editor.js fitSide;
+   the list scrolls, the buttons always at its foot): the one shown marked, a changed one in colour; with
+   Multi Edit a tick each (those ticked edited together; a setting they differ in shows Mixed). Over the editor on a narrow screen. */
+/* The editor at least as tall as the window (the header 65 px and main's padding off): more, it goes on; its box and the list beside it stretch to its foot. */
+.pep{min-height:calc(100vh - 105px);min-height:calc(100dvh - 105px)}
+.pewrap{flex:1 0 auto;display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px}.pewrap>.pe0{align-self:start}.pewrap>#pebody{display:flex;flex-direction:column}.peg>.pew{flex:1 0 auto}
+.pefiles{position:sticky;top:12px;box-sizing:border-box;height:100%;max-height:calc(100vh - 24px);display:flex;flex-direction:column;gap:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--well)}
+.pefh{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px;padding:0 4px}
+.pemt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--soft);cursor:pointer}.pemt input{width:14px;height:14px;margin:0;padding:0;flex:none}
+.pefl{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+.pefr{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 2px 0 8px;border-radius:6px}.pefr:hover{background:var(--raised)}
+.pefr.on{background:var(--raised);box-shadow:inset 2px 0 0 var(--accent)}.pefr input{width:14px;height:14px;margin:0;padding:0;flex:none}
+.pefn{flex:1;min-width:0;height:32px;padding:0;border:0;border-radius:0;background:none;justify-content:flex-start;font:500 13px var(--mono);color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pefr.on .pefn{color:var(--text)}.pefr.chg .pefn{color:var(--accent)}.pefr.chg .pefn::after{content:" •"}
+.pefr .pex{flex:none;width:26px;height:26px;padding:0;border:0;font:500 16px/1 var(--sans);color:var(--faint);opacity:0}.pefr:hover .pex,.pefr.on .pex,.pefr .pex:focus-visible{opacity:1}.pefr .pex:hover{color:#F07A74}
+.pefe{padding:6px 4px;font-size:13px;color:var(--faint)}
+.pefb{margin-top:auto;display:flex;flex-direction:column;gap:12px;padding-top:12px;border-top:1px solid var(--rule)}.pefa{display:flex;flex-direction:column;gap:6px}.pefa button{width:100%;height:34px;font-size:13px;padding:0 10px}.pefa .row{gap:6px}
+.pewrap>.pe0{padding:18px 4px}
+@media (max-width:760px){.pewrap{grid-template-columns:minmax(0,1fr)}.pefiles{position:static;height:auto;max-height:none}}
+@media (max-width:640px){.pep{min-height:calc(100vh - 97px);min-height:calc(100dvh - 97px)}}
+.pev.mix,.pev.mix::placeholder,#pedid.mix{color:var(--faint);font-style:italic}
+/* The profiles of a folder to add, ticked (those open already ticked and greyed). */
+dialog.pick{max-width:520px;width:calc(100% - 32px);padding:20px 20px 16px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px #000a}
+dialog.pick::backdrop{background:#0008;backdrop-filter:blur(2px)}dialog.pick h3{margin:0 0 10px;font:700 19px var(--head)}
+.pepl{max-height:min(50vh,420px);overflow-y:auto;margin:10px 0 14px;border-top:1px solid var(--rule)}
+.pepl>button,.pepl>label{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 8px;border:0;border-bottom:1px solid var(--rule);border-radius:0;background:none;font:500 14px var(--sans);color:var(--text);text-align:left;cursor:pointer;justify-content:flex-start}
+.pepl>button:hover,.pepl>label:hover{background:var(--raised)}.pepl .ico{display:inline-flex;color:var(--warn)}.pepl input{width:16px;height:16px;margin:0;padding:0;flex:none}.pepl label.in{color:var(--faint);cursor:default}
 .pebar label,.pegrp{display:flex;align-items:center;gap:6px;min-width:0}.pebar input[type=checkbox]{width:14px;height:14px;min-height:0;padding:0;flex:none}
 .petl{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));border-bottom:1px solid var(--line);margin-right:-1px}
 .pti{display:flex;flex-direction:column;gap:2px;padding:8px 14px 6px;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);min-width:0;margin-bottom:-1px}
@@ -240,6 +267,9 @@ progress{width:100%;height:8px;accent-color:var(--accent)}
 .files .ib{width:34px;height:34px;padding:0;border-color:transparent;color:var(--soft)}.files .ib:hover:not(:disabled){border-color:var(--line);color:var(--text)}
 .files .ib.del:hover:not(:disabled){border-color:#5A2A28;color:#F07A74}
 .files .msz{display:none}
+/* In a profiles' folder a column of ticks (every one at its head), and with any ticked, a bar to edit them together. */
+.files .ck{width:34px;padding:0 0 0 8px;cursor:default}.files th.ck{padding:0 0 8px 8px}.files:not(.pk) .ck{display:none}.files .ck input{display:block;width:16px;height:16px;margin:0;padding:0}
+.sdsel{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border-radius:10px;background:var(--raised);font-size:14px}
 /* Narrow screens: no date, the size under the name, names wrap instead of being cut. */
 @media (max-width:640px){.files .when,.files .sz{display:none}.files .ca{width:156px}.files td{padding:0 4px}.files .ib{width:30px}.sdh .row{width:100%}.sdh .row button{flex:1;padding:0 8px;white-space:nowrap}
 .files td.n{white-space:normal;overflow-wrap:break-word;height:auto;padding-top:6px;padding-bottom:6px}.files td.n a,.files .fn{height:auto;min-height:28px}

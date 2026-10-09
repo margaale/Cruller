@@ -52,9 +52,37 @@ const sb = new Uint8Array(22876);
 check(JSON.stringify(e.bytesAt(srdTrim, 1, 12)) === '[[7340,2]]' && JSON.stringify(e.bytesAt(srdTrim, 1)) === '[[1318,2]]' && JSON.stringify(e.bytesAt(trim, 1, 12)) === '[[1318,2]]', 'slot 12 of the rate arrays, the mode\'s without one');
 e.encode(srdTrim, tc, sb, -5, 1, 12);
 check(sb[7340] === 0xfb && sb[7341] === 0xff && !sb[0x526] && e.decode(srdTrim, tc, sb, 1, 12).value === -5 && e.decode(srdTrim, tc, sb, 1).value === 0, 'written in slot 12 only, read back there');
+
+// Delete mode / Delete rate: that element emptied (the RT4K's defaults there), nothing else.
+{
+  const other = { label: 'Not per mode', bytes: [[0x200, 1]], values: [['On', '01']] };
+  const set = [srdTrim, other], cb = new Uint8Array(22876);
+  e.encode(srdTrim, tc, cb, 7, 1); e.encode(srdTrim, tc, cb, 9, 2); e.encode(srdTrim, tc, cb, -5, 1, 12); cb[0x200] = 1;
+  check(e.modesUsed(set, cb).join() === '1,2' && e.slotsUsed(set, cb).join() === '12', 'before: modes 1 and 2, rate 12');
+  check(e.clearSignal(set, cb, 1) && e.modesUsed(set, cb).join() === '2' && e.decode(srdTrim, tc, cb, 2).value === 9 && e.slotsUsed(set, cb).join() === '12' && cb[0x200] === 1,
+    'mode 1 deleted: mode 2, rate 12 and a setting not kept per mode as they were');
+  check(e.clearSignal(set, cb, 0, 12) && !e.slotsUsed(set, cb).length && e.decode(srdTrim, tc, cb, 2).value === 9, 'rate 12 deleted, mode 2 kept');
+  check(!e.clearSignal(set, cb, 5), 'a mode with no settings: nothing to delete');
+}
+
+// Several profiles open: one value when they agree, mixed (each value once, in their order) when they differ.
+const pa = new Uint8Array(22876), pb = new Uint8Array(22876), pc = new Uint8Array(22876);
+e.encode(trim, tc, pa, 3, 1); e.encode(trim, tc, pb, 3, 1); e.encode(trim, tc, pc, -3, 1);
+const ds = (bs, el) => bs.map((b) => e.decode(trim, tc, b, el));
+check(!e.agree(ds([pa, pb], 1)).mixed && e.agree(ds([pa, pb], 1)).kinds[0].value === 3, 'the same value: not mixed');
+const mix = e.agree(ds([pa, pc, pb], 1));
+check(mix.mixed && mix.kinds.map((d) => d.value).join() === '3,-3', 'different values: mixed, each once in order: ' + mix.kinds.map((d) => d.value).join());
+check(!e.agree(ds([pa, pc], 0)).mixed, 'mixed in one mode, alike in another');
+const odd = { label: 'Odd', bytes: [[0x100, 1]], values: [['On', '01']] }, [oc] = e.codecs([odd]);
+const qa = new Uint8Array(22876), qb = new Uint8Array(22876);
+qa[0x100] = 7; qb[0x100] = 9;
+check(e.agree([e.decode(odd, oc, qa), e.decode(odd, oc, qb)]).mixed && !e.agree([e.decode(odd, oc, qa), e.decode(odd, oc, qa)]).mixed,
+  'bytes the map does not know: told apart by their bytes');
 check(JSON.stringify(e.slotsUsed([srdTrim], sb)) === '[12]' && JSON.stringify(e.modesUsed([srdTrim], sb)) === '[]', 'the slots a profile has settings in');
 check(e.rateName(12, 3432) === '480i · 686.400 (1/5)' && e.rateName(9) === '480i · 1/8' && e.rateName(0, 3410) === '240p · 341.000 (1/10)' && e.rateName(29, 0) === '576i · 1/4' && e.rateName(6) === 'Slot 6', 'the rates\' names: ' + e.rateName(12, 3432));
-check(e.modeName(1) === 'Mode 1 · CP 480i' && e.modeName(7) === 'Mode 7', 'the modes\' names');
+check(e.modeName(1) === 'Mode 1 · CP 480i' && e.modeName(2) === 'Mode 2 · CP 240p' && e.modeName(70) === 'Mode 70 · Custom Input Mode 1' && e.modeName(93) === 'Mode 93 · Custom Input Mode 24' && e.modeName(30) === 'Mode 30',
+  'the modes\' names (PIPe\'s; none for those it has as reserved)');
+check([0, 12, 16, 29].map(e.modeOfRate).join() === '2,1,4,3', 'each group of rates with its input mode: 240p 2, 480i 1, 288p 4, 576i 3');
 
 // What each setting depends on: found for every "when", in its menu or the one it names, with values it has.
 for (const m of doc.maps) {
