@@ -34,7 +34,10 @@ bool gameid_console_ok(const gameid_console_t *c, const char **why) {
         if ((unsigned char)*p <= 0x20) { *why = "a console's address can't have spaces"; return false; }
     }
     if (c->other[0] && !gameid_profile_ok(c->other)) { *why = "a profile is a .rt4 or .rt6 under /profile"; return false; }
-    if (c->svs_input > GAMEID_SVS_INPUTS) { *why = "the SVS input is 1 to 8, or 0 (worked out)"; return false; }
+    if (c->svs_input < GAMEID_NOT_ON_SVS || c->svs_input > GAMEID_SVS_INPUTS) {
+        *why = "the SVS input is 1 to 8, 0 (worked out) or -1 (not on the SVS)";
+        return false;
+    }
     return true;
 }
 
@@ -64,12 +67,12 @@ int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, i
         if (tok[o].type != JSON_OBJECT || !json_str(json, tok, json_get(json, tok, o, "name"), c.name, sizeof(c.name)) ||
             !json_str(json, tok, json_get(json, tok, o, "url"), c.url, sizeof(c.url)) ||
             (vot >= 0 && !json_str(json, tok, vot, c.other, sizeof(c.other))) ||
-            (vin >= 0 && (!json_long(json, tok, vin, &input) || input < 0 || input > GAMEID_SVS_INPUTS)) ||
+            (vin >= 0 && (!json_long(json, tok, vin, &input) || input < GAMEID_NOT_ON_SVS || input > GAMEID_SVS_INPUTS)) ||
             (ven >= 0 && !json_bool(json, tok, ven, &c.enabled))) {
-            *why = "each console: a name and a url (strings that fit), other a string, svs_input 0 to 8, enabled true or false";
+            *why = "each console: a name and a url (strings that fit), other a string, svs_input -1 to 8, enabled true or false";
             return -1;
         }
-        c.svs_input = (uint8_t)input;
+        c.svs_input = (int8_t)input;
         if (!gameid_console_ok(&c, why)) return -1;
         out[k] = c;
     }
@@ -102,7 +105,7 @@ size_t gameid_consoles_json(const gameid_console_t *c, int count, bool versioned
     if (!put(out, size, &n, versioned ? "{\"v\":1,\"consoles\":[" : "{\"consoles\":[")) return 0;
     for (int k = 0; k < count; k++) {
         char tail[48];
-        snprintf(tail, sizeof(tail), ",\"svs_input\":%u,\"enabled\":%s}", (unsigned)c[k].svs_input, c[k].enabled ? "true" : "false");
+        snprintf(tail, sizeof(tail), ",\"svs_input\":%d,\"enabled\":%s}", c[k].svs_input, c[k].enabled ? "true" : "false");
         if (!put(out, size, &n, k ? ",{\"name\":" : "{\"name\":") || !put_str(out, size, &n, c[k].name) ||
             !put(out, size, &n, ",\"url\":") || !put_str(out, size, &n, c[k].url) ||
             !put(out, size, &n, ",\"other\":") || !put_str(out, size, &n, c[k].other) || !put(out, size, &n, tail)) return 0;
@@ -300,16 +303,46 @@ const char *gameid_kind(const char *mode, const char *name) {
     return "";
 }
 
-int gameid_pick(const gameid_console_t *c, const gameid_seen_t *seen, int n, int svs_input, const char *svs_device) {
+int gameid_pick(const gameid_console_t *c, const gameid_seen_t *seen, int n, int svs_input, const char *svs_device, int on_svs) {
     int best = -1;
     for (int k = 0; k < n; k++) {
         if (!c[k].enabled || !seen[k].on || !seen[k].game.id[0]) continue;
         if (svs_input > 0) {
-            const bool on_it = c[k].svs_input ? c[k].svs_input == svs_input
-                : !seen[k].kind[0] || !svs_device || !svs_device[0] || !strcmp(seen[k].kind, svs_device);
+            const int at = c[k].svs_input;
+            const bool its_kind = !seen[k].kind[0] || !svs_device || !svs_device[0] || !strcmp(seen[k].kind, svs_device);
+            bool on_it;
+            if (on_svs == 0) on_it = at <= 0;              // another input: those not on the SVS, and on Auto
+            else if (at > 0) on_it = at == svs_input;      // the SVS: those set to its input
+            else on_it = (at == 0 || on_svs < 0) && its_kind; // ... and on Auto of its console
             if (!on_it) continue;
         }
         if (best < 0 || seen[k].changed > seen[best].changed) best = k;
     }
     return best;
+}
+
+bool gameid_rt4k_input(const char *reply, char *name, size_t size) {
+    const char *p = strstr(reply, "input=");
+    if (!p || !size) return false;
+    p += 6;
+    if (*p < '0' || *p > '9') return false;
+    while (*p >= '0' && *p <= '9') p++;
+    const char *end = strstr(p, " ic="); // (from the number on: no name before it, none)
+    while (*p == ' ') p++;
+    size_t len = !end ? strlen(p) : end > p ? (size_t)(end - p) : 0;
+    while (len && (p[len - 1] == ' ' || p[len - 1] == '\r' || p[len - 1] == '\n')) len--;
+    if (!len || len >= size) return false;
+    memcpy(name, p, len);
+    name[len] = 0;
+    return true;
+}
+
+int gameid_on_svs(const char *input, const char *svs_out) {
+    if (!input || !input[0]) return -1;
+    if (!strncmp(input, "HDMI", 4)) return 0;
+    // the RT4K's inputs by their connector, as it names them: the one the SVS's output goes to
+    const char *port = !svs_out ? NULL : !strcmp(svs_out, "vga") ? "HD15" : !strcmp(svs_out, "scart") ? "SCART"
+        : !strcmp(svs_out, "component") ? "RCA YPbPr" : NULL;
+    if (!port) return -1;
+    return !strncmp(input, port, strlen(port));
 }

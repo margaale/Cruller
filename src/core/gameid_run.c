@@ -97,6 +97,8 @@ static int con_n;
 static uint32_t con_version, counter, seq = 1;
 
 static int king = -1, last_input = -1; // the console on screen; the SVS input last seen
+static char rt4k_input[24];             // the RT4K's active input, by its name ("" not asked, or not known)
+static int on_svs = -1;                 // whether it shows the SVS (gameid_on_svs); -1 not known
 static char want[GAMEID_PROFILE_MAX];   // its profile ("" none)
 static const char *want_from = "";      // "gamedb", "other" (its console's), "svs" (its input's S<n>)
 static char pending[GAMEID_PROFILE_MAX]; // to load at pending_at ("" none)
@@ -254,11 +256,21 @@ static void decide(void) {
         input = sv.input;
         if (svs_get_switch(&sw) && input <= sw.inputs_n) device = sw.inputs[input - 1].device;
     }
-    const uint32_t now = plat_ms();
     const bool on = power_state() == PWR_ON, came_on = on && !rt4k_was_on;
     rt4k_was_on = on;
+    // With consoles not on the SVS, the RT4K's input tells whose game it shows: asked (a bare "input" only
+    // reads it), since it says nothing when it changes.
+    bool direct = false;
+    for (int j = 0; j < con_n; j++) direct |= con[j].enabled && con[j].svs_input == GAMEID_NOT_ON_SVS;
+    char in_name[sizeof(rt4k_input)] = "", r[64];
+    if (direct && input > 0 && on && console_query("input", "input=", r, sizeof(r), 2000)) gameid_rt4k_input(r, in_name, sizeof(in_name));
+    const int shows = gameid_on_svs(in_name, sw.has_output ? sw.output.kind : "");
+    const uint32_t now = plat_ms();
     xSemaphoreTake(lock, portMAX_DELAY);
-    const int k = gameid_pick(con, seen, con_n, input, device);
+    const bool rt4k_changed = on_svs >= 0 && shows >= 0 && shows != on_svs;
+    memcpy(rt4k_input, in_name, sizeof(rt4k_input));
+    on_svs = shows;
+    const int k = gameid_pick(con, seen, con_n, input, device, on_svs);
     char w[GAMEID_PROFILE_MAX] = "";
     const char *from = "";
     // its game in the gameDB: looked up when the game or the gameDB changes, not every round
@@ -273,16 +285,17 @@ static void decide(void) {
     }
     if (k >= 0 && found) { snprintf(w, sizeof(w), "%s", g.profile); from = "gamedb"; }
     else if (k >= 0 && con[k].other[0]) { snprintf(w, sizeof(w), "%s", con[k].other); from = "other"; }
-    else if (k < 0 && king >= 0 && input > 0 && input == last_input) { // its console went off: the input's own again
+    else if (k < 0 && king >= 0 && input > 0 && input == last_input && on_svs != 0) { // its console went off: the input's own again
         char file[SVS_PROFILE_MAX + 1];
         svs_profile(input, file, sizeof(file));
         if (file[0] && snprintf(w, sizeof(w), "SVS/%s", file) < (int)sizeof(w)) from = "svs";
         else w[0] = 0;
-    } else if (k < 0 && !strcmp(want_from, "svs") && input == last_input) { // (and so it stays, on that input)
+    } else if (k < 0 && !strcmp(want_from, "svs") && input == last_input && on_svs != 0) { // (and so it stays, on that input)
         memcpy(w, want, sizeof(w));
         from = want_from;
     }
-    const bool input_changed = last_input >= 0 && input != last_input;
+    // the SVS's input changed, or the RT4K's to or from the SVS's: what the RT4K loads for it first
+    const bool input_changed = (last_input >= 0 && input != last_input) || rt4k_changed;
     if (k != king || strcmp(w, want)) {
         king = k;
         snprintf(want, sizeof(want), "%s", w);
@@ -364,8 +377,9 @@ size_t gameid_state_json(char *out, size_t size) {
             add(out, size, &n, ",\"kind\":") && add_str(out, size, &n, s->kind) &&
             add(out, size, &n, k == king ? ",\"on_screen\":true}" : ",\"on_screen\":false}");
     }
-    snprintf(num, sizeof(num), "],\"svs_input\":%d,\"playing\":", last_input < 0 ? 0 : last_input);
-    ok = ok && add(out, size, &n, num);
+    snprintf(num, sizeof(num), "],\"svs_input\":%d,\"rt4k_input\":", last_input < 0 ? 0 : last_input);
+    ok = ok && add(out, size, &n, num) && add_str(out, size, &n, rt4k_input) &&
+        add(out, size, &n, on_svs < 0 ? ",\"on_svs\":null,\"playing\":" : on_svs ? ",\"on_svs\":true,\"playing\":" : ",\"on_svs\":false,\"playing\":");
     if (ok && king >= 0) {
         ok = add(out, size, &n, "{\"console\":") && add_str(out, size, &n, con[king].name) && add(out, size, &n, ",\"game\":") &&
             add_str(out, size, &n, seen[king].game.id) && add(out, size, &n, ",\"game_name\":") && add_str(out, size, &n, seen[king].game.name) &&

@@ -90,5 +90,18 @@ check(r.title === 'No game on screen' && r.sub === 'Asking its console which gam
 r = g.onScreen(null, null, [], [], '');
 check(r.title === 'No game on screen' && r.sub === 'No consoles yet', 'nothing known yet');
 
+// A console not on the SVS (-1): on no input; on screen while the RT4K shows another input.
+const ps1d = { name: 'PS1', url: 'http://ps1digital.local/gameid', other: '', svs_input: -1, enabled: true };
+check(g.inputOf(ps1d, 'ps1', inputs) === 0, 'not on the SVS: on no input, though one has its kind');
+const ff7 = { console: 'PS1', game: 'SCUS-94163', game_name: 'Final Fantasy VII' };
+r = g.onScreen(state({ playing: ff7, rt4k_input: 'HDMI', on_svs: false, profile: 'PS1/FF7.rt4', from: 'gamedb', loaded: 'PS1/FF7.rt4' }), sv, [ps2, ps1d], [], 'on');
+check(r.sub === 'PS1 on HDMI · SCUS-94163' && r.why === 'From your games.' && r.tone === 'ok', 'played on another input: ' + JSON.stringify(r));
+r = g.onScreen(state({ playing: null, rt4k_input: 'HDMI', on_svs: false }), sv, [ps2, ps1d], mine, 'on');
+check(r.title === 'HDMI' && r.profile === '' && !r.addFor && /not the SVS/.test(r.sub), 'another input, nothing on it: ' + JSON.stringify(r));
+r = g.onScreen(state({ playing: null, rt4k_input: 'HDMI', on_svs: false }), sv, [ps2], mine, 'on');
+check(r.addFor === -1, 'another input, no console not on the SVS: one offered');
+r = g.onScreen(state({ playing, rt4k_input: 'HD15 YPbPr', on_svs: true, profile: 'PS2/GoW2.rt4', from: 'gamedb' }), sv, [ps2, ps1d], mine, 'on');
+check(r.sub === 'PS2 on input 4 · SCUS-97481', 'the RT4K on the SVS: as before');
+
 console.log(failures ? `gameid.js: ${failures} of ${checks} checks failed` : `gameid.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);

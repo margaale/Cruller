@@ -75,22 +75,28 @@
   // What's on screen, as On screen says it: from gameID's state (s, null until read), the switch (sv:
   // known, input, inputs [{name, device}], files {n: its profile in /profile/SVS}), the consoles, the games
   // and the RT4K's power. title (dim: nothing playing), sub, the profile for it and how it stands (badge,
-  // tone: ok, wait, bad), why; add: the game to add to your games; addFor: the input to give a gameID.
+  // tone: ok, wait, bad), why; add: the game to add to your games; addFor: the input to give a gameID (-1:
+  // a console not on the SVS).
   function onScreen(s, sv, consoles, games, power) {
     const svs = !!(sv && sv.known);
     const input = svs ? (s ? s.svs_input : sv.input) : 0;
+    const away = svs && !!s && s.on_svs === false; // the RT4K shows another input than the SVS's
+    const rin = (s && s.rt4k_input) || 'Another input';
     const inName = (n) => (sv.inputs[n - 1] && sv.inputs[n - 1].name) || 'Input ' + n;
     const own = (n) => (svs && n && sv.files[n] ? 'SVS/' + sv.files[n] : '');
     const r = { title: '', dim: false, sub: '', profile: '', badge: '', tone: '', why: '', add: null, addFor: 0 };
     const p = s && s.playing;
     if (p) {
       r.title = p.game_name || p.game;
-      r.sub = (svs && input ? inName(input) + ' on input ' + input : p.console) + ' · ' + p.game;
+      r.sub = (away ? p.console + ' on ' + rin : svs && input ? inName(input) + ' on input ' + input : p.console) + ' · ' + p.game;
       if (!games.some((g) => g.id === p.game)) r.add = { id: p.game, name: p.game_name || '' };
-      r.profile = s.profile || own(input);
-      r.why = s.from === 'gamedb' ? 'From your games.' + (own(input) ? ' Input ' + input + ' loads its own ' + plain(sv.files[input]) + ' first, this one 3 s after.' : '') :
+      r.profile = s.profile || (away ? '' : own(input));
+      r.why = s.from === 'gamedb' ? 'From your games.' + (!away && own(input) ? ' Input ' + input + ' loads its own ' + plain(sv.files[input]) + ' first, this one 3 s after.' : '') :
         s.from === 'other' ? 'Not in your games: its console\'s profile for those.' :
           'Not in your games: ' + (r.profile ? 'the input\'s own stays.' : 'the RT4K keeps the profile it has.');
+    } else if (away) {
+      Object.assign(r, { title: rin, sub: 'The RT4K shows it, not the SVS · no game on it it can tell', why: 'The RT4K keeps the profile it has.',
+        addFor: consoles.some((c) => c.svs_input === -1) ? 0 : -1 });
     } else if (svs && !input) {
       Object.assign(r, { title: 'No input active', dim: true, sub: 'The SVS shows nothing', why: 'The RT4K keeps the profile it has.' });
     } else if (svs) {
@@ -254,14 +260,15 @@
     const sv = svsInfo(), ins = sv.known ? sv.inputs : [];
     const ks = consoles.map((c, k) => k).filter((k) => inputOf(consoles[k], kindOf(k), ins) === 0);
     q('gcon').hidden = sv.bridge && !ks.length;
-    const where = (c) => (!sv.bridge ? '' : c.svs_input ? 'Input ' + c.svs_input + ': this switch has fewer' : 'Not on an input');
+    const where = (c) => (!sv.bridge ? '' : c.svs_input < 0 ? 'Straight to the RT4K' : c.svs_input ? 'Input ' + c.svs_input + ': this switch has fewer' :
+      'Auto: no input has its console');
     set(q('gcon'), '<div class=row><h2 class=grow>' + (sv.bridge ? 'Not on the SVS' : 'Consoles') + '</h2>' +
-      '<button type=button data-a=addfor data-n=0' + (full() ? ' disabled' : '') + '>Add a console</button></div>' +
+      '<button type=button data-a=addfor data-n=' + (sv.bridge ? -1 : 0) + (full() ? ' disabled' : '') + '>Add a console</button></div>' +
       (ks.length ? '<div class="svs-grid gcards">' + ks.map((k) => '<div><span>' + esc(consoles[k].name) + '</span><small>' + esc(where(consoles[k])) + '</small>' +
         '<div class=gslot><div class=gcap>gameID</div>' + device(k) + '</div></div>').join('') + '</div>' :
         '<div class=small>None yet: add one by its MemCard\'s or Digital\'s address, and each game\'s profile loads by itself.</div>') +
       (sv.bridge ? '' : '<div class=small>With an SVS switch, its SVS Bridge on your network shows its inputs here by itself, each with its gameID.</div>'));
-    set(q('gnot'), sv.bridge && !ks.length ? 'A console that isn\'t on the SVS? <button type=button class=link data-a=addfor data-n=0' + (full() ? ' disabled' : '') + '>Add it</button>' : '');
+    set(q('gnot'), sv.bridge && !ks.length ? 'A console that isn\'t on the SVS? <button type=button class=link data-a=addfor data-n=-1' + (full() ? ' disabled' : '') + '>Add it</button>' : '');
   }
 
   // What Cruller knows, everywhere it shows; your games again when the one on screen changes.
@@ -320,8 +327,9 @@
     draft = k >= 0 ? { ...consoles[k], svs_input: inputOf(consoles[k], kindOf(k), ins) || consoles[k].svs_input } :
       { name: '', url: '', other: '', svs_input: n || 0, enabled: true };
     q('gdil').hidden = !ins.length;
-    q('gdi').innerHTML = '<option value=0>Not on the SVS</option>' + ins.map((p, i) => '<option value=' + (i + 1) + '>Input ' + (i + 1) + (p.name ? ' · ' + esc(p.name) : '') + '</option>').join('');
-    q('gdi').value = String(draft.svs_input <= ins.length ? draft.svs_input : 0);
+    q('gdi').innerHTML = ins.map((p, i) => '<option value=' + (i + 1) + '>Input ' + (i + 1) + (p.name ? ' · ' + esc(p.name) : '') + '</option>').join('') +
+      '<option value=-1>Not on the SVS: straight to the RT4K</option>';
+    q('gdi').value = String(draft.svs_input >= 1 && draft.svs_input <= ins.length ? draft.svs_input : -1);
     q('gdu').value = shortUrl(draft.url);
     q('gdn').value = draft.name;
     q('gde').checked = draft.enabled;
@@ -336,9 +344,10 @@
   // What depends on the input it's on: the title, its name (an input's console's own), what a game not in
   // your games loads.
   function dialogFields() {
-    const sv = svsInfo(), n = q('gdil').hidden ? 0 : +q('gdi').value;
+    const sv = svsInfo(), v = q('gdil').hidden ? 0 : +q('gdi').value, n = v > 0 ? v : 0;
     q('gdt').textContent = n ? 'gameID for input ' + n + ' · ' + inputName(sv, n) : draftK < 0 ? 'Add a console' : draft.name;
-    q('gds').textContent = 'The game it says it runs picks the profile' + (n ? ', while input ' + n + ' is on screen.' : '.');
+    q('gds').textContent = 'The game it says it runs picks the profile' + (n ? ', while input ' + n + ' is on screen.' :
+      v < 0 ? ', while the RT4K shows another input than the SVS\'s.' : '.');
     q('gdnl').hidden = !!n;
     const own = n && sv.files[n] ? plain(sv.files[n]) : '';
     q('gdokt').textContent = own ? 'Keeps the input\'s own, ' + own : n ? 'Keeps the input\'s own profile' : 'Keeps the profile the RT4K has';
@@ -356,7 +365,7 @@
 
   async function saveConsole() {
     const sv = svsInfo(), n = q('gdil').hidden ? draft.svs_input : +q('gdi').value;
-    const c = { name: n && !q('gdil').hidden ? inputName(sv, n) : q('gdn').value.trim(), url: consoleUrl(q('gdu').value), other: draft.other, svs_input: n, enabled: q('gde').checked };
+    const c = { name: n > 0 && !q('gdil').hidden ? inputName(sv, n) : q('gdn').value.trim(), url: consoleUrl(q('gdu').value), other: draft.other, svs_input: n, enabled: q('gde').checked };
     if (!c.name) return status('gdm', 'It needs a name', true);
     const bad = urlProblem(c.url);
     if (bad) return status('gdm', bad, true);

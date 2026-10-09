@@ -38,6 +38,10 @@ static void test_consoles(void) {
     CHECK(n && strstr(out, "\"v\":1") && gameid_consoles_parse(out, n, back, GAMEID_CONSOLES_MAX, &why) == 2 && !memcmp(back, c, 2 * sizeof(*c)));
     CHECK(!gameid_consoles_json(c, 2, false, out, 100)); // doesn't fit
     CHECK(gameid_consoles_parse("{\"consoles\":[]}", 15, c, GAMEID_CONSOLES_MAX, &why) == 0);
+    // not on the SVS: -1, kept as it is
+    const char *direct = "{\"consoles\":[{\"name\":\"N64\",\"url\":\"http://n64digital.local/gameid\",\"svs_input\":-1}]}";
+    CHECK(gameid_consoles_parse(direct, strlen(direct), c, GAMEID_CONSOLES_MAX, &why) == 1 && c[0].svs_input == GAMEID_NOT_ON_SVS);
+    CHECK(gameid_consoles_json(c, 1, false, out, sizeof(out)) && strstr(out, "\"svs_input\":-1,"));
     // refused, with why
     const char *bad[] = {
         "[]", "{\"consoles\":{}}", "{\"v\":2,\"consoles\":[]}",
@@ -47,6 +51,7 @@ static void test_consoles(void) {
         "{\"consoles\":[{\"name\":\"a\",\"url\":\"http:///x\"}]}",                 // no host
         "{\"consoles\":[{\"name\":\"a\",\"url\":\"http://a b/\"}]}",
         "{\"consoles\":[{\"name\":\"a\",\"url\":\"http://a/\",\"svs_input\":9}]}",
+        "{\"consoles\":[{\"name\":\"a\",\"url\":\"http://a/\",\"svs_input\":-2}]}",
         "{\"consoles\":[{\"name\":\"a\",\"url\":\"http://a/\",\"other\":\"x.txt\"}]}",
         "{\"consoles\":[{\"name\":\"a\",\"url\":\"http://a/\",\"enabled\":1}]}",
     };
@@ -189,24 +194,50 @@ static void test_asking(void) {
 static void test_pick(void) {
     gameid_console_t c[3] = {{"PS2", "http://a/", "", 0, true}, {"N64", "http://b/", "", 0, true}, {"PS2 two", "http://c/", "", 5, true}};
     gameid_seen_t s[3] = {{true, {"SCUS-97481", "", "PS2"}, "ps2", 10}, {true, {"3E5055B6", "", ""}, "n64", 20}, {false, {"", "", ""}, "", 0}};
-    CHECK(gameid_pick(c, s, 3, 0, NULL) == 1);        // no SVS: the last that changed
-    CHECK(gameid_pick(c, s, 3, 2, "ps2") == 0);       // input 2 is the PS2's: the N64 isn't on screen
-    CHECK(gameid_pick(c, s, 3, 3, "n64") == 1);
-    CHECK(gameid_pick(c, s, 3, 4, "snes") == -1);     // neither's input
-    CHECK(gameid_pick(c, s, 3, 4, "") == 1);          // the input's console not known: both count, the last
+    CHECK(gameid_pick(c, s, 3, 0, NULL, -1) == 1);        // no SVS: the last that changed
+    CHECK(gameid_pick(c, s, 3, 2, "ps2", -1) == 0);       // input 2 is the PS2's: the N64 isn't on screen
+    CHECK(gameid_pick(c, s, 3, 3, "n64", -1) == 1);
+    CHECK(gameid_pick(c, s, 3, 4, "snes", -1) == -1);     // neither's input
+    CHECK(gameid_pick(c, s, 3, 4, "", -1) == 1);          // the input's console not known: both count, the last
     s[2] = (gameid_seen_t){true, {"SLUS-20946", "", "PS2"}, "ps2", 30};
-    CHECK(gameid_pick(c, s, 3, 5, "ps2") == 2 && gameid_pick(c, s, 3, 2, "ps2") == 0); // set to input 5: there only
+    CHECK(gameid_pick(c, s, 3, 5, "ps2", -1) == 2 && gameid_pick(c, s, 3, 2, "ps2", -1) == 0); // set to input 5: there only
     s[1].game.id[0] = 0;                                // the N64 runs no game it can tell
-    CHECK(gameid_pick(c, s, 3, 0, NULL) == 2);
+    CHECK(gameid_pick(c, s, 3, 0, NULL, -1) == 2);
     c[2].enabled = false;
-    CHECK(gameid_pick(c, s, 3, 0, NULL) == 0);
+    CHECK(gameid_pick(c, s, 3, 0, NULL, -1) == 0);
     s[1] = (gameid_seen_t){true, {"X", "", ""}, "", 40}; // a console whose kind isn't known counts on any input
-    CHECK(gameid_pick(c, s, 3, 2, "ps2") == 1);
+    CHECK(gameid_pick(c, s, 3, 2, "ps2", -1) == 1);
+
+    // a console not on the SVS (a PS1Digital on HDMI) next to one on input 2
+    gameid_console_t d[2] = {{"PS2", "http://a/", "", 2, true}, {"PS1", "http://ps1digital.local/gameid", "", GAMEID_NOT_ON_SVS, true}};
+    gameid_seen_t e[2] = {{true, {"SCUS-97481", "", "PS2"}, "ps2", 10}, {true, {"SLUS-00594", "", ""}, "ps1", 20}};
+    CHECK(gameid_pick(d, e, 2, 2, "ps2", 1) == 0);  // the RT4K shows the SVS: the PS1 isn't on it, though its game is newer
+    CHECK(gameid_pick(d, e, 2, 2, "ps2", 0) == 1);  // it shows another input: the PS1's
+    CHECK(gameid_pick(d, e, 2, 2, "ps2", -1) == 0); // not known: as on the SVS (the PS1 isn't a PS2)
+    CHECK(gameid_pick(d, e, 2, 0, NULL, -1) == 1);  // no SVS input: the last that changed, wherever
+    e[1].on = false;
+    CHECK(gameid_pick(d, e, 2, 2, "ps2", 0) == -1); // another input, its console off: none (not the SVS's)
+    d[0].svs_input = 0;                              // on Auto: counts on another input too
+    CHECK(gameid_pick(d, e, 2, 2, "ps2", 0) == 0 && gameid_pick(d, e, 2, 2, "n64", 1) == -1);
+}
+
+static void test_rt4k_input(void) {
+    char in[24];
+    CHECK(gameid_rt4k_input("input=0 HDMI ic=2 model=0", in, sizeof(in)) && !strcmp(in, "HDMI"));
+    CHECK(gameid_rt4k_input("[COM] input=23 HD15 YPbPr ic=1 model=0", in, sizeof(in)) && !strcmp(in, "HD15 YPbPr"));
+    CHECK(gameid_rt4k_input("input=12 SCART RGBS\r\n", in, sizeof(in)) && !strcmp(in, "SCART RGBS")); // without ic=
+    CHECK(!gameid_rt4k_input("input err: need a number", in, sizeof(in)) && !gameid_rt4k_input("input=0 ic=2", in, sizeof(in)));
+    CHECK(!gameid_rt4k_input("input=7 RCA YPbPr ic=0", in, 5)); // doesn't fit
+    // whether that's the SVS, by the output the bridge says goes to the RT4K
+    CHECK(gameid_on_svs("HD15 YPbPr", "vga") == 1 && gameid_on_svs("HD15 CVBS on G", "vga") == 1 && gameid_on_svs("HDMI", "vga") == 0);
+    CHECK(gameid_on_svs("SCART RGBS", "vga") == 0 && gameid_on_svs("SCART RGBS", "scart") == 1 && gameid_on_svs("RCA YPbPr", "component") == 1);
+    CHECK(gameid_on_svs("HDMI", "") == 0 && gameid_on_svs("HD15 YPbPr", "") == -1 && gameid_on_svs("HD15 YPbPr", "bnc") == -1 && gameid_on_svs("", "vga") == -1);
 }
 
 int main(void) {
     RUN(test_asking);
     RUN(test_pick);
+    RUN(test_rt4k_input);
     RUN(test_profiles);
     RUN(test_consoles);
     RUN(test_game_text);

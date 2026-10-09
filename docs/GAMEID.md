@@ -46,7 +46,13 @@ overwrites the SVS's `S1`…`S8` (DonutShop sent `SVS NEW INPUT=n` or `remote pr
   console on Auto: the last that changed wins (the page shows a console on Auto under its input
   only when just one has its console, and saving it sets that input). Back on a console's input, after the SVS's own `S<n>` loads,
   Cruller loads its game's profile again.
-- A console turning off: with an SVS, its input's profile again; without, nothing.
+- A console not on the SVS (a PS1Digital or an N64Digital on HDMI): set so (`svs_input` -1), it counts
+  while the RT4K shows another input than the SVS's. The RT4K doesn't say when its input changes, so
+  while there's one, Cruller asks it every round (a bare `input` only reads it: `input=0 HDMI ...`) and
+  tells the SVS's by the output the bridge says goes to the RT4K (VGA: an `HD15` input; SCART; component:
+  `RCA YPbPr`; never HDMI). Back on the SVS's input, as after an input change, 3 s later.
+- A console turning off: with an SVS, its input's profile again (while the RT4K shows the SVS); without,
+  nothing.
 - The RT4K asleep: the profile is kept and loaded once it's on.
 
 ## Where it's kept
