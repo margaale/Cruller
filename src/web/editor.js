@@ -186,7 +186,7 @@
     });
     if (other.idx.length) tabs.push({ tab: 'Other', menus: [other] });
     // the tiles as the main menu goes: Input Source, HDMI Output (its resolution first), the rest, Profiles
-    const rank = (s) => (s.label === 'Input Source' ? 0 : / HDMI• Output$/.test(s.path) ? (s.label === 'Resolution' ? 1 : 2) : / Profiles$/.test(s.path) ? (s.readonly ? 5 : 4) : 3);
+    const rank = (s) => (s.label === 'Input Source' ? 0 : / HDMI• Output$/.test(s.path) ? (s.label === 'Output Resolution' ? 1 : 2) : / Profiles$/.test(s.path) ? (s.readonly ? 5 : 4) : 3);
     tiles.sort((a, b) => rank(m.settings[a]) - rank(m.settings[b]) || a - b);
     return { tiles, tabs };
   }
@@ -302,10 +302,10 @@
       '<div class=pehd><span id=pename class=pename></span><span class=grow></span>' +
       '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +
       '<div id=petl class=petl></div>' +
-      '<div class=pebar><span class=pegrp><span class=pelab>Input signal mode</span><select id=pesig class=pev></select></span>' +
+      '<div class=pebar><span class=pegrp><span class=pelab>Input signal mode</span><button type=button id=pesig class="pev pdd" aria-haspopup=listbox></button></span>' +
       '<label class=pelab title="A change to a setting kept per mode or per rate goes to every mode and rate"><input type=checkbox id=peall> Every mode</label>' +
-      '<span class=grow></span><span class=pegrp><span class=pelab>Audio input</span><select id=peport class=pev title="The settings kept per audio input (Audio Input) show this one\'s"></select></span></div>' +
-      '<div class=pebar><span class=pelab>Advanced settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
+      '<span class=grow></span><span class=pegrp><span class=pelab>Audio input</span><button type=button id=peport class="pev pdd" aria-haspopup=listbox title="The settings kept per audio input (Audio Input) show this one\'s"></button></span></div>' +
+      '<div class=pebar><span class=pelab>Advanced Settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
       '<input id=peq class=pefind placeholder="Find a setting" autocomplete=off></div>' +
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
       '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/profiles">Profiles</a> view.</div>' +
@@ -321,13 +321,18 @@
     q('pesv').onclick = saveToSd;
     q('peu').onclick = () => { if (pf) { pf.body = pf.orig.slice(); render(); } };
     q('peq').oninput = () => { filter = q('peq').value.trim().toLowerCase(); render(); };
-    q('pesig').onchange = () => {
+    q('pesig').onclick = () => {
       if (!pf) return;
-      const v = q('pesig').value, k = +v.slice(1);
-      if (v[0] === 'm') { pf.mode = k; pf.slot = -1; } else pf.slot = k;
-      render();
+      openList(q('pesig'), signals(), pf.slot >= 0 ? 's' + pf.slot : 'm' + pf.mode, (v) => {
+        const k = +v.slice(1);
+        if (v[0] === 'm') { pf.mode = k; pf.slot = -1; } else pf.slot = k;
+        render();
+      });
     };
-    q('peport').onchange = () => { if (pf) { pf.port = +q('peport').value; render(); } };
+    q('peport').onclick = () => {
+      if (!pf) return;
+      openList(q('peport'), PORTS.map((n, k) => ({ value: k, label: n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') })), pf.port, (v) => { pf.port = v; render(); });
+    };
     q('pedc').onclick = () => {
       const s = map && map.settings[deviceAt()];
       if (!pf || !s) return;
@@ -343,7 +348,10 @@
     q('pe').addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
       if (!b || !pf) return;
-      if (b.dataset.tab !== undefined) {
+      if (b.classList.contains('pdd') && b.dataset.i !== undefined) {
+        const i = +b.dataset.i;
+        openList(b, cs[i].values.map(([v]) => ({ value: v, label: v })), decode(map.settings[i], cs[i], pf.body, ...at(map.settings[i])).value, (v) => write(i, v));
+      } else if (b.dataset.tab !== undefined) {
         ui.tab = b.dataset.tab;
         ui.menu = lay.tabs.find((t) => t.tab === ui.tab).menus[0].title;
         render();
@@ -419,10 +427,71 @@
         (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>';
     }
     if (c.type === 'list') {
-      const opts = c.values.map(([v]) => '<option' + (v === d.value ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
-      return '<select class="pev' + tone + '" data-i=' + i + off + '>' + (d.value === null ? '<option selected disabled>? (' + esc(d.hex) + ')</option>' : '') + opts + '</select>';
+      return '<button type=button class="pev pdd' + tone + '" data-i=' + i + ' aria-haspopup=listbox' + off + '>' + esc(d.value === null ? '? (' + d.hex + ')' : d.value) + '</button>';
     }
     return '<span class="pev mono">' + esc(d.hex) + '</span>';
+  }
+
+  // A list's values under the button that opens it: the one set marked, the rest to pick from (a click,
+  // or the arrows and Enter); Escape or a click elsewhere closes it. items: [{value, label} | {group}].
+  let pop = null;
+  function closeList() {
+    if (!pop) return;
+    pop.el.remove();
+    pop.anchor.setAttribute('aria-expanded', 'false');
+    removeEventListener('mousedown', pop.away, true);
+    removeEventListener('scroll', pop.away, true);
+    removeEventListener('resize', pop.away);
+    pop = null;
+  }
+  function openList(anchor, items, current, pick) {
+    const again = pop && pop.anchor === anchor;
+    closeList();
+    if (again) return; // (a second click on it closes it)
+    const el = document.createElement('div');
+    el.className = 'pelist';
+    el.setAttribute('role', 'listbox');
+    el.tabIndex = -1;
+    el.innerHTML = items.map((it, k) => (it.group !== undefined ? '<div class=pelg>' + esc(it.group) + '</div>' :
+      '<div role=option data-k=' + k + ' class="peo' + (it.value === current ? ' on' : '') + '" aria-selected=' + (it.value === current) + '>' + esc(it.label) + '</div>')).join('');
+    document.body.appendChild(el);
+    const r = anchor.getBoundingClientRect(), below = innerHeight - r.bottom - 8, above = r.top - 8;
+    const h = Math.min(el.scrollHeight, 340, Math.max(below, above));
+    el.style.minWidth = Math.max(r.width, 140) + 'px';
+    el.style.maxHeight = h + 'px';
+    el.style.left = Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8)) + scrollX + 'px';
+    el.style.top = (below >= h || below >= above ? r.bottom + 4 : r.top - 4 - h) + scrollY + 'px';
+    const opts = [...el.querySelectorAll('.peo')];
+    let act = Math.max(0, opts.findIndex((o) => o.classList.contains('on')));
+    const show = () => { opts.forEach((o, k) => o.classList.toggle('act', k === act)); if (opts[act]) opts[act].scrollIntoView({ block: 'nearest' }); };
+    show();
+    const choose = (o) => { const it = items[+o.dataset.k]; closeList(); anchor.focus(); if (it.value !== current) pick(it.value); };
+    el.onclick = (ev) => { const o = ev.target.closest('.peo'); if (o) choose(o); };
+    el.onmousemove = (ev) => { const o = ev.target.closest('.peo'); if (o && opts.indexOf(o) !== act) { act = opts.indexOf(o); opts.forEach((x, k) => x.classList.toggle('act', k === act)); } };
+    el.onkeydown = (ev) => {
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { act = Math.max(0, Math.min(opts.length - 1, act + (ev.key === 'ArrowDown' ? 1 : -1))); show(); }
+      else if (ev.key === 'Home' || ev.key === 'End') { act = ev.key === 'Home' ? 0 : opts.length - 1; show(); }
+      else if (ev.key === 'Enter' || ev.key === ' ') { if (opts[act]) choose(opts[act]); }
+      else if (ev.key === 'Escape' || ev.key === 'Tab') { closeList(); anchor.focus(); }
+      else return;
+      ev.preventDefault();
+    };
+    const away = (ev) => { if (!ev || !ev.target || !(el.contains(ev.target) || anchor.contains(ev.target))) closeList(); };
+    addEventListener('mousedown', away, true);
+    addEventListener('scroll', away, true);
+    addEventListener('resize', away);
+    anchor.setAttribute('aria-expanded', 'true');
+    pop = { el, anchor, away };
+    el.focus({ preventScroll: true });
+  }
+
+  // The signal picker's items: the input modes and rates the profile has settings for, then the others.
+  function signals() {
+    const modes = modesUsed(map.settings, pf.body), rates = slotsUsed(map.settings, pf.body), spl = samplesPerLine();
+    const allRates = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
+    return [{ group: 'In this profile' }, ...modes.map((k) => ({ value: 'm' + k, label: modeName(k) })), ...rates.map((k) => ({ value: 's' + k, label: rateName(k, spl) })),
+      { group: 'Input modes' }, ...Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k)).map((k) => ({ value: 'm' + k, label: modeName(k) })),
+      { group: 'Detected sample rates' }, ...allRates.filter((k) => !rates.includes(k)).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))];
   }
 
   // What a line's tooltip says: why it doesn't apply, what it means, what it's kept per, what it asks.
@@ -474,19 +543,13 @@
       return '<div class="pti' + (changedHere(i) ? ' chg' : '') + (whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '><span class=pelab>' + esc(s.label) + '</span>' + control(s, cs[i], i) + '</div>';
     }).join('');
 
-    // the signal: the input modes and rates the profile has settings for, then the others
-    const modes = modesUsed(map.settings, pf.body), rates = slotsUsed(map.settings, pf.body), spl = samplesPerLine();
-    const picked = (v) => (v[0] === 'm' ? pf.slot < 0 && +v.slice(1) === pf.mode : +v.slice(1) === pf.slot);
-    const opt = (v, text) => '<option value=' + v + (picked(v) ? ' selected' : '') + '>' + esc(text) + '</option>';
-    const allRates = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
-    q('pesig').innerHTML =
-      '<optgroup label="In this profile">' + [...modes.map((k) => opt('m' + k, modeName(k))), ...rates.map((k) => opt('s' + k, rateName(k, spl)))].join('') + '</optgroup>' +
-      '<optgroup label="Input modes">' + Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k)).map((k) => opt('m' + k, modeName(k))).join('') + '</optgroup>' +
-      '<optgroup label="Detected sample rates">' + allRates.filter((k) => !rates.includes(k)).map((k) => opt('s' + k, rateName(k, spl))).join('') + '</optgroup>';
+    // the signal picked (a mode, or a rate), the audio input picked
+    closeList();
+    q('pesig').textContent = pf.slot >= 0 ? rateName(pf.slot, samplesPerLine()) : modeName(pf.mode);
     q('pesig').title = pf.slot >= 0
       ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from ' + modeName(pf.mode) + ' (pick a mode to change that)'
       : 'The settings kept per input mode show this one\'s';
-    q('peport').innerHTML = PORTS.map((n, k) => '<option value=' + k + (k === pf.port ? ' selected' : '') + '>' + n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') + '</option>').join('');
+    q('peport').textContent = PORTS[pf.port] + (pf.port === pf.body[PORT_AT] ? ' (this profile\'s)' : '');
 
     // a search: every setting found, under its submenu; else the tab and submenu picked
     const menus = lay.tabs.flatMap((t) => t.menus);
