@@ -195,9 +195,12 @@ jobs:
       - name: Minify the page's JavaScript
         run: bash scripts/minify-web.sh
 
+      # ESP-IDF's image from Google's mirror of Docker Hub (the same image, by its digest): Docker Hub
+      # limits unauthenticated pulls per address, and the runners share theirs, so its pulls failed.
       - name: Build
         uses: espressif/esp-idf-ci-action@v1
         with:
+          esp_idf_docker_image: mirror.gcr.io/espressif/idf
           esp_idf_version: ${{ env.ESP_IDF_VERSION }}
           target: ${{ matrix.chip }}
           extra_docker_args: >-
