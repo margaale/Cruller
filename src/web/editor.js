@@ -342,10 +342,31 @@
       const i = +el.dataset.i;
       write(i, cs[i].type === 'number' ? +el.value : el.value);
     });
+    // − and +: one step, and on while held (a setting's whole range, the trims' ±4096, takes a while one by one)
+    let held = null;
+    const stop = () => { if (held) { clearTimeout(held.t); clearInterval(held.r); held = null; } };
+    const step = (i, dir) => {
+      const s = map.settings[i], c = cs[i], d = decode(s, c, pf.body, ...at(s));
+      const v = +Math.min(c.max, Math.max(c.min, (d.value === null ? c.min : d.value) + dir * c.step)).toFixed(decimals(c.step));
+      if (v !== d.value) write(i, v);
+    };
+    q('pe').addEventListener('pointerdown', (ev) => {
+      const b = ev.target.closest('button.pestep');
+      if (!b || b.disabled || !pf || ev.button) return;
+      ev.preventDefault();
+      stop();
+      const i = +b.dataset.i, dir = +b.dataset.step;
+      step(i, dir);
+      held = { t: setTimeout(() => { held.r = setInterval(() => step(i, dir), 60); }, 400) };
+    });
+    addEventListener('pointerup', stop);
+    addEventListener('pointercancel', stop);
     q('pe').addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
       if (!b || !pf) return;
-      if (b.id === 'peport') {
+      if (b.classList.contains('pestep')) {
+        if (!ev.detail) step(+b.dataset.i, +b.dataset.step); // (a key, not the pointer: that stepped already)
+      } else if (b.id === 'peport') {
         openList(b, PORTS.map((n, k) => ({ value: k, label: n })), pf.port, (v) => { pf.port = v; render(); });
       } else if (b.classList.contains('pdd') && b.dataset.i !== undefined) {
         const i = +b.dataset.i;
@@ -423,8 +444,10 @@
     const tone = /^Off\b/.test(d.value) ? ' off' : '';
     if (c.type === 'number') {
       const w = Math.max(String(c.min).length, String(c.max).length, String(d.value).length) + 2;
-      return '<input type=number class="pev' + tone + '" data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' style="width:' + w + 'ch" value="' +
-        (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>';
+      return '<span class=pen><button type=button class=pestep data-step=-1 data-i=' + i + off + ' aria-label="Less" tabindex=-1>−</button>' +
+        '<input type=number class="pev' + tone + '" data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' style="width:' + w + 'ch" value="' +
+        (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>' +
+        '<button type=button class=pestep data-step=1 data-i=' + i + off + ' aria-label="More" tabindex=-1>+</button></span>';
     }
     if (c.type === 'list') {
       return '<button type=button class="pev pdd' + tone + '" data-i=' + i + ' aria-haspopup=listbox' + off + '><span>' + esc(d.value === null ? '? (' + d.hex + ')' : d.value) + '</span></button>';
