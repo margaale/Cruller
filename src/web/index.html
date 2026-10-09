@@ -83,16 +83,16 @@ dialog.pick{max-width:520px;width:calc(100% - 32px);padding:20px 20px 16px;backg
 dialog.pick::backdrop{background:#0008;backdrop-filter:blur(2px)}dialog.pick h3{margin:0 0 10px;font:700 19px var(--head)}
 .pepl{max-height:min(50vh,420px);overflow-y:auto;margin:10px 0 14px;border-top:1px solid var(--rule)}
 .pepl>button,.pepl>label{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 8px;border:0;border-bottom:1px solid var(--rule);border-radius:0;background:none;font:500 14px var(--sans);color:var(--text);text-align:left;cursor:pointer;justify-content:flex-start}
-/* gameID (gameid.js): the consoles and the games, tables edited in place; a profile picked from the SD card. */
-.gidv{display:flex;flex-direction:column;gap:16px}.gidw{overflow-x:auto}
+/* Consoles: your games (gameid.js), a table edited in place; a profile picked from the SD card. */
+.gidw{overflow-x:auto}
 .gidt{width:100%;border-collapse:collapse;font-size:14px}.gidt th{font-weight:500;font-size:12px;color:var(--faint);text-align:left;padding:0 6px 6px;white-space:nowrap}
 .gidt td{padding:4px 6px;border-top:1px solid var(--rule);vertical-align:middle}.gidt td.mono{font:13px var(--mono);color:var(--soft);word-break:break-all}
-.gidt input:not([type=checkbox]),.gidt select{height:32px;font-size:13px;min-width:90px}.gidt td.mono input{font:13px var(--mono);min-width:200px}
-.gidt .ck{width:34px}.gidt .ck input{width:16px;height:16px;margin:0;padding:0}.gidt td.act{width:1%;white-space:nowrap;text-align:right}.gidt td.act button{height:32px;margin-left:4px}
+.gidt input{height:32px;font-size:13px;min-width:90px}.gidt td.mono input{font:13px var(--mono);min-width:200px}
+.gidt td.act{width:1%;white-space:nowrap;text-align:right}.gidt td.act button{height:32px;margin-left:4px}
 .gidt .ib{padding:0 10px;font-size:13px}.gidt .ib.del{width:32px;padding:0;font:500 16px/1 var(--sans);color:var(--faint)}.gidt .ib.del:hover{color:#F07A74;border-color:#5A2A28}
-.gidt tr.off td:not(.ck):not(.act){opacity:.5}.gidt tr.new td{background:var(--raised)}.gidt .pe0{padding:14px 6px}
+.gidt tr.os td{background:var(--raised)}.gidt tr.new td{background:var(--raised)}.gidt .pe0{padding:14px 6px}
 .gidp{height:32px;max-width:280px;padding:0 10px;justify-content:flex-start;font:500 13px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gidn{color:var(--faint);font-family:var(--sans)}
-.gidq{width:200px;height:32px;font-size:13px}#gidcs.bad,#gidgm.bad,#gidgs.bad{color:#F07A74}
+.gidq{width:200px;height:32px;font-size:13px}#gidgm.bad,#gidgs.bad{color:#F07A74}
 .pepl>button:hover,.pepl>label:hover{background:var(--raised)}.pepl .ico{display:inline-flex;color:var(--warn)}.pepl input{width:16px;height:16px;margin:0;padding:0;flex:none}.pepl label.in{color:var(--faint);cursor:default}
 .pebar label,.pegrp{display:flex;align-items:center;gap:6px;min-width:0}.pebar input[type=checkbox]{width:14px;height:14px;min-height:0;padding:0;flex:none}
 .petl{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));border-bottom:1px solid var(--line);margin-right:-1px}
@@ -165,25 +165,54 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 .wz-ring{width:88px;height:88px;align-self:center}.wz-ring>span{font-size:22px}
 .upd{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px}
 @media (max-width:1000px){.upd{grid-template-columns:minmax(0,1fr)}}
-/* SVS tab */
-.svs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(156px,1fr));gap:8px}
-.svs-grid div{min-height:64px;padding:6px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--faint);min-width:0}
-.svs-grid div b{font:700 15px/1 var(--head);color:var(--muted)}
-.svs-grid div>span{font:600 14px/1.2 var(--sans);color:var(--soft);overflow-wrap:anywhere}
-.svs-grid div small{font:500 11px var(--sans);letter-spacing:.04em}
-.svs-grid div.on{background:#3A1E2A;border-color:var(--accent);color:var(--text)}
-.svs-grid div.on>span{color:var(--text)}
+/* Consoles: the SVS's inputs, a card each (app.js), the consoles not on the SVS alike (gameid.js) */
+.svs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:8px}.svs-grid.gcards{grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
+.svs-grid>div{min-height:64px;padding:8px 10px 10px;border-radius:10px;background:var(--raised);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--faint);min-width:0}
+.svs-grid>div>b{font:700 15px/1 var(--head);color:var(--muted)}
+.svs-grid>div>span{font:600 14px/1.2 var(--sans);color:var(--soft);overflow-wrap:anywhere}
+.svs-grid>div>small{font:500 11px var(--sans);letter-spacing:.04em}
+.svs-grid>div.on{background:#3A1E2A;border-color:var(--accent);color:var(--text)}
+.svs-grid>div.on>span{color:var(--text)}
 .svs-grid .con{width:84px;height:56px;color:var(--soft)}
-.svs-grid div.on .con{color:var(--text)}
-.svs-grid div.empty .con,.svs-grid div.empty>span{color:var(--faint)}
-.svs-grid div.empty>span{font-weight:500}
-/* SVS tab: each input's profile, in its card (profiles.js) */
-.svs-grid select{margin-top:6px;height:34px;padding:0 8px;font-size:13px}
-.svs-grid div.on select{border-color:#6A3448}
+.svs-grid>div.on .con{color:var(--text)}
+.svs-grid>div.empty .con,.svs-grid>div.empty>span{color:var(--faint)}
+.svs-grid>div.empty>span{font-weight:500}
+/* Consoles: each input's profile, in its card (profiles.js) */
+.svs-grid select{height:34px;padding:0 8px;font-size:13px}
+.svs-grid>div.on select{border-color:#6A3448}
 .svs-grid small.svp-warn{color:var(--warn)}
 #vps:empty{display:none}#vps.bad{color:#F07A74}
 .svp-asleep{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;font-size:14px;color:var(--soft)}
 @media (max-width:640px){.svs-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.svs-grid select{height:44px}}
+@media (max-width:440px){.svs-grid{grid-template-columns:minmax(0,1fr)}}
+/* Consoles: under each card's profile its gameID, the console that tells the game on it (gameid.js) */
+.gcap{align-self:stretch;margin-top:8px;font:500 11px var(--sans);letter-spacing:.04em;color:var(--faint);text-align:left}
+.gslot{align-self:stretch;display:flex;flex-direction:column;gap:6px}
+.gdev{width:100%;height:auto;min-height:44px;padding:8px 10px;gap:9px;justify-content:flex-start;align-items:flex-start;background:var(--well);text-align:left}
+.gdev .dot{margin-top:6px}.gdev>span:last-child{min-width:0;display:flex;flex-direction:column;gap:1px}
+.gdev b{font:500 12px var(--mono);color:var(--faint);overflow-wrap:anywhere}.gdev i{font:500 13px var(--sans);font-style:normal;color:var(--text);overflow-wrap:anywhere}
+.gdev.off i{color:var(--muted)}
+.gadd{width:100%;height:44px;border-style:dashed;border-color:#3A3F46;color:var(--soft);font-size:13px}
+.gadd:hover,.gdev:hover{border-color:var(--accent)}
+.gaddg{height:32px;font-size:12px;align-self:flex-start}
+/* Consoles: what's on screen, and the profile for it (gameid.js) */
+.gonb{display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px}
+.gonl{flex:1 1 320px;min-width:0}.gonr{flex:1 1 340px;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.gont{font:600 24px/1.15 var(--head);overflow-wrap:anywhere}.gont.dim{color:var(--muted)}
+.gons{margin-top:4px;font-size:13px;color:var(--soft)}
+.gonp{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}.gonp>span:first-child{font:500 15px var(--mono);overflow-wrap:anywhere}
+.gbad{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--raised);color:var(--soft);white-space:nowrap}
+.gbad.ok{background:#17301F;color:var(--ok)}.gbad.wait{background:#3A2F17;color:var(--warn)}.gbad.bad{background:#3A1A19;color:#F07A74}
+.gonr button{margin-top:4px;height:34px;font-size:13px}
+/* Consoles: a console's gameID, added or changed (gameid.js) */
+.gdf{display:flex;flex-direction:column;gap:12px}.gdf>label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--soft)}
+.gdf fieldset{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:8px}.gdf legend{padding:0 0 8px;font-size:13px;color:var(--soft)}
+.gdo{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 12px;border:1px solid var(--line);border-radius:8px;background:var(--well);font-size:14px;cursor:pointer}
+.gdo:has(input:checked){border-color:var(--accent);background:var(--raised)}.gdo>span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.gdf input[type=radio],.gdf input[type=checkbox]{width:16px;height:16px;margin:0;padding:0;flex:none;accent-color:var(--accent)}
+.gdf .gdc{flex-direction:row;align-items:center;gap:10px;color:var(--text);font-size:14px}
+.gdf .mono{font-family:var(--mono)}#gdm:empty{display:none}#gdm.bad,#gnot.bad,#gcs.bad{color:#F07A74}
+.gdb{display:flex;gap:8px;margin-top:4px}.gdb>button{width:auto}.gdb>.grow{flex:1 1 auto}
 dialog#ask h3{margin:0 0 8px;font:700 19px var(--head)}
 dialog#ask p{margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--soft);white-space:pre-line}
 dialog#ask p:empty{display:none}
@@ -315,7 +344,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <body>
 <aside class="sbar" id="side">
 <div class="logo"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#E8618C" stroke-width="4" aria-hidden="true"><circle cx="14" cy="14" r="10"/></svg><span>Cruller</span></div>
-<nav class="snav" aria-label="Sections"><div class="sgrp">RetroTINK</div><a href="#rt4k" data-nav="rt4k/live" title="Live screen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg><span>Live screen</span></a><a href="#rt4k/editor" data-nav="rt4k/editor" title="Editor"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/></svg><span>Editor</span></a><a href="#rt4k/sd" data-nav="rt4k/sd" title="SD card"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9 7v3"/><path d="M12 7v3"/><path d="M15 7v3"/></svg><span>SD card</span></a><a href="#rt4k/firmware" data-nav="rt4k/firmware" title="Firmware"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg><span>Firmware</span></a><div class="sgrp"></div><a href="#gameid" data-nav="gameid" title="gameID"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v3a3 3 0 0 1-5.4 1.8L14.5 15h-5l-1.1 1.8A3 3 0 0 1 3 15v-3a4 4 0 0 1 4-4z"/><path d="M7 11v3M5.5 12.5h3"/><circle cx="16" cy="12" r=".6"/><circle cx="18" cy="13.5" r=".6"/></svg><span>gameID</span></a><a href="#svs" data-nav="svs" title="SVS"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="8" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="16" cy="12" r="1.2"/></svg><span>SVS</span></a><a href="#cruller" data-nav="cruller" title="Cruller"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg><span>Cruller</span></a><a href="#debug" data-nav="debug" title="Debug"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg><span>Debug</span></a></nav>
+<nav class="snav" aria-label="Sections"><div class="sgrp">RetroTINK</div><a href="#rt4k" data-nav="rt4k/live" title="Live screen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg><span>Live screen</span></a><a href="#rt4k/editor" data-nav="rt4k/editor" title="Editor"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/></svg><span>Editor</span></a><a href="#rt4k/sd" data-nav="rt4k/sd" title="SD card"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9 7v3"/><path d="M12 7v3"/><path d="M15 7v3"/></svg><span>SD card</span></a><a href="#rt4k/firmware" data-nav="rt4k/firmware" title="Firmware"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg><span>Firmware</span></a><div class="sgrp"></div><a href="#consoles" data-nav="consoles" title="Consoles"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v3a3 3 0 0 1-5.4 1.8L14.5 15h-5l-1.1 1.8A3 3 0 0 1 3 15v-3a4 4 0 0 1 4-4z"/><path d="M7 11v3M5.5 12.5h3"/><circle cx="16" cy="12" r=".6"/><circle cx="18" cy="13.5" r=".6"/></svg><span>Consoles</span></a><a href="#cruller" data-nav="cruller" title="Cruller"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg><span>Cruller</span></a><a href="#debug" data-nav="debug" title="Debug"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg><span>Debug</span></a></nav>
 <button class="sidecol" id="sidecol" aria-label="Collapse the sidebar" title="Collapse the sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M16 10l-2 2 2 2"/></svg></button>
 </aside>
 <div class="page">
@@ -351,9 +380,6 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div data-subview="sd" id="sd"></div>
 <div data-subview="editor" id="pe"></div>
 </section>
-
-<!-- gameID (gameid.js) -->
-<section data-view="gameid" id="gid" class="gidv"></section>
 
 <!-- Cruller -->
 <section data-view="cruller" class="grid3">
@@ -424,17 +450,21 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 </div>
 </section>
 
-<!-- SVS: the Scalable Video Switch, through its bridge (docs/SVS.md) -->
-<section data-view="svs" class="grid3">
-<div class="panel span3">
-<div class="row"><h2 class="grow">Inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span>
+<!-- Consoles: the game on screen (gameid.js), the SVS's inputs through its bridge (app.js, docs/SVS.md), each
+with its gameID (gameid.js, docs/GAMEID.md), the consoles not on the SVS, the games and their profiles. -->
+<section data-view="consoles" id="cons" class="grid3">
+<div class="panel span3" id="gon"></div>
+<div class="panel span3 svs-more">
+<div class="row"><h2 class="grow">SVS inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span>
 <button class="refresh svs-more" id="vpr" title="Read /profile/SVS again" aria-label="Read /profile/SVS again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
 <div class="small" id="v-since"></div>
-<div class="small svs-wait">The SVS Bridge finds this Cruller on the network by itself and starts reporting the switch's input. Nothing to set up here.</div>
 <div class="svs-grid svs-more" id="v-grid" hidden></div>
 <div class="small svs-more" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
 <div class="small" id="v-noname" hidden>Pick each input's module and the console on it in the SVS Bridge's SVS tab: they show up here.</div>
-<div class="svs-more" id="v-prof" style="display:flex;flex-direction:column;gap:8px"></div></div>
+<div class="svs-more" id="v-prof" style="display:flex;flex-direction:column;gap:8px"></div>
+<div class="small" id="gnot"></div></div>
+<div class="panel span3" id="gcon" hidden></div>
+<div class="panel span3" id="ggam"></div>
 
 <div class="panel svs-more">
 <h2>SVS Bridge</h2>

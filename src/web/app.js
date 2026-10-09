@@ -61,7 +61,8 @@ const IN_PORTAL = location.hostname === '192.168.4.1';
 
 function route() {
   const [t, sub, ...rest] = (location.hash.slice(1) || (IN_PORTAL ? 'setup' : 'rt4k')).split('/');
-  tab = ['rt4k', 'gameid', 'svs', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
+  if (t === 'svs' || t === 'gameid') return location.replace('#consoles'); // (the old SVS and gameID views: one now)
+  tab = ['rt4k', 'consoles', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
   document.body.classList.toggle('setup', tab === 'setup');
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
@@ -79,8 +80,8 @@ function route() {
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
   if (tab === 'rt4k' && view === 'editor' && window.peOpen) window.peOpen(rest); // rest: a profile's path under /profile (editor.js)
   if (tab === 'rt4k' && view === 'live') fit();
-  if (tab === 'svs' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
-  if (tab === 'gameid' && window.gidOpen) window.gidOpen(); // the consoles and the games, read again
+  if (tab === 'consoles' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
+  if (tab === 'consoles' && window.gidOpen) window.gidOpen(); // gameID's consoles and the games, read again
   tellVisibility();
   tellDebug();
   if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); }
@@ -605,7 +606,6 @@ function showSvs(v) {
   const short = (p) => (CONSOLES[p.device] || [])[0] || p.name || '';
   // Until a bridge has reported or is paired there's nothing to show but that it's awaited.
   document.querySelectorAll('.svs-more').forEach((e) => { e.hidden = !paired && !known; });
-  document.querySelectorAll('.svs-wait').forEach((e) => { e.hidden = !!(paired || known); });
   $('v-dot').className = 'dot ' + (!paired && !known ? '' : live ? 'ok' : 'warn');
   text('v-state', !paired && !known ? 'no bridge yet' : live ? 'live' : 'not heard lately');
   // Input 0: the switch has no input active.
@@ -628,12 +628,13 @@ function showSvs(v) {
     $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
       // The console's icon and short name when the bridge says which it is, else the name given.
       // Nothing picked on it: the same tile, with an empty slot for the icon. Under it, its profile
-      // (profiles.js).
+      // (profiles.js), and its gameID (gameid.js).
       const n = i + 1, p = port(n), what = short(p);
       const icon = what ? consoleIcon(p.device) : EMPTY_ICON;
+      const sel = window.profSvsSelect ? window.profSvsSelect(n) : '';
       return '<div data-n="' + n + '" class="' + (what ? '' : 'empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
         (p.kind ? ' · ' + esc(kindName(p.kind)) : '') + '">' + '<b>' + n + '</b>' + icon + '<span>' + (what ? esc(what) : 'Empty') + '</span>' +
-        '<small></small>' + (window.profSvsSelect ? window.profSvsSelect(n) : '') + '</div>';
+        '<small></small>' + (sel ? '<div class=gcap>Switched in, loads</div>' + sel : '') + '<div class=gslot data-n="' + n + '"></div></div>';
     }).join('');
   }
   $('v-grid').querySelectorAll(':scope > div').forEach((d) => {
@@ -655,10 +656,27 @@ function showSvs(v) {
     (short(port(input)) ? ' <span class="small">S' + input + '</span>' : '') : 'None active') +
     (i === 0 ? ' <span class="small">(now)</span>' : '') + '</td><td class="r">' + ago(s) + '</td></tr>').join('') ||
     '<tr><td colspan="2" class="small">None yet</td></tr>';
+  // gameID (gameid.js): what's on screen, each card's gameID (the cards may be new).
+  if (window.gidSvs) window.gidSvs();
 }
 
 // profiles.js: the profiles' combos changed (read, picked, the RT4K asleep), so the cards are drawn again.
 window.svsRedraw = () => { if (svsSw.last) showSvs(svsSw.last); };
+
+// gameid.js: the switch as the bridge last said it. bridge: one is paired or reporting; inputs: each one's
+// console, by its short name and its id in the bridge's list ('' when nothing's picked on it).
+window.svsNow = () => {
+  const v = svsSw.last, known = !!(v && v.known);
+  const ins = known && v.switch_seq && svsSw.data ? svsSw.data.inputs : [];
+  const total = known ? Math.max(v.total || 0, ins.length) : 0;
+  return {
+    bridge: !!(v && (v.paired || v.known)), known, input: known ? v.input : 0,
+    inputs: Array.from({ length: total }, (_, i) => {
+      const p = ins[i] || {};
+      return { name: (CONSOLES[p.device] || [])[0] || p.name || '', device: p.device || '' };
+    }),
+  };
+};
 
 async function unpair() {
   if (!(await askUser('Unpair the SVS Bridge?', 'Cruller forgets it; the next SVS Bridge that reports pairs instead.', 'Unpair', true))) return;

@@ -35,9 +35,11 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
   in `/profile`, load a profile with a click or open it in the profile editor, the loaded one marked;
   tick several to edit them together.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
+- **Each game its own profile (gameID)**: a MemCard PRO2 or PRO, a PS1Digital or an N64Digital says
+  which game runs, and the profile you gave it loads.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
-  screen and the console on each input, and each input's profile picked from the RT4K's
-  `/profile/SVS` (its `S<n>_….rt4`, which it loads with Auto Load SVS).
+  screen and the console on each input, each input's profile picked from the RT4K's `/profile/SVS`
+  (its `S<n>_….rt4`, which it loads with Auto Load SVS), and the gameID on it.
 - **Home Assistant and scripts**: a [Home Assistant integration](https://github.com/margaale/cruller-hacs)
   that finds Cruller by itself, a versioned JSON API, and the RT4K's serial port on the network
   (RFC 2217), where each client gets only the replies to its own commands.
@@ -172,30 +174,34 @@ ones ticked are edited together: a setting shows its value when they agree and *
 don't (its tooltip says who has what), and a value picked goes to all of them, each keeping the rest
 of its own. Saving them replaces each changed one where it is, after one confirmation that names them.
 
-### gameID
+### Consoles
 
-A console that reports which game it runs (a MemCard PRO2 or PRO, a PS1Digital, an N64Digital) can
-have each game load its own RT4K profile. The gameID view keeps what that works from: the consoles,
-each as its address on your network (a MemCard's IP alone will do), and the gameDB, each game's ID
-with the profile for it, picked from the RT4K's SD card. Cruller asks the consoles every 2 s and loads
-the profile for the game on screen; the view shows what each runs and what was loaded. **Its game**
-adds the game a console runs to the gameDB in a click. With an SVS switch, only the console on the
-input on screen counts, and back on its input its game's profile loads again after the input's own.
-A MemCard PRO2 answers with its own web page on (WebUI v2 off). More in [GAMEID.md](docs/GAMEID.md).
+One view for your consoles and the profile each game loads.
 
-### SVS
+**On screen** says what the RT4K shows and the profile for it: loaded (and when), waiting for the
+RT4K to come on, or why it keeps the one it has.
 
-![SVS: eight inputs with their consoles, the one on screen lit, and the recent switches](docs/images/svs-tab.png)
+**SVS inputs**: the RT4K can't tell when an [SVS](https://scalablevideoswitch.com/) switch changes
+input, so the [SVS Bridge](https://github.com/margaale/svs-bridge) tells Cruller. There's nothing to
+set up on this side: the bridge finds Cruller on the network, you pick it in the bridge's Cruller
+tab, and Cruller pairs with the first bridge that reports to it. Each input shows the console on it
+(as picked in the bridge's SVS tab), the one on screen lit, and **Switched in, loads**: its profile,
+picked from the RT4K's `/profile/SVS` (with "Auto Load SVS" on, the RT4K itself loads
+`S<input>_….rt4` when the input changes).
 
-The RT4K can't tell when an [SVS](https://scalablevideoswitch.com/) switch changes input, so the
-[SVS Bridge](https://github.com/margaale/svs-bridge) tells Cruller. There's nothing to set up on
-this side: the bridge finds Cruller on the network, you pick it in the bridge's Cruller tab, and
-Cruller pairs with the first bridge that reports to it.
+**gameID**: a console that reports which game it runs (a MemCard PRO2 or PRO, a PS1Digital, an
+N64Digital) can have each game load its own profile. Under an input, **Add a MemCard or Digital**
+takes its address on your network (a MemCard's IP alone will do). Cruller asks it every 2 s, and
+while that input is on screen its game's profile loads, 3 s after the input's own; a game not in your
+games keeps the input's, or loads another profile you pick for those. A console not on the SVS, or
+any without an SVS, is added the same way. A MemCard PRO2 answers with its own web page on (WebUI v2
+off).
 
-The tab shows each input with the console on it (as picked in the bridge's SVS tab), the one on
-screen lit, the output that goes to the RetroTINK, and the recent switches. **Unpair** frees Cruller
-for another bridge. With "Auto Load SVS" on, the RT4K itself loads
-`/profile/SVS/S<input>_….rt4` when the input changes. Per-console game profiles come next.
+**Your games**: each game's ID with its profile, picked from the RT4K's SD card. The game on screen,
+or one a console runs, is added in a click.
+
+Under them, the SVS Bridge (**Unpair** frees Cruller for another bridge) and the recent switches.
+More in [GAMEID.md](docs/GAMEID.md) and [SVS.md](docs/SVS.md).
 
 ### Cruller
 

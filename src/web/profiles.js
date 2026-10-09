@@ -1,5 +1,5 @@
 // The RT4K's profiles for the Cruller page (served as /profiles.js, embedded at build time): each SVS
-// input's profile, picked in the SVS tab from the RT4K's /profile/SVS (GET /rt4k/ls, as sd.js reads
+// input's profile, picked in the Consoles view from the RT4K's /profile/SVS (GET /rt4k/ls, as sd.js reads
 // them; renamed with the RT4K's mv, copied with GET /rt4k/get and POST /rt4k/put). The profiles
 // themselves are browsed, loaded and opened in the editor in the SD card view (sd.js). Uses sd.js's
 // helpers (window.sdInternals).
@@ -44,7 +44,7 @@
     if (!p.ok) throw new Error(to.split('/').pop() + ': ' + ((await p.text()).trim() || 'HTTP ' + p.status));
   }
 
-  // --- each SVS input's profile (the SVS tab) ---------------------------------------------------------
+  // --- each SVS input's profile (the Consoles view) ---------------------------------------------------------
   //
   // The RT4K's own way (Auto Load SVS): when the switch tells it input n is on, it loads the first
   // /profile/SVS/S<n>_<anything>.rt4 it finds, and only from that folder. Each input gets a combo with
@@ -201,7 +201,7 @@
     return sv.kept && Object.keys(sv.kept).length ? 'kept/' + JSON.stringify(sv.kept) : '';
   };
 
-  // Input n's combo, for its card in the SVS tab's grid (app.js); '' while there's none to show. As
+  // Input n's combo, for its card in the Consoles view's grid (app.js); '' while there's none to show. As
   // Cruller keeps it, it only shows.
   function svsSelect(n) {
     if (!svsKey()) return '';
@@ -315,14 +315,14 @@
     svsStatus(...note);
   }
 
-  // The SVS tab's switch (app.js, with every status): which input is on screen, how many there are.
+  // The switch (app.js, with every status): which input is on screen, how many there are.
   function svsSwitch(info) {
     sv.input = info.input;
     sv.total = info.total;
     if (!sv.files && !sv.reading && !sv.failed && power === 'on' && sv.total && svsShowing()) svsRead();
   }
 
-  // The SVS tab opens: the folder is read again (the SD card view may have changed it).
+  // The Consoles view opens: the folder is read again (the SD card view may have changed it).
   function svsOpen() {
     svsRender();
     if (power === 'on' && svsShowing()) svsRead();
@@ -350,5 +350,6 @@
   window.profSvsSelect = svsSelect;
   window.profSvsKey = svsKey;
   window.profSvsKept = svsKept;
+  window.profSvsFile = (n) => svsCurrent(n).name; // gameid.js: input n's profile, in /profile/SVS ('' none)
   window.profInternals = { isProfile, plain, slotOf, baseName, freeName, plan }; // tests/test_profiles.js
 })();

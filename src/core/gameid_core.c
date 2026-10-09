@@ -285,7 +285,7 @@ static bool has(const char *a, const char *b) {
 }
 
 const char *gameid_kind(const char *mode, const char *name) {
-    // what a MemCard PRO's currentMode says, then what a name may (the SVS tab's ids)
+    // what a MemCard PRO's currentMode says, then what a name may (the SVS Bridge's ids)
     static const char *const known[][2] = {
         {"ps2", "ps2"}, {"ps1", "ps1"}, {"psx", "ps1"}, {"playstation 2", "ps2"}, {"playstation", "ps1"}, {"gamecube", "gamecube"},
         {"gc", "gamecube"}, {"ngc", "gamecube"}, {"n64", "n64"}, {"nintendo 64", "n64"}, {"dreamcast", "dreamcast"}, {"saturn", "saturn"},

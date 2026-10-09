@@ -80,7 +80,7 @@ typedef struct {
 // neither (an error page, JSON without "gameID").
 bool gameid_read_report(const char *body, size_t len, gameid_report_t *out);
 
-// The console it is, as the SVS tab names them ("ps1", "ps2", "n64", "gamecube"...): from what it
+// The console it is, as the SVS Bridge names them ("ps1", "ps2", "n64", "gamecube"...): from what it
 // reports, else from its name. "" when neither says.
 const char *gameid_kind(const char *mode, const char *name);
 
@@ -93,6 +93,6 @@ typedef struct {
 } gameid_seen_t;
 
 // Whose game is on screen: of the consoles enabled, on and running a game, those on the SVS's input when
-// one is reported (svs_input > 0: a console set to it, or one on Auto that is the console the SVS tab has
+// one is reported (svs_input > 0: a console set to it, or one on Auto that is the console the SVS Bridge says
 // there, svs_device; when either isn't known, it counts), the one whose game changed last. -1: none.
 int gameid_pick(const gameid_console_t *c, const gameid_seen_t *seen, int n, int svs_input, const char *svs_device);
