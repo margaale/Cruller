@@ -176,6 +176,8 @@ of its own. Saving them replaces each changed one where it is, after one confirm
 
 ### Consoles
 
+![Consoles: God of War II on screen with its profile loaded, the SVS's four inputs with their profiles and the PS2's MemCard, your games](docs/images/consoles.png)
+
 One view for your consoles and the profile each game loads.
 
 **On screen** says what the RT4K shows and the profile for it: loaded (and when), waiting for the

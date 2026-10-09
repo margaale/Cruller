@@ -64,6 +64,8 @@ const state = (o) => Object.assign({ consoles: [seen], svs_input: 4, playing, pr
 let r = g.onScreen(state({ profile: 'PS2/GoW2.rt4', from: 'gamedb', loaded: 'ps2/gow2.RT4', note: 'loaded PS2/GoW2.rt4', note_age_s: 120 }), sv, [ps2], mine, 'on');
 check(r.title === 'God of War II' && r.sub === 'PS2 on input 4 · SCUS-97481' && r.profile === 'PS2/GoW2.rt4' && r.badge === 'Loaded 2 min ago' && r.tone === 'ok' &&
   /loads its own S4_PS2 first/.test(r.why) && !r.add && !r.dim, 'a game in your games, loaded: ' + JSON.stringify(r));
+r = g.onScreen(state({ profile: 'SVS/S4_PS2.rt4', from: 'gamedb', loaded: 'SVS/S4_PS2.rt4' }), sv, [ps2], [{ id: 'SCUS-97481', name: 'God of War II', profile: 'SVS/S4_PS2.rt4' }], 'on');
+check(r.why === 'From your games. The same as input 4\'s own.' && r.tone === 'ok', 'its game\'s profile the input\'s own: ' + r.why);
 r = g.onScreen(state({ profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: 'PS2/GoW2.rt4' }), sv, [ps2], mine, 'standby');
 check(r.badge === 'Waiting for the RT4K' && r.tone === 'wait', 'waiting for the RT4K');
 r = g.onScreen(state({ profile: 'PS2/GoW2.rt4', from: 'gamedb', pending: 'PS2/GoW2.rt4' }), sv, [ps2], mine, 'on');

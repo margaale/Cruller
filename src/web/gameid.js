@@ -91,11 +91,12 @@
       r.sub = (away ? p.console + ' on ' + rin : svs && input ? inName(input) + ' on input ' + input : p.console) + ' · ' + p.game;
       if (!games.some((g) => g.id === p.game)) r.add = { id: p.game, name: p.game_name || '' };
       r.profile = s.profile || (away ? '' : own(input));
-      r.why = s.from === 'gamedb' ? 'From your games.' + (!away && own(input) ? ' Input ' + input + ' loads its own ' + plain(sv.files[input]) + ' first, this one 3 s after.' : '') :
+      r.why = s.from === 'gamedb' ? 'From your games.' + (away || !own(input) ? '' : same(r.profile, own(input)) ? ' The same as input ' + input + '\'s own.' :
+        ' Input ' + input + ' loads its own ' + plain(sv.files[input]) + ' first, this one 3 s after.') :
         s.from === 'other' ? 'Not in your games: its console\'s profile for those.' :
           'Not in your games: ' + (r.profile ? 'the input\'s own stays.' : 'the RT4K keeps the profile it has.');
     } else if (away) {
-      Object.assign(r, { title: rin, sub: 'The RT4K shows it, not the SVS · no game on it it can tell', why: 'The RT4K keeps the profile it has.',
+      Object.assign(r, { title: rin, sub: 'The RT4K shows it, not the SVS · nothing on it tells its game', why: 'The RT4K keeps the profile it has.',
         addFor: consoles.some((c) => c.svs_input === -1) ? 0 : -1 });
     } else if (svs && !input) {
       Object.assign(r, { title: 'No input active', dim: true, sub: 'The SVS shows nothing', why: 'The RT4K keeps the profile it has.' });
@@ -289,6 +290,8 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       live = await r.json();
       liveFail = false;
+      // the consoles changed elsewhere (the API, another page): read again
+      if (live.consoles.map((c) => c.name).join('\n') !== consoles.map((c) => c.name).join('\n') && !q('gdlg').open) loadConsoles();
     } catch (e) {
       liveFail = true;
     }
