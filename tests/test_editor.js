@@ -62,8 +62,20 @@ for (const m of doc.maps) {
   m.settings.forEach((s, i) => {
     if (!s.when) return;
     const o = m.settings[dep[i]];
-    check(dep[i] >= 0 && s.when.is.every((v) => (o.values || []).some(([shown]) => shown === v)), m.firmware + ' ' + s.label + ' depends on ' + s.when.label + ': ' + (o ? 'its values ' + s.when.is.join(', ') : 'not found'));
+    check(dep[i] >= 0 && [...s.when.is, ...(Array.isArray(s.when.hide) ? s.when.hide : [])].every((v) => (o.values || []).some(([shown]) => shown === v)), m.firmware + ' ' + s.label + ' depends on ' + s.when.label + ': ' + (o ? 'its values ' + s.when.is.join(', ') : 'not found'));
+    if (Array.isArray(s.when.hide)) check(!s.when.hide.some((v) => s.when.is.includes(v)), s.label + ' hidden only where it does not apply');
   });
+}
+
+// A submenu's input: the setting found, the values it has.
+for (const m of doc.maps) {
+  for (const [tab, items] of m.tabs) {
+    for (const [item, title, w] of items) {
+      if (!w) continue;
+      const o = m.settings.find((s) => s.path === w.path && s.label === w.label);
+      check(o && w.is.length && w.is.every((v) => o.values.some(([shown]) => shown === v)), tab + ' › ' + item + ' needs ' + w.label + ': ' + (o ? w.is.join(', ') : 'not found'));
+    }
+  }
 }
 
 // The layout: every setting once (but the hidden), the main menu's as tiles, the advanced menu's each in a

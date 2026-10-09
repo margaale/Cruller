@@ -175,9 +175,10 @@
   }
 
   // Where each setting shows: the main menu's as tiles; the advanced menu's in its tab and submenu (the
-  // map's tabs: [tab, [[item, title]]], as the menu has them), in the map's order; any other in "Other".
+  // map's tabs: [tab, [[item, title, when]]], as the menu has them; when: the input it needs, as a setting's),
+  // in the map's order; any other in "Other".
   function layoutOf(m) {
-    const tiles = [], tabs = (m.tabs || []).map(([tab, items]) => ({ tab, menus: items.map(([item, title]) => ({ item, title, idx: [] })) }));
+    const tiles = [], tabs = (m.tabs || []).map(([tab, items]) => ({ tab, menus: items.map(([item, title, when]) => ({ item, title, when, idx: [] })) }));
     const menus = tabs.flatMap((t) => t.menus), other = { item: 'Other', title: '', idx: [] };
     m.settings.forEach((s, i) => {
       if (s.hidden) return; // (not laid out: the saving device's ID has a line of its own)
@@ -518,17 +519,36 @@
   }
 
   // What a line's tooltip says: why it doesn't apply, what it means, what it's kept per, what it asks.
+  // Why a submenu doesn't apply to the profile's input ('' when it does): the RT4K shows its lines N/A.
+  function menuWhy(m) {
+    const w = m && m.when, j = w ? map.settings.findIndex((o) => o.path === w.path && o.label === w.label) : -1;
+    if (j < 0) return '';
+    const v = decode(map.settings[j], cs[j], pf.body, ...at(map.settings[j])).value;
+    return w.is.includes(v) ? '' : 'Not with ' + w.label + ': ' + v;
+  }
+  let offMenu = new Map(); // each setting of a submenu that doesn't apply: why (render)
+
   function tip(i) {
     const s = map.settings[i];
     const per = !s.each ? '' : slotOf(s) >= 0 ? 'Kept per detected rate' : s.each.by === 'mode' ? 'Kept per input mode' : 'Kept per audio input';
-    return [whyNot(i), s.note || (cs[i].readonly ? 'Read-only' : ''), per, s.asks ? 'The RT4K asks first: ' + s.asks : ''].filter(Boolean).join('\n');
+    return [offMenu.get(i) || whyNot(i), s.note || (cs[i].readonly ? 'Read-only' : ''), per, s.asks ? 'The RT4K asks first: ' + s.asks : ''].filter(Boolean).join('\n');
   }
 
   // One setting's line: its name, its value.
   function line(i, name) {
     const s = map.settings[i], t = tip(i);
-    return '<div class="per' + (changedHere(i) ? ' chg' : '') + (whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '>' +
+    return '<div class="per' + (changedHere(i) ? ' chg' : '') + (offMenu.has(i) || whyNot(i) ? ' na' : '') + '"' + (t ? ' title="' + esc(t) + '"' : '') + '>' +
       '<span class="pln' + (s.note || s.asks ? ' tip' : '') + '">' + esc(name || s.label) + '</span>' + control(s, cs[i], i) + '</div>';
+  }
+
+  // Whether setting i is gone from the menu as the one it depends on is set (another line in its place):
+  // when.hide true, wherever it doesn't apply; or the values it's gone at (elsewhere it shows N/A).
+  function gone(i) {
+    const s = map.settings[i], h = s.when && s.when.hide;
+    if (!h || !whyNot(i)) return false;
+    if (h === true) return true;
+    const o = map.settings[dep[i]];
+    return h.includes(decode(o, cs[dep[i]], pf.body, ...at(o)).value);
   }
 
   // Settings under their headings: the one above each in the menu, or what named says.
@@ -536,6 +556,7 @@
     const by = new Map();
     for (const i of idx) {
       const s = map.settings[i], h = named ? named(i) : s.heading || s.section || '';
+      if (!named && gone(i)) continue; // (a search still finds it)
       if (!by.has(h)) by.set(h, []);
       by.get(h).push(i);
     }
@@ -579,6 +600,7 @@
 
     // a search: every setting found, under its submenu; else the tab and submenu picked
     const menus = lay.tabs.flatMap((t) => t.menus);
+    offMenu = new Map(menus.flatMap((m) => { const w = menuWhy(m); return w ? m.idx.map((i) => [i, w]) : []; }));
     q('penav').hidden = !!filter;
     if (!menus.some((m) => m.title === ui.menu)) { ui.tab = lay.tabs[0].tab; ui.menu = lay.tabs[0].menus[0].title; }
     const count = (idx) => idx.filter(changedAnywhere).length, badge = (n) => (n ? ' <span class=peb>' + n + '</span>' : '');
@@ -590,8 +612,10 @@
       return;
     }
     const tab = lay.tabs.find((t) => t.tab === ui.tab);
-    q('penav').innerHTML = tab.menus.map((m) => '<button data-menu="' + esc(m.title) + '"' + (m.title === ui.menu ? ' aria-current=true' : '') + '>' + esc(m.item) + badge(count(m.idx)) + '</button>').join('');
-    q('pepane').innerHTML = groups(menus.find((m) => m.title === ui.menu).idx) || '<div class=pe0>No settings mapped here</div>';
+    q('penav').innerHTML = tab.menus.map((m) => '<button data-menu="' + esc(m.title) + '"' + (m.title === ui.menu ? ' aria-current=true' : '') + (menuWhy(m) ? ' class=na title="' + esc(menuWhy(m)) + '"' : '') + '>' +
+      esc(m.item) + badge(count(m.idx)) + '</button>').join('');
+    const here = menus.find((m) => m.title === ui.menu), why = menuWhy(here);
+    q('pepane').innerHTML = (why ? '<div class=pena>' + esc(why) + ': the RT4K shows these N/A</div>' : '') + (groups(here.idx) || '<div class=pe0>No settings mapped here</div>');
   }
 
   async function readMap() {
