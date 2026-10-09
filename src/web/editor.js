@@ -332,9 +332,7 @@
       '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
       '<div id=pe0 class=pe0>Add a profile from the SD card or this computer, or pick some in the <a class=more href="#rt4k/sd/profile">SD card</a> ' +
       'view (its /profile folder): one to edit, or several ticked to edit together.</div></div>' +
-      '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. With Multi Edit, the ' +
-      'profiles ticked take each change, each keeping the rest of its own. The settings and where they live come from mapping ' +
-      'the RT4K\'s menus (Debug tab, Settings map).</div></div>' +
+      '</div>' +
       '<dialog id=peadd class=pick aria-labelledby=pept><form method=dialog><h3 id=pept>Add from the SD card</h3>' +
       '<nav id=pepc class=crumbs aria-label=Folder></nav><div id=pepl class=pepl></div>' +
       '<div class=row><span id=peps class="small grow"></span><button value=no>Cancel</button><button value=yes id=pepok class=primary disabled>Add</button></div></form></dialog>';
