@@ -4,9 +4,9 @@ gameID loads a game's own RT4K profile when a console reports which game it runs
 before Cruller ([margaale/DonutShop](https://github.com/margaale/DonutShop)); this is how Cruller does
 it, and how far it has got.
 
-Status: the consoles and the gameDB are kept, with their API (`/api/v1/gameid`, [API.md](API.md)).
-Asking the consoles and loading the profiles, the page's gameID view, and finding consoles on the
-network come next.
+Status: the consoles and the gameDB are kept, with their API (`/api/v1/gameid`, [API.md](API.md)),
+and the page's gameID view edits them (a console's game read from the browser to add it). Cruller
+asking the consoles and loading the profiles, and finding consoles on the network, come next.
 
 ## The consoles
 

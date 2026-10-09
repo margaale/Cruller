@@ -97,7 +97,7 @@ target_include_directories(cruller_app INTERFACE
     ${CRULLER_ROOT}/third_party/picow_ap)
 
 # Web assets kept as real files (src/web), embedded as C arrays (see src/web/embed.cmake).
-foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
+foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js gameid.js:web_gameid_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
     string(REPLACE ":" ";" asset ${asset})
     list(GET asset 0 file)
     list(GET asset 1 name)

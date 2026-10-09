@@ -61,7 +61,7 @@ const IN_PORTAL = location.hostname === '192.168.4.1';
 
 function route() {
   const [t, sub, ...rest] = (location.hash.slice(1) || (IN_PORTAL ? 'setup' : 'rt4k')).split('/');
-  tab = ['rt4k', 'svs', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
+  tab = ['rt4k', 'gameid', 'svs', 'cruller', 'debug', 'setup'].includes(t) ? t : 'rt4k';
   document.body.classList.toggle('setup', tab === 'setup');
   if (tab === 'setup' && !wz.started) { wz.started = true; wzGo(1); wzScan(); wzResume(); }
   document.querySelectorAll('[data-view]').forEach((e) => { e.hidden = e.dataset.view !== tab; });
@@ -80,6 +80,7 @@ function route() {
   if (tab === 'rt4k' && view === 'editor' && window.peOpen) window.peOpen(rest); // rest: a profile's path under /profile (editor.js)
   if (tab === 'rt4k' && view === 'live') fit();
   if (tab === 'svs' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
+  if (tab === 'gameid' && window.gidOpen) window.gidOpen(); // the consoles and the games, read again
   tellVisibility();
   tellDebug();
   if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); }
@@ -121,6 +122,7 @@ function st(s) {
   if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power
   if (window.profStatus) window.profStatus(s); // the SVS folder read again once the RT4K is on
   if (window.peStatus) window.peStatus(s); // the editor: the RT4K's power and firmware
+  if (window.gidStatus) window.gidStatus(s); // gameID: the RT4K's power (its SD card read for a profile)
   const usb = s.rt4k_usb === 'connected';
   const power = { on: 'On', standby: 'Standby', starting: 'Starting', unknown: 'Not answering' }[s.rt4k_power] || s.rt4k_power;
   // Its firmware as it last said it, which Cruller keeps while it sleeps.

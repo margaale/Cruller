@@ -48,5 +48,7 @@ if command -v node >/dev/null; then
     node tests/test_mapper.js || status=1
     echo "== editor.js (profile editor)"
     node tests/test_editor.js || status=1
+    echo "== gameid.js (gameID view)"
+    node tests/test_gameid_page.js || status=1
 fi
 exit $status
