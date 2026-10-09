@@ -11,6 +11,7 @@ idf_component_register(
         ${CORE}/creds.c
         ${CORE}/gameid.c
         ${CORE}/gameid_core.c
+        ${CORE}/gameid_run.c
         ${CORE}/http.c
         ${CORE}/json.c
         ${CORE}/ota_fetch.c

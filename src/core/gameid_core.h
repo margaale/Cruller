@@ -54,3 +54,45 @@ size_t gameid_game_line(const gameid_game_t *g, char *out, size_t size); // its 
 
 // A game as the API sends it: {"id": ..., "profile": ..., "name": ...}. Its length, 0 when it doesn't fit.
 size_t gameid_game_json(const gameid_game_t *g, char *out, size_t size);
+
+// --- asking a console (gameid_run.c) -------------------------------------------------------------------
+
+#define GAMEID_HOST_MAX 64
+#define GAMEID_MODE_MAX 16
+
+// "http://host[:port]/path": the host, the port (80 when none) and the path, its query too. False for
+// anything else (another scheme, user info, a host too long or with odd characters, no path).
+bool gameid_split_url(const char *url, char *host, size_t host_size, uint16_t *port, const char **path);
+
+// A console's whole reply (the status line, the headers, the body; a chunked body decoded in place): its
+// status, *body and *body_len the body's. 0 when it isn't an HTTP/1.x reply (or a chunked body is cut).
+int gameid_reply(char *buf, size_t len, const char **body, size_t *body_len);
+
+// What a console says it runs.
+typedef struct {
+    char id[GAMEID_ID_MAX];     // "" when it runs none it can tell
+    char name[GAMEID_NAME_MAX]; // its own name for the game, when it says one
+    char mode[GAMEID_MODE_MAX]; // the console it is, when it says (a MemCard PRO: "PS1", "PS2", "GC")
+} gameid_report_t;
+
+// A reply's body read: JSON with "gameID" (and "gameName", "currentMode": a MemCard PRO's), or the ID as
+// text (a PS1Digital's, an N64Digital's: one line of printable characters, trimmed). False when it's
+// neither (an error page, JSON without "gameID").
+bool gameid_read_report(const char *body, size_t len, gameid_report_t *out);
+
+// The console it is, as the SVS tab names them ("ps1", "ps2", "n64", "gamecube"...): from what it
+// reports, else from its name. "" when neither says.
+const char *gameid_kind(const char *mode, const char *name);
+
+// What's known of a console from asking it.
+typedef struct {
+    bool on;                    // it answered (with a game or none) the last time it was asked
+    gameid_report_t game;       // what it runs, then
+    char kind[GAMEID_MODE_MAX]; // gameid_kind's, kept from when it last said (a mode, or its name)
+    uint32_t changed;           // when its game last changed, as a count that only grows (0: never)
+} gameid_seen_t;
+
+// Whose game is on screen: of the consoles enabled, on and running a game, those on the SVS's input when
+// one is reported (svs_input > 0: a console set to it, or one on Auto that is the console the SVS tab has
+// there, svs_device; when either isn't known, it counts), the one whose game changed last. -1: none.
+int gameid_pick(const gameid_console_t *c, const gameid_seen_t *seen, int n, int svs_input, const char *svs_device);

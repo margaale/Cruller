@@ -20,6 +20,7 @@
 #include "net.h"
 #include "cfgfs.h"
 #include "console.h"
+#include "gameid_run.h"
 #include "ota.h"
 #include "power.h"
 #include "rfc2217.h"
@@ -98,6 +99,7 @@ static void main_task(void *param) {
     rt4k_start();
     ws_start();
     http_start();
+    gameid_run_start(); // asks the consoles once the network is up
     rfc2217_start();
     net_start();
 

@@ -1,8 +1,8 @@
 // gameID's view for the Cruller page (served as /gameid.js, embedded at build time): the consoles Cruller
 // asks which game they run, and the gameDB, each game with the RT4K profile to load (docs/GAMEID.md).
 // Read from and saved to /api/v1/gameid (docs/API.md); a profile is picked from the RT4K's SD card (its
-// /profile folder). A console's game can be read from here too, the browser asking it (a MemCard PRO
-// answers any page), to add it to the gameDB.
+// /profile folder). What Cruller knows as it asks them (GET /api/v1/gameid/state): each console's game,
+// the one on screen and the profile loaded for it, every 2 s while the view shows.
 
 (() => {
   'use strict';
@@ -47,6 +47,26 @@
     return { id: String(text).trim(), name: '' };
   }
 
+  // A console as Cruller last asked it (state.consoles[k]): its cell's text.
+  function liveText(l, enabled) {
+    if (!enabled) return 'Not asked';
+    if (!l) return '…';
+    if (!l.on) return 'Off';
+    return l.game ? (l.game_name || l.game) : 'No game';
+  }
+
+  // What's on screen, and what gameID did about it (the state's playing, profile, from, pending, loaded).
+  const FROM = { gamedb: 'the gameDB', other: 'its console', svs: 'its SVS input' };
+  function nowText(s) {
+    if (!s) return '';
+    const p = s.playing;
+    const what = p ? (p.game_name || p.game) + ' on ' + p.console : s.from === 'svs' ? 'Its console went off' : 'No game on screen';
+    if (!s.profile) return what + (p ? ': no profile for it' : '');
+    const where = plain(s.profile) + (FROM[s.from] ? ' (from ' + FROM[s.from] + ')' : '');
+    if (s.pending) return what + ': loading ' + where;
+    return what + ': ' + (s.loaded && s.loaded.toLowerCase() === s.profile.toLowerCase() ? 'loaded ' : 'wants ') + where;
+  }
+
   // --- state ------------------------------------------------------------------------------------------
 
   let consoles = []; // as Cruller keeps them: {name, url, other, svs_input, enabled}
@@ -54,6 +74,7 @@
   let power = '';
   let filter = '';
   let adding = null; // the game being added: {id, name, profile}
+  let live = null;   // Cruller's state, as last read
 
   const asleep = () => power === 'standby' || power === 'starting';
   const plain = (p) => p.replace(/\.rt[46]$/i, '');
@@ -126,14 +147,40 @@
     q('gidct').innerHTML = consoles.map((c, k) => '<tr data-k=' + k + (c.enabled ? '' : ' class=off') + '>' +
       '<td class=ck><input type=checkbox data-f=enabled' + (c.enabled ? ' checked' : '') + ' aria-label="Ask ' + esc(c.name) + '"></td>' +
       '<td><input data-f=name value="' + esc(c.name) + '" maxlength=47 aria-label="Name"></td>' +
+      '<td class=gidl data-live=' + k + '></td>' +
       '<td class=mono><input data-f=url value="' + esc(c.url) + '" maxlength=127 spellcheck=false aria-label="Address" title="Its address: an IP alone is a MemCard PRO\'s /api/currentState"></td>' +
       '<td><select data-f=svs_input aria-label="SVS input" title="With an SVS switch, the input it\'s on (Auto: from the SVS tab\'s consoles)">' +
       SVS.map((v, i) => '<option value=' + i + (i === c.svs_input ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></td>' +
       '<td><button type=button class=gidp data-f=other title="The profile for a game the gameDB hasn\'t">' + (c.other ? esc(plain(c.other)) : '<span class=gidn>None</span>') + '</button></td>' +
       '<td class=act><button type=button class=ib data-a=read title="Read the game it runs, to add it">Its game</button>' +
       '<button type=button class="ib del" data-a=del aria-label="Remove ' + esc(c.name) + '" title="Remove it">×</button></td></tr>').join('') ||
-      '<tr><td colspan=6 class=pe0>No consoles yet: add one, as its address on your network.</td></tr>';
+      '<tr><td colspan=7 class=pe0>No consoles yet: add one, as its address on your network.</td></tr>';
     q('gidca').disabled = consoles.length >= 10;
+    renderLive();
+  }
+
+  // What Cruller knows, in place: the line over the consoles, and each one's Now cell (the rest of the row
+  // left alone, so typing in it isn't disturbed).
+  function renderLive() {
+    if (!q('gidnow')) return;
+    q('gidnow').innerHTML = live ? '<b>' + esc(nowText(live)) + '</b>' + (live.note ? '<span class=small> · ' + esc(live.note) + (live.note_age_s ? ', ' + ago(live.note_age_s) : '') + '</span>' : '') : '';
+    q('gidnow').hidden = !live || !consoles.length;
+    document.querySelectorAll('#gidct td[data-live]').forEach((td) => {
+      const k = +td.dataset.live, c = consoles[k], l = live && live.consoles[k] && live.consoles[k].name === (c && c.name) ? live.consoles[k] : null;
+      const tone = !c || !c.enabled ? '' : l && l.on ? ' ok' : l ? ' bad' : '';
+      td.innerHTML = '<span class="dot' + tone + '"></span> ' + esc(liveText(l, c && c.enabled)) + (l && l.on_screen ? ' <span class=gidos>on screen</span>' : '');
+      td.title = l && l.game ? l.game + (l.kind ? ' · ' + l.kind : '') : '';
+    });
+  }
+  const ago = (s) => (s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago');
+
+  // Every 2 s while the view shows.
+  async function tick() {
+    if (!q('gid') || q('gid').hidden || document.hidden) return;
+    try {
+      const r = await fetch('/api/v1/gameid/state', { cache: 'no-store' });
+      if (r.ok) { live = await r.json(); renderLive(); }
+    } catch (e) { /* the next one */ }
   }
 
   async function saveConsoles(note) {
@@ -217,10 +264,12 @@
     q('gid').innerHTML =
       '<div class=panel>' +
       '<div class=row><h2 class=grow>Consoles</h2><span id=gidcs class="small"></span><button id=gidca>Add a console</button></div>' +
-      '<div class=gidw><table class=gidt><thead><tr><th class=ck>On</th><th>Name</th><th>Address</th><th>SVS input</th><th>Game not in the gameDB</th><th></th></tr></thead>' +
+      '<div id=gidnow class=gidnow hidden></div>' +
+      '<div class=gidw><table class=gidt><thead><tr><th class=ck>On</th><th>Name</th><th>Now</th><th>Address</th><th>SVS input</th><th>Game not in the gameDB</th><th></th></tr></thead>' +
       '<tbody id=gidct></tbody></table></div>' +
       '<div class=small>Cruller asks each one which game it runs: a MemCard PRO2 or PRO (with its own web page on; for the PRO2, WebUI v2 off), ' +
-      'a PS1Digital or an N64Digital. Only http for now. Asking them and loading the profiles comes next.</div></div>' +
+      'a PS1Digital or an N64Digital, every 2 s (only http for now), and loads the profile for the game on screen. With an SVS switch, ' +
+      'only the console on its input counts.</div></div>' +
       '<div class=panel>' +
       '<div class="row sdh"><h2>Games</h2><span id=gidgs class="small grow"></span><input id=gidq class=gidq placeholder="Find a game" autocomplete=off>' +
       '<button id=gidga class=primary>Add a game</button></div>' +
@@ -269,7 +318,8 @@
       } else if (b.dataset.a === 'read') {
         status('gidcs', 'Asking ' + c.name + '…');
         try {
-          const g = await readConsole(c);
+          const l = live && live.consoles[+tr.dataset.k];
+          const g = l && l.name === c.name && l.on && l.game ? { id: l.game, name: l.game_name } : await readConsole(c);
           if (!g.id) return status('gidcs', c.name + ' runs no game it can tell', true);
           const known = games.find((x) => x.id === g.id);
           status('gidcs', c.name + ' runs ' + (g.name || g.id) + (known ? ': in the gameDB already' : ''));
@@ -331,7 +381,8 @@
 
   // The page shows the view: built the first time, read every time (the API may have changed them).
   function open() {
-    if (!q('gidct')) build();
+    if (!q('gidct')) { build(); setInterval(tick, 2000); }
+    tick();
     loadConsoles();
     loadGames();
   }
@@ -342,5 +393,5 @@
 
   window.gidOpen = open;
   window.gidStatus = onStatus;
-  window.gameidInternals = { consoleUrl, urlProblem, profileOk, filterGames, readGame }; // tests/test_gameid_page.js
+  window.gameidInternals = { consoleUrl, urlProblem, profileOk, filterGames, readGame, liveText, nowText }; // tests/test_gameid_page.js
 })();

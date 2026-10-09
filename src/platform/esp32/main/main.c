@@ -11,6 +11,7 @@
 
 #include "cfgfs.h"
 #include "console.h"
+#include "gameid_run.h"
 #include "freeze.h"
 #include "health.h"
 #include "http.h"
@@ -49,6 +50,7 @@ void app_main(void) {
     rt4k_start();
     ws_start();
     http_start();
+    gameid_run_start(); // asks the consoles once the network is up
     rfc2217_start();
     net_start();
 
