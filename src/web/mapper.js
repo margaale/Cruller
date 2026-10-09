@@ -55,17 +55,18 @@
     return m ? { label: m[1].trim(), value: m[2].trim() } : { label: t.replace(/:$/, '').trim(), value: null };
   }
 
-  // The section of each item whose label the menu has more than once ("Function" under Scanline and under
-  // Horizontal Blur): the heading above it, a line the cursor skips. items: [{label, y}], walking down.
+  // Each item's heading: the line above it the cursor skips ("Scanline", "Input Crop"); the section of one
+  // whose label the menu has more than once ("Function" under Scanline and under Horizontal Blur), the
+  // same. items: [{label, y}], walking down.
   function sections(rows, items) {
     const ys = new Set(items.map((it) => it.y)), seen = new Map();
     for (const it of items) seen.set(it.label, (seen.get(it.label) || 0) + 1);
     for (const it of items) {
-      if (seen.get(it.label) < 2) continue;
-      for (let y = it.y - 1; y >= 0; y--) {
+      for (let y = it.y - 1; y > 0; y--) {
         const t = rows[y] ? rows[y].text.trim() : '';
-        if (t && !ys.has(y) && parseLine(t).value === null) { it.section = parseLine(t).label; break; }
+        if (t && !ys.has(y) && parseLine(t).value === null) { it.heading = parseLine(t).label; break; }
       }
+      if (seen.get(it.label) > 1 && it.heading) it.section = it.heading;
     }
     return items;
   }
@@ -182,7 +183,8 @@
 
   // --- the map as shipped (a JSON in src/web, mapped here, merged by tools/merge-map.js) --------------------
   // {v: 1, maps: [{firmware, ver, size, settings}]}: one map per RT4K firmware mapped, each whole. A
-  // setting: {path, section (a label the menu has twice: the heading above it), label, bytes: [[offset,
+  // setting: {path, section (a label the menu has twice: the heading above it), label, heading (the one above
+  // it, a line the cursor skips), bytes: [[offset,
   // length]], values: [[shown, hex]] (each value seen, its own bytes), min, max, step (numbers), round (a
   // list that goes round), asks (past its first or last value the RT4K warns first: what it says), capped
   // (["first"], ["last"] or both: the walk stopped before that end, so min or max is only how far it got).
@@ -195,6 +197,7 @@
     const c = { path: r.path.join(' › ') };
     if (r.section) c.section = r.section;
     c.label = r.label;
+    if (r.heading) c.heading = r.heading;
     if (r.own && r.own.length) {
       c.bytes = r.own.map((g) => [g.off, g.len]);
       c.values = r.values.filter((v) => v.at).map((v) => [v.value, hexAt(v.at, r.own).replace(/ /g, '')]).filter(([, hex]) => !/\?/.test(hex)); // (bytes not seen)
@@ -475,6 +478,7 @@
   async function mapSetting(path, it) {
     const rec = { path, label: it.label, values: [], ranges: [] };
     if (it.section) rec.section = it.section;
+    if (it.heading) rec.heading = it.heading;
     const name = path.concat(it.section || [], it.label).join(' › ');
     st.results.push(rec);
     const all = opts().all, limit = all ? 400 : 1, snaps = all ? 16 : 1;
