@@ -179,6 +179,7 @@
     const tiles = [], tabs = (m.tabs || []).map(([tab, items]) => ({ tab, menus: items.map(([item, title]) => ({ item, title, idx: [] })) }));
     const menus = tabs.flatMap((t) => t.menus), other = { item: 'Other', title: '', idx: [] };
     m.settings.forEach((s, i) => {
+      if (s.hidden) return; // (kept in the map, not shown: the saving device's ID)
       if (/^RetroTINK-\S+ \S+ Main Menu/.test(s.path)) return tiles.push(i);
       const title = s.path.split(' › ').pop();
       (menus.find((x) => x.title === title) || other).idx.push(i);
@@ -292,7 +293,6 @@
       '<div class=row><button id=peo>Open a file…</button><input type=file id=pef accept=".rt4,.rt6" hidden>' +
       '<button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
       '<div id=pes class=small></div>' +
-      '<div id=pem class=small></div>' +
       '<div id=pebody hidden>' +
       '<div id=petl class=petl></div>' +
       '<div class="row pesl"><label>Signal <select id=pesig></select></label>' +
@@ -442,8 +442,6 @@
     q('pesv').disabled = !has || !!busy || asleep();
     q('peu').disabled = !changed() || !!busy;
     if (!has) return;
-    q('pem').textContent = map ? 'Settings from firmware ' + map.firmware + '\'s map' + (fw && fw !== map.firmware ? ' (the RT4K runs ' + fw + ': same layout)' : '') + ' · ' +
-      map.settings.length + ' settings' : '';
 
     // the main menu's settings, as tiles
     q('petl').innerHTML = lay.tiles.map((i) => {
