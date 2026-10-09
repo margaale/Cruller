@@ -53,6 +53,18 @@ check(JSON.stringify(e.bytesAt(srdTrim, 1, 12)) === '[[7340,2]]' && JSON.stringi
 e.encode(srdTrim, tc, sb, -5, 1, 12);
 check(sb[7340] === 0xfb && sb[7341] === 0xff && !sb[0x526] && e.decode(srdTrim, tc, sb, 1, 12).value === -5 && e.decode(srdTrim, tc, sb, 1).value === 0, 'written in slot 12 only, read back there');
 
+// Delete mode / Delete rate: that element emptied (the RT4K's defaults there), nothing else.
+{
+  const other = { label: 'Not per mode', bytes: [[0x200, 1]], values: [['On', '01']] };
+  const set = [srdTrim, other], cb = new Uint8Array(22876);
+  e.encode(srdTrim, tc, cb, 7, 1); e.encode(srdTrim, tc, cb, 9, 2); e.encode(srdTrim, tc, cb, -5, 1, 12); cb[0x200] = 1;
+  check(e.modesUsed(set, cb).join() === '1,2' && e.slotsUsed(set, cb).join() === '12', 'before: modes 1 and 2, rate 12');
+  check(e.clearSignal(set, cb, 1) && e.modesUsed(set, cb).join() === '2' && e.decode(srdTrim, tc, cb, 2).value === 9 && e.slotsUsed(set, cb).join() === '12' && cb[0x200] === 1,
+    'mode 1 deleted: mode 2, rate 12 and a setting not kept per mode as they were');
+  check(e.clearSignal(set, cb, 0, 12) && !e.slotsUsed(set, cb).length && e.decode(srdTrim, tc, cb, 2).value === 9, 'rate 12 deleted, mode 2 kept');
+  check(!e.clearSignal(set, cb, 5), 'a mode with no settings: nothing to delete');
+}
+
 // Several profiles open: one value when they agree, mixed (each value once, in their order) when they differ.
 const pa = new Uint8Array(22876), pb = new Uint8Array(22876), pc = new Uint8Array(22876);
 e.encode(trim, tc, pa, 3, 1); e.encode(trim, tc, pb, 3, 1); e.encode(trim, tc, pc, -3, 1);

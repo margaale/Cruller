@@ -219,6 +219,19 @@
     return [...used].sort((a, b) => a - b);
   }
 
+  // Empties an input mode's settings (el), or a detected rate's (slot): back to none, so the RT4K uses its
+  // defaults there, as a profile that never had them. Only that element of each setting kept per mode (or
+  // per rate); true when anything was set.
+  function clearSignal(settings, body, el, slot = -1) {
+    let any = false;
+    for (const s of settings) {
+      if (!s.each || (slot >= 0 ? s.each.srd === undefined : s.each.by !== 'mode')) continue;
+      const [o, l] = bytesAt(s, el, slot)[0];
+      for (let k = o; k < o + l; k++) if (body[k]) { body[k] = 0; any = true; }
+    }
+    return any;
+  }
+
   // The value a profile's body holds for a setting (for el, its element: mode or port; slot, a detected
   // rate's): a number, a list's value as shown, or null (bytes the map never saw, then hex says them).
   function decode(setting, codec, body, el = 0, slot = -1) {
@@ -325,6 +338,8 @@
       '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +
       '<div id=petl class=petl></div>' +
       '<div class=pebar><span class=pegrp><span class=pelab>Input signal mode</span><button type=button id=pesig class="pev pdd" aria-haspopup=listbox></button></span>' +
+      '<button type=button id=pemadd class=pemini aria-haspopup=listbox title="Edit a mode or rate the profile has no settings for yet">Add mode…</button>' +
+      '<button type=button id=pemdel class=pemini title="Empty its settings: the RT4K uses its defaults there">Delete mode</button>' +
       '<label class=pelab title="A change to a setting kept per mode or per rate goes to every mode and rate"><input type=checkbox id=peall> Every mode</label>' +
       '</div>' +
       '<div class=pebar><span class=pelab>Advanced Settings</span><div id=petabs class=peseg></div><span class=grow></span>' +
@@ -353,14 +368,9 @@
       render();
     };
     q('peq').oninput = () => { filter = q('peq').value.trim().toLowerCase(); render(); };
-    q('pesig').onclick = () => {
-      if (!pf) return;
-      openList(q('pesig'), signals(), view.slot >= 0 ? 's' + view.slot : 'm' + view.mode, (v) => {
-        const k = +v.slice(1);
-        if (v[0] === 'm') { view.mode = k; view.slot = -1; } else view.slot = k;
-        render();
-      });
-    };
+    q('pesig').onclick = () => { if (pf) openList(q('pesig'), signals(), view.slot >= 0 ? 's' + view.slot : 'm' + view.mode, toSignal); };
+    q('pemadd').onclick = () => { if (pf) openList(q('pemadd'), others(), undefined, toSignal); };
+    q('pemdel').onclick = deleteSignal;
     q('pedc').onclick = () => {
       const s = map && map.settings[deviceAt()];
       if (!pf || !s) return;
@@ -578,13 +588,45 @@
   }
 
   // The signal picker's items: the input modes and rates the profiles have settings for, then the others.
+  // The input modes and detected rates the profiles edited have settings for (any of them).
+  const usedIn = (used) => [...new Set(group().flatMap((p) => used(map.settings, p.body)))].sort((a, b) => a - b);
+  const RATES = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
+
+  // The signal picker's items: those the profiles have settings for (and the one shown); Add mode… has the others.
   function signals() {
-    const g = group(), any = (used) => [...new Set(g.flatMap((p) => used(map.settings, p.body)))].sort((a, b) => a - b);
-    const modes = any(modesUsed), rates = any(slotsUsed), spl = samplesPerLine();
-    const allRates = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
-    return [{ group: g.length > 1 ? 'In these profiles' : 'In this profile' }, ...modes.map((k) => ({ value: 'm' + k, label: modeName(k) })), ...rates.map((k) => ({ value: 's' + k, label: rateName(k, spl) })),
-      { group: 'Input modes' }, ...Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k)).map((k) => ({ value: 'm' + k, label: modeName(k) })),
-      { group: 'Detected sample rates' }, ...allRates.filter((k) => !rates.includes(k)).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))];
+    const modes = usedIn(modesUsed), rates = usedIn(slotsUsed), spl = samplesPerLine();
+    if (!modes.includes(view.mode)) modes.push(view.mode);
+    if (view.slot >= 0 && !rates.includes(view.slot)) rates.push(view.slot);
+    const by = (a, b) => a - b;
+    return [{ group: 'Input modes' }, ...modes.sort(by).map((k) => ({ value: 'm' + k, label: modeName(k) })),
+      ...(rates.length ? [{ group: 'Detected sample rates' }, ...rates.sort(by).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))] : [])];
+  }
+  function others() {
+    const modes = usedIn(modesUsed), rates = usedIn(slotsUsed), spl = samplesPerLine();
+    return [{ group: 'Input modes' }, ...Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k) && k !== view.mode).map((k) => ({ value: 'm' + k, label: modeName(k) })),
+      { group: 'Detected sample rates' }, ...RATES.filter((k) => !rates.includes(k) && k !== view.slot).map((k) => ({ value: 's' + k, label: rateName(k, spl) }))];
+  }
+  // Shows a mode ('m<k>') or a detected rate ('s<k>': the rest stays the mode's).
+  function toSignal(v) {
+    const k = +v.slice(1);
+    if (v[0] === 'm') { view.mode = k; view.slot = -1; } else view.slot = k;
+    render();
+  }
+
+  // Deletes the mode or rate shown from the profiles edited that have it (asked first): its settings back to
+  // none, the RT4K's defaults there. Then shows the first mode still with settings.
+  async function deleteSignal() {
+    if (!pf || busy) return;
+    const rate = view.slot >= 0, what = rate ? rateName(view.slot, samplesPerLine()) : modeName(view.mode);
+    const has = group().filter((p) => (rate ? slotsUsed : modesUsed)(map.settings, p.body).includes(rate ? view.slot : view.mode));
+    if (!has.length) return;
+    if (!(await window.askUser('Delete ' + what + '?', (has.length > 1 ? has.length + ' profiles lose their' : plain(has[0].name) + ' loses its') +
+      ' settings for it, changed ones too: the RT4K uses its defaults there.', 'Delete', true))) return;
+    for (const p of has) clearSignal(map.settings, p.body, rate ? 0 : view.mode, rate ? view.slot : -1);
+    if (rate) view.slot = -1;
+    else { const left = usedIn(modesUsed); view.mode = left.find((k) => k) || left[0] || 0; }
+    status('Deleted ' + what + (has.length > 1 ? ' from ' + has.length + ' profiles' : '') + ': not saved yet (Undo brings it back)');
+    render();
   }
 
   // What a line's tooltip says: why it doesn't apply, what it means, what it's kept per, what it asks.
@@ -698,6 +740,10 @@
     // the signal picked (a mode, or a rate)
     closeList();
     q('pesig').innerHTML = '<span>' + esc(view.slot >= 0 ? rateName(view.slot, samplesPerLine()) : modeName(view.mode)) + '</span>';
+    const shown = view.slot >= 0 ? usedIn(slotsUsed).includes(view.slot) : usedIn(modesUsed).includes(view.mode);
+    q('pemdel').disabled = !shown || !!busy; // (one the profiles have no settings for: nothing to delete)
+    q('pemdel').textContent = view.slot >= 0 ? 'Delete rate' : 'Delete mode';
+    q('pemadd').disabled = !!busy;
     q('pesig').title = view.slot >= 0
       ? 'With Sample Rate Detection locked on this rate, the RT4K takes the trims, scaling and Sub-Phase from it, the rest from ' + modeName(view.mode) + ' (pick a mode to change that)'
       : 'The settings kept per input mode show this one\'s';
@@ -1044,5 +1090,5 @@
   window.peOpen = open;
   window.peOpenSet = openSet; // sd.js: the profiles ticked, to edit together
   window.peStatus = onStatus;
-  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, agree, asNumber, bytesAt, modesUsed, slotsUsed, rateName, modeName, links, layoutOf, HEADER }; // tests/test_editor.js
+  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, agree, clearSignal, asNumber, bytesAt, modesUsed, slotsUsed, rateName, modeName, links, layoutOf, HEADER }; // tests/test_editor.js
 })();
