@@ -184,7 +184,7 @@
 
   function crumbs() {
     const parts = dir ? dir.split('/') : [];
-    let html = parts.length ? '<a href="' + hrefFor('') + '">SD card</a>' : '<b>SD card</b>';
+    let html = '<h2>' + (parts.length ? '<a href="' + hrefFor('') + '">SD card</a>' : 'SD card') + '</h2>';
     parts.forEach((p, i) => {
       html += '<span>/</span>';
       html += i === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a href="' + hrefFor(parts.slice(0, i + 1).join('/')) + '">' + esc(p) + '</a>';
@@ -401,11 +401,10 @@
     const box = q('sd');
     box.innerHTML =
       '<div class=panel id=sdbox>' +
-      '<div class="row sdh"><nav id=sdc class="crumbs grow" aria-label="Folder"></nav>' +
+      '<div class="row sdh"><nav id=sdc class=crumbs aria-label="Folder"></nav><span id=sds class="small grow"></span>' +
       '<div class=row><button id=sdu class=primary>Upload</button><button id=sdn>New folder</button>' +
       '<button id=sdr title="Read the folder again">Refresh</button></div></div>' +
       '<input type=file id=sdf multiple hidden>' +
-      '<div id=sds class=small></div>' +
       '<div id=sdp class=sdp hidden><div id=sdpt class="small mono"></div><progress id=sdpb></progress></div>' +
       '<table class=files id=sdtbl>' +
       '<thead><tr><th data-k=name>Name</th><th data-k=size class="num cs sz">Size</th><th data-k=mtime class="num cw when">Modified</th><th class=ca></th></tr></thead>' +

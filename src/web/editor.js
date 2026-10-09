@@ -296,10 +296,9 @@
   function build() {
     q('pe').innerHTML =
       '<div class="panel pep">' +
-      '<div class="row sdh"><h2 class=grow id=pen>Profile editor</h2>' +
+      '<div class="row sdh"><h2 id=pen>Profile editor</h2><span id=pes class="small grow"></span>' +
       '<div class=row><button id=peo>Open a file…</button><input type=file id=pef accept=".rt4,.rt6" hidden>' +
       '<button id=peu>Undo</button><button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
-      '<div id=pes class=small></div>' +
       '<div id=pebody class=peg hidden>' +
       '<div class=pehd><span id=pename class=pename></span><span class=grow></span>' +
       '<span id=pedev class=pedev><span class=pelab>Device ID</span><span id=pedid class=mono></span><button id=pedc class=pemini title="Empty the ID of the RT4K that saved it">Clear</button></span></div>' +

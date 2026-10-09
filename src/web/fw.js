@@ -334,8 +334,7 @@
     box.dataset.ready = 1;
     box.innerHTML =
       '<div class=panel>' +
-      '<div><h2>RetroTINK firmware</h2>' +
-      '<div id=fwh class=small></div></div>' +
+      '<div class=row><h2 class=grow>RetroTINK firmware</h2><span id=fwh class=small></span></div>' +
       '<div class=row style="flex-wrap:wrap"><select id=fwc style="flex:0 0 160px"></select><select id=fwv style="flex:1 1 240px"></select>' +
       '<button id=fwi class=primary disabled>Download and install</button></div>' +
       '<h2>What\'s new</h2><pre id=fwl style="height:220px"></pre>' +
