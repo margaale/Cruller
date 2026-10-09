@@ -109,12 +109,15 @@ static bool rt4k_was_on;
 static void say(const char *fmt, const char *a, const char *b, const char *c) {
     char s[sizeof(note)];
     snprintf(s, sizeof(s), fmt, a, b, c);
-    if (strcmp(s, note)) {
-        memcpy(note, s, sizeof(note));
+    xSemaphoreTake(lock, portMAX_DELAY);
+    const bool fresh = strcmp(s, note) != 0;
+    if (fresh) {
+        memcpy(note, s, strlen(s) + 1);
         note_ms = plat_ms();
-        printf("gameid: %s\n", note);
         seq++;
     }
+    xSemaphoreGive(lock);
+    if (fresh) printf("gameid: %s\n", s);
 }
 
 // The consoles saved, again (the page or the API changed them): what's known of one kept while its
@@ -199,24 +202,26 @@ static void schedule(const char *profile, uint32_t at) {
     pending_at = at;
 }
 
+static void done(bool ok) { // the pending profile: loaded (or not)
+    xSemaphoreTake(lock, portMAX_DELAY);
+    if (ok) memcpy(loaded, pending, sizeof(loaded));
+    pending[0] = 0;
+    xSemaphoreGive(lock);
+}
+
 static void load(void) {
     char cur[GAMEID_PROFILE_MAX + 16] = "", cmd[GAMEID_PROFILE_MAX + 16], r[96] = "";
     if (rt4k_info_profile(cur, sizeof(cur)) && same_path(cur, pending)) { // it has it already
-        snprintf(loaded, sizeof(loaded), "%s", pending);
         say("%s loaded already%s%s", pending, "", "");
-        pending[0] = 0;
+        done(true);
         return;
     }
     snprintf(cmd, sizeof(cmd), "prof load %s", pending);
     const bool ok = console_query(cmd, "prof", r, sizeof(r), LOAD_MS) && !strcmp(r, "prof load ok");
-    if (ok) {
-        snprintf(loaded, sizeof(loaded), "%s", pending);
-        say("loaded %s%s%s", pending, "", "");
-    } else {
-        say("could not load %s (%s)%s", pending, r[0] ? r : "no answer", "");
-    }
+    if (ok) say("loaded %s%s%s", pending, "", "");
+    else say("could not load %s (%s)%s", pending, r[0] ? r : "no answer", "");
     rt4k_info_profile_soon();
-    pending[0] = 0;
+    done(ok);
 }
 
 // Whose game is on screen now, and what that wants loaded; then loads it when it's time.
