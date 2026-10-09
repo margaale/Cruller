@@ -53,7 +53,25 @@ check(JSON.stringify(e.bytesAt(srdTrim, 1, 12)) === '[[7340,2]]' && JSON.stringi
 e.encode(srdTrim, tc, sb, -5, 1, 12);
 check(sb[7340] === 0xfb && sb[7341] === 0xff && !sb[0x526] && e.decode(srdTrim, tc, sb, 1, 12).value === -5 && e.decode(srdTrim, tc, sb, 1).value === 0, 'written in slot 12 only, read back there');
 check(JSON.stringify(e.slotsUsed([srdTrim], sb)) === '[12]' && JSON.stringify(e.modesUsed([srdTrim], sb)) === '[]', 'the slots a profile has settings in');
-check(e.slotName(12) === '1/5 interlaced' && e.slotName(9) === '1/8 interlaced' && e.slotName(0) === '1/10 progressive' && e.slotName(29) === '1/4 interlaced, 50 Hz' && e.slotName(6) === 'Slot 6', 'the slots\' names');
+check(e.rateName(12, 3432) === '480i · 686.400 (1/5)' && e.rateName(9) === '480i · 1/8' && e.rateName(0, 3410) === '240p · 341.000 (1/10)' && e.rateName(29, 0) === '576i · 1/4' && e.rateName(6) === 'Slot 6', 'the rates\' names: ' + e.rateName(12, 3432));
+check(e.modeName(1) === 'Mode 1 · CP 480i' && e.modeName(7) === 'Mode 7', 'the modes\' names');
+
+// What each setting depends on: found for every "when", in its menu or the one it names, with values it has.
+for (const m of doc.maps) {
+  const dep = e.links(m.settings);
+  m.settings.forEach((s, i) => {
+    if (!s.when) return;
+    const o = m.settings[dep[i]];
+    check(dep[i] >= 0 && s.when.is.every((v) => (o.values || []).some(([shown]) => shown === v)), m.firmware + ' ' + s.label + ' depends on ' + s.when.label + ': ' + (o ? 'its values ' + s.when.is.join(', ') : 'not found'));
+  });
+}
+
+// The layout: every setting once, the main menu's as tiles, the advanced menu's each in a tab's submenu.
+for (const m of doc.maps) {
+  const lay = e.layoutOf(m), placed = lay.tiles.concat(lay.tabs.flatMap((t) => t.menus.flatMap((x) => x.idx))).sort((a, b) => a - b);
+  check(placed.length === m.settings.length && placed.every((i, k) => i === k), m.firmware + ': every setting placed once');
+  check(lay.tiles.length > 5 && !lay.tabs.some((t) => t.tab === 'Other'), m.firmware + ': ' + lay.tiles.length + ' tiles, every other in a known submenu');
+}
 
 // The map's arrays: inside the body, and none running into another (only one field in two menus shares one).
 for (const m of doc.maps) {

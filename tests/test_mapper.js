@@ -65,6 +65,8 @@ const fx = plane([
 const fxItems = [3, 4, 6, 7, 9].map((y) => ({ ...m.parseLine(m.readPlane(fx.data, fx.ready).rows[y].text), y }));
 m.sections(m.readPlane(fx.data, fx.ready).rows, fxItems);
 check(JSON.stringify(fxItems.map((it) => it.section || '-')) === '["Scanline","Scanline","-","Mask","Horizontal Blur"]', 'sections of labels seen twice: ' + JSON.stringify(fxItems.map((it) => it.section || '-')));
+check(JSON.stringify(fxItems.map((it) => it.heading)) === '["Scanline","Scanline","Mask","Mask","Horizontal Blur"]', 'every item\'s heading: ' + JSON.stringify(fxItems.map((it) => it.heading)));
+check(m.compact({ path: ['P'], label: 'Enable', heading: 'Mask' }).heading === 'Mask', 'a heading kept');
 check(JSON.stringify(m.compact({ path: ['Advanced', 'Processing/Effects Setup'], section: 'Horizontal Blur', label: 'Function' })) === '{"path":"Advanced › Processing/Effects Setup","section":"Horizontal Blur","label":"Function"}', 'a section kept');
 let twice = m.keep(null, '1.92.0', 109, 22876, [{ path: 'P', section: 'Scanline', label: 'Function' }, { path: 'P', section: 'Horizontal Blur', label: 'Function' }]);
 check(m.settingsOf(twice, '1.92.0').length === 2, 'both kept');

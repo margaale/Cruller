@@ -147,11 +147,48 @@
   }
 
   // The 32 slots: 4 groups of 8, each a rate (the ADC's samples per line / 10, 8, 7, 6, 5, 4: the first 6) for
-  // progressive and interlaced signals, at 60 Hz and 50 Hz (measured: 480i at 1/8, 1/5 and 1/4 in slots 9,
-  // 12 and 13; the 50 Hz groups as PAL profiles use them).
-  const RATES = ['1/10', '1/8', '1/7', '1/6', '1/5', '1/4'];
-  const GROUPS = ['progressive', 'interlaced', 'progressive, 50 Hz', 'interlaced, 50 Hz'];
-  const slotName = (k) => ((k & 7) < RATES.length ? RATES[k & 7] + ' ' + GROUPS[k >> 3] : 'Slot ' + k);
+  // 240p, 480i, 288p and 576i (measured: 480i at 1/8, 1/5 and 1/4 in slots 9, 12 and 13; 240p as the 240p
+  // consoles' profiles use the first group, 288p and 576i as the PAL profiles use the last two). Named as
+  // the RT4K's mode line puts the rate ("A 686.40"), from the samples per line (spl) when known.
+  const DIVS = [10, 8, 7, 6, 5, 4];
+  const GROUPS = ['240p', '480i', '288p', '576i'];
+  function rateName(k, spl) {
+    const n = k & 7;
+    if (n >= DIVS.length) return 'Slot ' + k;
+    return GROUPS[k >> 3] + ' · ' + (spl > 0 ? (spl / DIVS[n]).toFixed(3) + ' (1/' + DIVS[n] + ')' : '1/' + DIVS[n]);
+  }
+
+  // The input modes the RT4K has named on its mode line here (0 with no signal, 1 a PS2's 480i component).
+  const MODES = { 0: 'No Signal', 1: 'CP 480i' };
+  const modeName = (k) => 'Mode ' + k + (MODES[k] ? ' · ' + MODES[k] : '');
+
+  // A setting that applies only while another has some values (what the RT4K shows, or marks N/A, as that
+  // one changes): when {path (if another menu's), section, label, is: [values]}. For each setting, the
+  // index of the one it depends on, or -1.
+  function links(settings) {
+    return settings.map((s) => {
+      const w = s.when;
+      if (!w) return -1;
+      return settings.findIndex((o) => o.path === (w.path || s.path) && o.label === w.label && (o.section || '') === (w.section || ''));
+    });
+  }
+
+  // Where each setting shows: the main menu's as tiles; the advanced menu's in its tab and submenu (the
+  // map's tabs: [tab, [[item, title]]], as the menu has them), in the map's order; any other in "Other".
+  function layoutOf(m) {
+    const tiles = [], tabs = (m.tabs || []).map(([tab, items]) => ({ tab, menus: items.map(([item, title]) => ({ item, title, idx: [] })) }));
+    const menus = tabs.flatMap((t) => t.menus), other = { item: 'Other', title: '', idx: [] };
+    m.settings.forEach((s, i) => {
+      if (/^RetroTINK-\S+ \S+ Main Menu/.test(s.path)) return tiles.push(i);
+      const title = s.path.split(' › ').pop();
+      (menus.find((x) => x.title === title) || other).idx.push(i);
+    });
+    if (other.idx.length) tabs.push({ tab: 'Other', menus: [other] });
+    // the tiles as the main menu goes: Input Source, HDMI Output (its resolution first), the rest, Profiles
+    const rank = (s) => (s.label === 'Input Source' ? 0 : / HDMI• Output$/.test(s.path) ? (s.label === 'Resolution' ? 1 : 2) : / Profiles$/.test(s.path) ? (s.readonly ? 5 : 4) : 3);
+    tiles.sort((a, b) => rank(m.settings[a]) - rank(m.settings[b]) || a - b);
+    return { tiles, tabs };
+  }
 
   // The slots a profile has settings in: those where any per-rate setting isn't 0.
   function slotsUsed(settings, body) {
@@ -237,6 +274,9 @@
 
   // --- UI ---------------------------------------------------------------------------------------------
 
+  let ui = { tab: '', menu: '' }; // the tab and submenu shown (the submenu's title)
+  let lay = null, dep = [];        // the map's layout (layoutOf) and links (links), with map
+
   function status(text, bad) {
     const s = q('pes');
     s.textContent = text;
@@ -247,22 +287,22 @@
 
   function build() {
     q('pe').innerHTML =
-      '<div class=panel style="max-width:1100px">' +
+      '<div class="panel pep">' +
       '<div class="row sdh"><h2 class=grow id=pen>Profile editor</h2>' +
       '<div class=row><button id=peo>Open a file…</button><input type=file id=pef accept=".rt4,.rt6" hidden>' +
       '<button id=ped>Download</button><button id=pesv class=primary>Save to the SD card…</button></div></div>' +
       '<div id=pes class=small></div>' +
       '<div id=pem class=small></div>' +
-      '<div id=pebody hidden><div class=row><input id=peq placeholder="Find a setting" class=grow autocomplete=off>' +
-      '<button id=peu>Undo the changes</button></div>' +
-      '<div class="row pesl"><label>Input mode <select id=pemode></select></label><label>Detected sample rate <select id=peslot></select></label>' +
-      '<label class=small><input type=checkbox id=peall> Change every mode</label>' +
-      '<label>Audio input <select id=peport></select></label></div>' +
-      '<div class=small>The RT4K keeps some settings apart for each input mode it detects (the trims, scaling, the ADC: <i>per mode</i>) ' +
-      'and for each audio input (<i>per input</i>): those show and change the one picked here. With Sample Rate Detection\'s Auto Dec. Factor ' +
-      'on, locked on a rate (the menu\'s mode line says "A" and the rate), it uses the trims, the scaling and Sub-Phase kept for that rate ' +
-      'instead (<i>per rate</i>): pick the rate to change those. Change every mode changes every rate too.</div><div id=peg></div></div>' +
-      '<div id=pe0 class=empty>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/profiles">Profiles</a> view.</div>' +
+      '<div id=pebody hidden>' +
+      '<div id=petl class=petl></div>' +
+      '<div class="row pesl"><label>Signal <select id=pesig></select></label>' +
+      '<label>Audio input <select id=peport></select></label>' +
+      '<label class=small><input type=checkbox id=peall> Change every mode</label></div>' +
+      '<div id=pesc class=small></div>' +
+      '<div class=row><input id=peq placeholder="Find a setting" class=grow autocomplete=off><button id=peu>Undo the changes</button></div>' +
+      '<div id=petabs class=petabs></div>' +
+      '<div class=pew><nav id=penav class=penav></nav><div id=pepane class=pepane></div></div></div>' +
+      '<div id=pe0 class=pe0>Open a profile from this computer, or pick one to edit in the <a class=more href="#rt4k/profiles">Profiles</a> view.</div>' +
       '<div class=small>Only the settings changed are written; every other byte stays as the profile had it. The settings ' +
       'and where they live come from mapping the RT4K\'s menus (Debug tab, Settings map).</div></div>';
     q('peo').onclick = () => q('pef').click();
@@ -275,20 +315,46 @@
     q('pesv').onclick = saveToSd;
     q('peu').onclick = () => { if (pf) { pf.body = pf.orig.slice(); render(); } };
     q('peq').oninput = () => { filter = q('peq').value.trim().toLowerCase(); render(); };
-    q('pemode').onchange = () => { if (pf) { pf.mode = +q('pemode').value; render(); } };
-    q('peslot').onchange = () => { if (pf) { pf.slot = +q('peslot').value; render(); } };
-    q('peport').onchange = () => { if (pf) { pf.port = +q('peport').value; render(); } };
-    q('peg').onchange = (ev) => {
-      const el = ev.target.closest('[data-i]');
-      if (!el || !pf) return;
-      const i = +el.dataset.i, s = map.settings[i], v = cs[i].type === 'number' ? +el.value : el.value;
-      const every = s.each && s.each.by === 'mode' && q('peall').checked;
-      const at = every ? Array.from({ length: s.each.count }, (x, k) => [k, -1]) : [[elementOf(s), slotOf(s)]];
-      if (every && s.each.srd !== undefined) for (let k = 0; k < 32; k++) if ((k & 7) < RATES.length) at.push([0, k]);
-      if (!at.every(([k, slot]) => encode(s, cs[i], pf.body, v, k, slot))) status('That value can\'t be written.', true);
+    q('pesig').onchange = () => {
+      if (!pf) return;
+      const v = q('pesig').value, k = +v.slice(1);
+      if (v[0] === 'm') { pf.mode = k; pf.slot = -1; } else pf.slot = k;
       render();
     };
+    q('peport').onchange = () => { if (pf) { pf.port = +q('peport').value; render(); } };
+    q('pe').addEventListener('change', (ev) => {
+      const el = ev.target.closest('[data-i]');
+      if (!el || !pf || el.tagName === 'BUTTON') return;
+      const i = +el.dataset.i;
+      write(i, cs[i].type === 'number' ? +el.value : el.value);
+    });
+    q('pe').addEventListener('click', (ev) => {
+      const b = ev.target.closest('button');
+      if (!b || !pf) return;
+      if (b.dataset.step) {
+        const i = +b.dataset.i, s = map.settings[i], c = cs[i], d = decode(s, c, pf.body, ...at(s));
+        const v = (d.value === null ? c.min : d.value) + +b.dataset.step * c.step;
+        write(i, +Math.min(c.max, Math.max(c.min, v)).toFixed(decimals(c.step)));
+      } else if (b.dataset.tab !== undefined) {
+        ui.tab = b.dataset.tab;
+        ui.menu = lay.tabs.find((t) => t.tab === ui.tab).menus[0].title;
+        render();
+      } else if (b.dataset.menu !== undefined) {
+        ui.menu = b.dataset.menu;
+        render();
+      }
+    });
     addEventListener('beforeunload', (ev) => { if (changed() || busy) { ev.preventDefault(); ev.returnValue = ''; } });
+  }
+
+  // Writes setting i's value where the signal picked keeps it (every mode and rate, if asked).
+  function write(i, v) {
+    const s = map.settings[i];
+    const every = s.each && s.each.by === 'mode' && q('peall').checked;
+    const where = every ? Array.from({ length: s.each.count }, (x, k) => [k, -1]) : [at(s)];
+    if (every && s.each.srd !== undefined) for (let k = 0; k < 32; k++) if ((k & 7) < DIVS.length) where.push([0, k]);
+    if (!where.every(([k, slot]) => encode(s, cs[i], pf.body, v, k, slot))) status('That value can\'t be written.', true);
+    render();
   }
 
   const label = (s) => (s.section ? s.section + ' › ' : '') + s.label;
@@ -300,18 +366,71 @@
 
   const elementOf = (s) => (!s.each ? 0 : s.each.by === 'mode' ? pf.mode : pf.port);
   const slotOf = (s) => (s.each && s.each.srd !== undefined ? pf.slot : -1);
+  const at = (s) => [elementOf(s), slotOf(s)];
+
+  // The ADC's samples per line in the mode picked: what the rates are a fraction of.
+  function samplesPerLine() {
+    const i = map.settings.findIndex((s) => s.label === 'Samples per Line' && s.each);
+    return i < 0 ? 0 : decode(map.settings[i], cs[i], pf.body, pf.mode).value || 0;
+  }
+
+  // Whether setting i applies, as the one it depends on is set (where the signal picked has it): '' when it
+  // does, else why not.
+  function whyNot(i) {
+    const j = dep[i];
+    if (j < 0) return '';
+    const s = map.settings[i], o = map.settings[j], v = decode(o, cs[j], pf.body, ...at(o)).value;
+    if (s.when.is.includes(v)) return '';
+    const not = (o.values || []).map(([x]) => x).filter((x) => !s.when.is.includes(x)); // (the shorter way to say it)
+    return not.length < s.when.is.length ? 'Not with ' + o.label + ': ' + not.join(' or ') : 'Only with ' + o.label + ': ' + s.when.is.join(' or ');
+  }
+
+  // Whether setting i differs from the profile as opened: where the signal picked keeps it (here), or
+  // anywhere (any mode, rate or input).
+  const differs = (o, n) => pf.body.slice(o, o + n).some((b, k) => b !== pf.orig[o + k]);
+  const changedHere = (i) => { const s = map.settings[i]; return !!s.bytes && bytesAt(s, ...at(s)).some(([o, n]) => differs(o, n)); };
+  function changedAnywhere(i) {
+    const s = map.settings[i];
+    if (!s.bytes) return false;
+    const e = s.each, ranges = s.bytes.slice(e ? 1 : 0).filter((r) => !derived(r));
+    if (e) ranges.push([s.bytes[0][0], e.count * e.stride]);
+    if (e && e.srd !== undefined) ranges.push([e.srd, 32 * e.stride]);
+    return ranges.some(([o, n]) => differs(o, n));
+  }
 
   function control(s, c, i) {
-    const d = decode(s, c, pf.body, elementOf(s), slotOf(s)), off = busy || c.readonly ? ' disabled' : '';
+    const d = decode(s, c, pf.body, ...at(s)), off = busy || c.readonly ? ' disabled' : '';
     if (c.type === 'number') {
-      return '<input type=number data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' value="' + (d.value === null ? '' : d.value) + '"' + off + '>' +
-        '<span class=small>' + c.min + ' to ' + c.max + '</span>';
+      return '<span class=pen><button class=pestep data-step=-1 data-i=' + i + off + ' aria-label="Less">−</button>' +
+        '<input type=number data-i=' + i + ' min=' + c.min + ' max=' + c.max + ' step=' + c.step + ' value="' + (d.value === null ? '' : d.value) + '" title="' + c.min + ' to ' + c.max + '"' + off + '>' +
+        '<button class=pestep data-step=1 data-i=' + i + off + ' aria-label="More">+</button></span>';
     }
     if (c.type === 'list') {
       const opts = c.values.map(([v]) => '<option' + (v === d.value ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
       return '<select data-i=' + i + off + '>' + (d.value === null ? '<option selected disabled>? (' + esc(d.hex) + ')</option>' : '') + opts + '</select>';
     }
     return '<span class="small mono">' + esc(d.hex) + '</span>';
+  }
+
+  const perTag = (s) => (s.each ? ' <span class=small>' + (slotOf(s) >= 0 ? 'per rate' : s.each.by === 'mode' ? 'per mode' : 'per input') + '</span>' : '');
+
+  // One setting's line: its name (and what it's kept per, what it needs, what it means), its control.
+  function line(i, name) {
+    const s = map.settings[i], why = whyNot(i), notes = [why, s.note].filter(Boolean).join(' · ');
+    return '<div class="per' + (changedHere(i) ? ' chg' : '') + (why ? ' na' : '') + '"><div class=pel><span class=pln>' + esc(name || s.label) + '</span>' + perTag(s) +
+      (s.asks ? ' <span class="small bad" title="' + esc(s.asks) + '">asks first on the RT4K</span>' : '') +
+      (notes ? '<div class=small>' + esc(notes) + '</div>' : '') + '</div><div class=pec>' + control(s, cs[i], i) + '</div></div>';
+  }
+
+  // Settings under their headings: the one above each in the menu, or what named says.
+  function groups(idx, named) {
+    const by = new Map();
+    for (const i of idx) {
+      const s = map.settings[i], h = named ? named(i) : s.heading || s.section || '';
+      if (!by.has(h)) by.set(h, []);
+      by.get(h).push(i);
+    }
+    return [...by].map(([h, l]) => (h ? '<section class=peh><h3>' + esc(h) + '</h3>' : '<section class="peh loose">') + l.map((i) => line(i, named ? label(map.settings[i]) : '')).join('') + '</section>').join('');
   }
 
   function render() {
@@ -325,28 +444,42 @@
     if (!has) return;
     q('pem').textContent = map ? 'Settings from firmware ' + map.firmware + '\'s map' + (fw && fw !== map.firmware ? ' (the RT4K runs ' + fw + ': same layout)' : '') + ' · ' +
       map.settings.length + ' settings' : '';
-    const used = modesUsed(map.settings, pf.body);
-    q('pemode').innerHTML = Array.from({ length: 128 }, (x, k) => k).sort((a, b) => (used.includes(b) - used.includes(a)) || a - b)
-      .map((k) => '<option value=' + k + (k === pf.mode ? ' selected' : '') + '>Mode ' + k + (used.includes(k) ? ' (has settings)' : '') + '</option>').join('');
-    const rated = slotsUsed(map.settings, pf.body);
-    q('peslot').innerHTML = '<option value=-1>None: the mode\'s own</option>' + Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < RATES.length || rated.includes(k))
-      .map((k) => '<option value=' + k + (k === pf.slot ? ' selected' : '') + '>' + slotName(k) + (rated.includes(k) ? ' (has settings)' : '') + '</option>').join('');
+
+    // the main menu's settings, as tiles
+    q('petl').innerHTML = lay.tiles.map((i) => {
+      const s = map.settings[i], why = whyNot(i);
+      return '<div class="pti' + (changedHere(i) ? ' chg' : '') + (why ? ' na' : '') + '"' + (why ? ' title="' + esc(why) + '"' : '') + '><span class=small>' + esc(s.label) + perTag(s) + '</span>' + control(s, cs[i], i) + '</div>';
+    }).join('');
+
+    // the signal: the input modes and rates the profile has settings for, then the others
+    const modes = modesUsed(map.settings, pf.body), rates = slotsUsed(map.settings, pf.body), spl = samplesPerLine();
+    const picked = (v) => (v[0] === 'm' ? pf.slot < 0 && +v.slice(1) === pf.mode : +v.slice(1) === pf.slot);
+    const opt = (v, text, used) => '<option value=' + v + (picked(v) ? ' selected' : '') + '>' + esc(text) + (used ? ' (has settings)' : '') + '</option>';
+    const allRates = Array.from({ length: 32 }, (x, k) => k).filter((k) => (k & 7) < DIVS.length);
+    q('pesig').innerHTML =
+      '<optgroup label="In this profile">' + [...modes.map((k) => opt('m' + k, modeName(k), true)), ...rates.map((k) => opt('s' + k, rateName(k, spl), true))].join('') + '</optgroup>' +
+      '<optgroup label="Input modes">' + Array.from({ length: 128 }, (x, k) => k).filter((k) => !modes.includes(k)).map((k) => opt('m' + k, modeName(k))).join('') + '</optgroup>' +
+      '<optgroup label="Detected sample rates">' + allRates.filter((k) => !rates.includes(k)).map((k) => opt('s' + k, rateName(k, spl))).join('') + '</optgroup>';
+    q('pesc').textContent = pf.slot >= 0
+      ? 'With Sample Rate Detection locked on ' + rateName(pf.slot, spl) + ', the RT4K takes the trims, scaling and Sub-Phase from that rate, the rest from ' + modeName(pf.mode) + ' (pick a mode to change it).'
+      : 'Settings kept per mode or per input show those of the ones picked.';
     q('peport').innerHTML = PORTS.map((n, k) => '<option value=' + k + (k === pf.port ? ' selected' : '') + '>' + n + (k === pf.body[PORT_AT] ? ' (this profile\'s)' : '') + '</option>').join('');
-    const groups = new Map();
-    map.settings.forEach((s, i) => {
-      if (filter && !(label(s) + ' ' + s.path).toLowerCase().includes(filter)) return;
-      const menu = s.path.replace(/^RetroTINK-\S+ \S+ (Advanced Menu › )?/, ''); // "Scaling/Crop Setup", "Main Menu › HDMI• Output"
-      if (!groups.has(menu)) groups.set(menu, []);
-      groups.get(menu).push(i);
-    });
-    const was = new Set([...q('peg').querySelectorAll('details[open]')].map((d) => d.dataset.m)); // (kept open as they were)
-    q('peg').innerHTML = [...groups].map(([menu, idx]) => '<details data-m="' + esc(menu) + '"' + (filter || was.has(menu) ? ' open' : '') + '><summary>' + esc(menu) + ' <span class=small>' + idx.length + '</span></summary><table class="tbl pet">' +
-      idx.map((i) => {
-        const s = map.settings[i], c = cs[i], mod = s.bytes && bytesAt(s, elementOf(s), slotOf(s)).some(([o, n]) => pf.body.slice(o, o + n).some((b, k) => b !== pf.orig[o + k]));
-        const per = s.each ? ' <span class=small>' + (slotOf(s) >= 0 ? 'per rate' : s.each.by === 'mode' ? 'per mode' : 'per input') + '</span>' : '';
-        return '<tr' + (mod ? ' class=chg' : '') + '><td>' + esc(label(s)) + per + (s.asks ? ' <span class="small bad" title="' + esc(s.asks) + '">asks first on the RT4K</span>' : '') +
-          (s.note ? '<div class=small>' + esc(s.note) + '</div>' : '') + '</td><td class=r>' + control(s, c, i) + '</td></tr>';
-      }).join('') + '</table></details>').join('') || '<div class=empty>No setting matches</div>';
+
+    // a search: every setting found, under its submenu; else the tab and submenu picked
+    const menus = lay.tabs.flatMap((t) => t.menus);
+    q('petabs').hidden = q('penav').hidden = !!filter;
+    if (filter) {
+      const where = new Map(menus.flatMap((m) => m.idx.map((i) => [i, m.item])));
+      const found = map.settings.map((s, i) => i).filter((i) => (label(map.settings[i]) + ' ' + map.settings[i].path).toLowerCase().includes(filter));
+      q('pepane').innerHTML = groups(found, (i) => where.get(i) || 'Main menu') || '<div class=pe0>No setting matches</div>';
+      return;
+    }
+    if (!menus.some((m) => m.title === ui.menu)) { ui.tab = lay.tabs[0].tab; ui.menu = lay.tabs[0].menus[0].title; }
+    const count = (idx) => idx.filter(changedAnywhere).length, badge = (n) => (n ? ' <span class=peb>' + n + '</span>' : '');
+    q('petabs').innerHTML = lay.tabs.map((t) => '<button data-tab="' + esc(t.tab) + '"' + (t.tab === ui.tab ? ' aria-selected=true' : '') + '>' + esc(t.tab) + badge(count(t.menus.flatMap((m) => m.idx))) + '</button>').join('');
+    const tab = lay.tabs.find((t) => t.tab === ui.tab);
+    q('penav').innerHTML = tab.menus.map((m) => '<button data-menu="' + esc(m.title) + '"' + (m.title === ui.menu ? ' aria-current=true' : '') + '>' + esc(m.item) + badge(count(m.idx)) + '</button>').join('');
+    q('pepane').innerHTML = groups(menus.find((m) => m.title === ui.menu).idx) || '<div class=pe0>No settings mapped here</div>';
   }
 
   async function readMap() {
@@ -365,6 +498,8 @@
       if (!map) throw new Error('there is no settings map');
       if (p.body.length !== map.size) throw new Error(name + ' has ' + p.body.length + ' bytes of settings, the map knows ' + map.size);
       cs = codecs(map.settings);
+      lay = layoutOf(map);
+      dep = links(map.settings);
       // the mode shown first: the profile's own (one with settings, other than 0, the one with none); no
       // detected rate (the mode's own); the audio input: the one the profile is for
       const used = modesUsed(map.settings, p.body);
@@ -451,5 +586,5 @@
 
   window.peOpen = open;
   window.peStatus = onStatus;
-  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, asNumber, bytesAt, modesUsed, slotsUsed, slotName, HEADER }; // tests/test_editor.js
+  window.editorInternals = { crc16, parseProfile, buildProfile, mapFor, fitNumber, codecs, decode, encode, asNumber, bytesAt, modesUsed, slotsUsed, rateName, modeName, links, layoutOf, HEADER }; // tests/test_editor.js
 })();
