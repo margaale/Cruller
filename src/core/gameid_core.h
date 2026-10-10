@@ -27,6 +27,7 @@ typedef struct {
     bool enabled;
     char mac[GAMEID_MAC_MAX];      // as Cruller learned it when it answered ("8c:aa:b5:12:34:56"; "" not yet): found
                                    // by it again when its address changes
+    char device[GAMEID_NAME_MAX];  // what its gameID device is called, as given ("MemCard PRO2"; "" none)
 } gameid_console_t;
 
 typedef struct {
@@ -43,8 +44,8 @@ bool gameid_profile_ok(const char *path);
 bool gameid_console_ok(const gameid_console_t *c, const char **why);
 bool gameid_game_ok(const gameid_game_t *g, const char **why);
 
-// {"consoles": [{"name", "url", "other", "svs_input", "enabled", "mac"}, ...]} (as the API takes them and
-// the file keeps them; "v", the format's version, is 1 or absent). How many, or -1 (*why says why).
+// {"consoles": [{"name", "url", "other", "svs_input", "enabled", "mac", "device"}, ...]} (as the API takes
+// them and the file keeps them; "v", the format's version, is 1 or absent). How many, or -1 (*why says why).
 int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, int max, const char **why);
 
 // The same written out, with "v": 1 when versioned. Its length, or 0 when it doesn't fit.

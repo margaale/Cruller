@@ -48,7 +48,7 @@ bool gameid_game_ok(const gameid_game_t *g, const char **why) {
     return true;
 }
 
-#define TOKENS (3 + GAMEID_CONSOLES_MAX * 14)
+#define TOKENS (3 + GAMEID_CONSOLES_MAX * 16)
 
 int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, int max, const char **why) {
     static json_tok_t tok[TOKENS]; // (one caller at a time: the HTTP task, or gameid.c's lock)
@@ -65,13 +65,14 @@ int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, i
         gameid_console_t c = {.enabled = true};
         long input = 0;
         const int vin = json_get(json, tok, o, "svs_input"), ven = json_get(json, tok, o, "enabled"), vot = json_get(json, tok, o, "other");
-        const int vmac = json_get(json, tok, o, "mac");
+        const int vmac = json_get(json, tok, o, "mac"), vdev = json_get(json, tok, o, "device");
         if (tok[o].type != JSON_OBJECT || !json_str(json, tok, json_get(json, tok, o, "name"), c.name, sizeof(c.name)) ||
             !json_str(json, tok, json_get(json, tok, o, "url"), c.url, sizeof(c.url)) ||
             (vot >= 0 && !json_str(json, tok, vot, c.other, sizeof(c.other))) ||
             (vin >= 0 && (!json_long(json, tok, vin, &input) || input < GAMEID_NOT_ON_SVS || input > GAMEID_SVS_INPUTS)) ||
-            (ven >= 0 && !json_bool(json, tok, ven, &c.enabled)) || (vmac >= 0 && !json_str(json, tok, vmac, c.mac, sizeof(c.mac)))) {
-            *why = "each console: a name and a url (strings that fit), other and mac strings, svs_input -1 to 8, enabled true or false";
+            (ven >= 0 && !json_bool(json, tok, ven, &c.enabled)) || (vmac >= 0 && !json_str(json, tok, vmac, c.mac, sizeof(c.mac))) ||
+            (vdev >= 0 && !json_str(json, tok, vdev, c.device, sizeof(c.device)))) {
+            *why = "each console: a name and a url (strings that fit), other, mac and device strings, svs_input -1 to 8, enabled true or false";
             return -1;
         }
         c.svs_input = (int8_t)input;
@@ -112,7 +113,8 @@ size_t gameid_consoles_json(const gameid_console_t *c, int count, bool versioned
         if (!put(out, size, &n, k ? ",{\"name\":" : "{\"name\":") || !put_str(out, size, &n, c[k].name) ||
             !put(out, size, &n, ",\"url\":") || !put_str(out, size, &n, c[k].url) ||
             !put(out, size, &n, ",\"other\":") || !put_str(out, size, &n, c[k].other) ||
-            !put(out, size, &n, ",\"mac\":") || !put_str(out, size, &n, c[k].mac) || !put(out, size, &n, tail)) return 0;
+            !put(out, size, &n, ",\"mac\":") || !put_str(out, size, &n, c[k].mac) ||
+            !put(out, size, &n, ",\"device\":") || !put_str(out, size, &n, c[k].device) || !put(out, size, &n, tail)) return 0;
     }
     return put(out, size, &n, "]}") ? n : 0;
 }

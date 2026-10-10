@@ -202,17 +202,18 @@ the body, in the same form:
 
 ```json
 {"consoles": [{"name": "PS2", "url": "http://10.10.10.88/api/currentState", "other": "PS2/Generic.rt4",
-               "svs_input": 4, "enabled": true, "mac": "8c:aa:b5:12:34:56"}]}
+               "svs_input": 4, "enabled": true, "mac": "8c:aa:b5:12:34:56", "device": "MemCard PRO2"}]}
 ```
 
 | Key | Value |
 |---|---|
-| `name` | What it's called (47 bytes at most). |
+| `name` | The console (47 bytes at most): on an SVS input, the page gives it the console the SVS Bridge says is there. |
 | `url` | What's asked: `http://`, the console's address and its path. Its answer is JSON with `gameID` (a MemCard PRO's or PRO2's, `http://<address>/api/currentState`), or the ID as text (PS1Digital's and N64Digital's, `http://<address>/gameid`). |
 | `other` | The profile for a game the gameDB hasn't (optional; `""`: none). |
 | `svs_input` | With an SVS switch, the input it's on (1-8); `-1`: not on the SVS, straight to the RT4K (it counts while the RT4K shows another input); `0` (the default, Auto): worked out from the console it is. |
 | `enabled` | Asked or not (default `true`). |
 | `mac` | Its MAC, as Cruller learned it when it answered (`""`: not yet; a console off the local network has none): Cruller finds it again by it when its address changes, and saves the new one. A list without it keeps the one learned while the console's address stays. |
+| `device` | What its gameID device is called, as given (optional, 47 bytes at most; `""`: none). |
 
 Ten consoles at most. A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its path under
 `/profile` (`PS2/God of War II.rt4`). Answers `{"ok": true}`; anything else gets

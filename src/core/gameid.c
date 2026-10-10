@@ -14,7 +14,7 @@ static volatile uint32_t version = 1;
 
 // What goes through these is the files' lock's (cfgfs_hold, or a cfgfs call that holds it): one task at
 // a time.
-static char text[GAMEID_CONSOLES_MAX * 2 * (GAMEID_NAME_MAX + GAMEID_URL_MAX + GAMEID_PROFILE_MAX + 64)]; // the consoles' file
+static char text[GAMEID_CONSOLES_MAX * 2 * (2 * GAMEID_NAME_MAX + GAMEID_URL_MAX + GAMEID_PROFILE_MAX + GAMEID_MAC_MAX + 64)]; // the consoles' file
 static gameid_console_t consoles[GAMEID_CONSOLES_MAX];
 static char line[LINE_MAX], out_line[LINE_MAX];
 

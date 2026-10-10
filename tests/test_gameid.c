@@ -222,6 +222,11 @@ static void test_mac(void) {
     CHECK(gameid_consoles_parse(json, strlen(json), c, GAMEID_CONSOLES_MAX, &why) == 1 && !strcmp(c[0].mac, "8c:aa:b5:12:34:56"));
     char out[512];
     CHECK(gameid_consoles_json(c, 1, false, out, sizeof(out)) && strstr(out, "\"mac\":\"8c:aa:b5:12:34:56\""));
+    // its gameID device's name, as given
+    const char *named = "{\"consoles\":[{\"name\":\"PS2\",\"url\":\"http://a/\",\"device\":\"MemCard PRO2 \\\"black\\\"\"}]}";
+    CHECK(gameid_consoles_parse(named, strlen(named), c, GAMEID_CONSOLES_MAX, &why) == 1 && !strcmp(c[0].device, "MemCard PRO2 \"black\""));
+    CHECK(gameid_consoles_json(c, 1, false, out, sizeof(out)) && strstr(out, "\"device\":\"MemCard PRO2 \\\"black\\\"\""));
+    CHECK(gameid_consoles_parse(json, strlen(json), c, GAMEID_CONSOLES_MAX, &why) == 1 && !c[0].device[0]); // none: ""
     const char *bad = "{\"consoles\":[{\"name\":\"PS2\",\"url\":\"http://a/\",\"mac\":\"8c:aa\"}]}";
     CHECK(gameid_consoles_parse(bad, strlen(bad), c, GAMEID_CONSOLES_MAX, &why) < 0 && strstr(why, "MAC"));
 
@@ -250,7 +255,7 @@ static void test_mac(void) {
 }
 
 static void test_pick(void) {
-    gameid_console_t c[3] = {{"PS2", "http://a/", "", 0, true, ""}, {"N64", "http://b/", "", 0, true, ""}, {"PS2 two", "http://c/", "", 5, true, ""}};
+    gameid_console_t c[3] = {{"PS2", "http://a/", "", 0, true, "", ""}, {"N64", "http://b/", "", 0, true, "", ""}, {"PS2 two", "http://c/", "", 5, true, "", ""}};
     gameid_seen_t s[3] = {{true, {"SCUS-97481", "", "PS2"}, "ps2", 10}, {true, {"3E5055B6", "", ""}, "n64", 20}, {false, {"", "", ""}, "", 0}};
     CHECK(gameid_pick(c, s, 3, 0, NULL, -1) == 1);        // no SVS: the last that changed
     CHECK(gameid_pick(c, s, 3, 2, "ps2", -1) == 0);       // input 2 is the PS2's: the N64 isn't on screen
@@ -267,7 +272,7 @@ static void test_pick(void) {
     CHECK(gameid_pick(c, s, 3, 2, "ps2", -1) == 1);
 
     // a console not on the SVS (a PS1Digital on HDMI) next to one on input 2
-    gameid_console_t d[2] = {{"PS2", "http://a/", "", 2, true, ""}, {"PS1", "http://ps1digital.local/gameid", "", GAMEID_NOT_ON_SVS, true, ""}};
+    gameid_console_t d[2] = {{"PS2", "http://a/", "", 2, true, "", ""}, {"PS1", "http://ps1digital.local/gameid", "", GAMEID_NOT_ON_SVS, true, "", ""}};
     gameid_seen_t e[2] = {{true, {"SCUS-97481", "", "PS2"}, "ps2", 10}, {true, {"SLUS-00594", "", ""}, "ps1", 20}};
     CHECK(gameid_pick(d, e, 2, 2, "ps2", 1) == 0);  // the RT4K shows the SVS: the PS1 isn't on it, though its game is newer
     CHECK(gameid_pick(d, e, 2, 2, "ps2", 0) == 1);  // it shows another input: the PS1's
