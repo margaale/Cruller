@@ -25,6 +25,7 @@
 #include "platform.h"
 #include "settings.h"
 #include "status_led.h"
+#include "version.h"
 
 #define NET_TASK_STACK      2048 // words
 #define NET_TASK_PRIORITY   (tskIDLE_PRIORITY + 3)
@@ -221,7 +222,7 @@ static void mdns_start(void) {
     settings_get(&s);
     mdns_txt_item_t rt4k_txt[] = {
         {"id", id},
-        {"ver", CRULLER_VERSION},
+        {"ver", cruller_version},
         {"api", HTTP_API_VERSION},
         {"name", s.name},
     };

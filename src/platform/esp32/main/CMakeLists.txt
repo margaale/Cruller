@@ -4,11 +4,16 @@ set(CORE ${CRULLER_ROOT}/src/core)
 idf_component_register(
     SRCS
         ${CORE}/buttons.c
+        ${CORE}/cfgfs.c
         ${CORE}/clients.c
         ${CORE}/console.c
         ${CORE}/console_core.c
         ${CORE}/creds.c
+        ${CORE}/gameid.c
+        ${CORE}/gameid_core.c
+        ${CORE}/gameid_run.c
         ${CORE}/http.c
+        ${CORE}/json.c
         ${CORE}/ota_fetch.c
         ${CORE}/ota_fetch_proto.c
         ${CORE}/power.c
@@ -23,12 +28,16 @@ idf_component_register(
         ${CORE}/settings.c
         ${CORE}/svs.c
         ${CORE}/svs_proto.c
+        ${CORE}/version.c
         ${CORE}/ws.c
         ${CORE}/ws_proto.c
         ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
+        ${CRULLER_ROOT}/third_party/littlefs/lfs.c
+        ${CRULLER_ROOT}/third_party/littlefs/lfs_util.c
         main.c
         platform.c
         store_nvs.c
+        cfgfs_part.c
         ota.c
         tls.c
         net.c
@@ -36,13 +45,19 @@ idf_component_register(
         freeze.c
         log.c
         status_led.c
-    INCLUDE_DIRS . ${CORE} ${CRULLER_ROOT}/src/platform ${CRULLER_ROOT}/third_party/picow_ap
+    INCLUDE_DIRS . ${CORE} ${CRULLER_ROOT}/src/platform ${CRULLER_ROOT}/third_party/picow_ap ${CRULLER_ROOT}/third_party/littlefs
     REQUIRES
-        app_update esp-tls esp_driver_gpio esp_event esp_netif esp_system esp_timer esp_wifi freertos
+        app_update esp-tls esp_driver_gpio esp_partition spi_flash esp_event esp_netif esp_system esp_timer esp_wifi freertos
         lwip mbedtls nvs_flash vfs
 )
 
-target_compile_definitions(${COMPONENT_LIB} PRIVATE CRULLER_VERSION="${CRULLER_VERSION}")
+# The version for version.c alone: a new one compiles that file again, no other (ccache keeps the rest).
+set_source_files_properties(${CORE}/version.c PROPERTIES COMPILE_DEFINITIONS CRULLER_VERSION="${CRULLER_VERSION}")
+if (NOT CRULLER_DEBUG)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CRULLER_DEBUG=0)
+endif()
+# littlefs (cfgfs.h) as on rp2: static buffers, quiet.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
 
 # src/core includes the kernel's headers as "FreeRTOS.h", "task.h"... (the Pico SDK's way); ESP-IDF
 # puts them under freertos/.
@@ -50,7 +65,7 @@ idf_component_get_property(freertos_dir freertos COMPONENT_DIR)
 target_include_directories(${COMPONENT_LIB} PRIVATE ${freertos_dir}/FreeRTOS-Kernel/include/freertos)
 
 # The web page, embedded as C arrays (the same as rp2, see src/web/embed.cmake).
-foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
+foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js gameid.js:web_gameid_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
     string(REPLACE ":" ";" asset ${asset})
     list(GET asset 0 file)
     list(GET asset 1 name)

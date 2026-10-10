@@ -19,6 +19,7 @@
 #include "platform.h"
 #include "settings.h"
 #include "status_led.h"
+#include "version.h"
 
 #define NET_TASK_STACK      2048
 #define NET_TASK_PRIORITY   (tskIDLE_PRIORITY + 3)
@@ -168,7 +169,9 @@ static void txt_id(struct mdns_service *service) {
 static void rt4k_txt(struct mdns_service *service, void *userdata) {
     (void)userdata;
     txt_id(service);
-    txt_add(service, "ver=" CRULLER_VERSION);
+    char ver[64];
+    snprintf(ver, sizeof(ver), "ver=%s", cruller_version);
+    txt_add(service, ver);
     txt_add(service, "api=" HTTP_API_VERSION);
     settings_t s;
     settings_get(&s);

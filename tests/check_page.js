@@ -19,7 +19,7 @@ try {
 
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
 ids.add('fwh'); // made by fw.js inside #fw
-const used = new Set([...app.matchAll(/(?<![\w.])(?:\$|text|rows)\('([\w-]+)'[,)]/g)].map((m) => m[1]));
+const used = new Set([...app.matchAll(/(?<![\w.])(?:\$|text|rows)\((['"])([\w-]+)\1[,)]/g)].map((m) => m[2])); // (either quotes: minified too)
 for (const id of used) {
     if (!ids.has(id)) {
         ok = false;

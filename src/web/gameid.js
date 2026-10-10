@@ -1,0 +1,694 @@
+// gameID in the Consoles view of the Cruller page (served as /gameid.js, embedded at build time): under each
+// SVS input's card (app.js) the console that tells the game on it, and on the card on screen the profile for
+// its game; the consoles not on the SVS; and your games, each with the RT4K profile to load (docs/GAMEID.md). Read
+// from and saved to /api/v1/gameid (docs/API.md); a profile is picked from the RT4K's SD card (its /profile
+// folder). What Cruller knows as it asks the consoles (GET /api/v1/gameid/state): every 2 s while the view
+// shows.
+
+(() => {
+  'use strict';
+
+  const q = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // --- pure helpers (tests/test_gameid_page.js) --------------------------------------------------------
+
+  // A console's address from what's typed: an address alone is a MemCard PRO's (its /api/currentState);
+  // http:// added when it's missing; anything else as it is (Cruller says what's wrong with it).
+  function consoleUrl(typed) {
+    let s = String(typed).trim();
+    if (!s) return '';
+    if (!/^[a-z]+:\/\//i.test(s)) s = 'http://' + s;
+    if (/^http:\/\/[^/]+\/?$/i.test(s)) s = s.replace(/\/?$/, '/api/currentState');
+    return s;
+  }
+
+  // A console's address as shown and typed: a MemCard PRO's by its host alone, http:// left out.
+  const shortUrl = (url) => String(url).replace(/^http:\/\//i, '').replace(/\/api\/currentState$/, '');
+
+  // What's wrong with a console's address ('' when nothing), as Cruller checks it.
+  function urlProblem(url) {
+    if (!/^http:\/\/[^/\s]/i.test(url)) return /^https:/i.test(url) ? 'https isn\'t supported yet: use http://' : 'An address starts with http://';
+    if (/\s/.test(url)) return 'An address has no spaces';
+    return '';
+  }
+
+  // A profile as gameID keeps it: a .rt4 or .rt6 under /profile, its path from there.
+  const profileOk = (p) => !!p && !/^\//.test(p) && !/\.\./.test(p) && !/\/\//.test(p) && !/[\x00-\x1f\\]/.test(p) && /\.rt[46]$/i.test(p);
+
+  // The games whose name, ID or profile has the text (any case).
+  function filterGames(games, text, tag) {
+    const t = String(text).trim().toLowerCase();
+    return games.filter((g) => (!tag || (tag === '-' ? !g.console : g.console === tag)) &&
+      (!t || (g.name + '\n' + g.id + '\n' + g.profile + '\n' + (g.console || '')).toLowerCase().includes(t)));
+  }
+
+  // The consoles' tags over your games: each console they're for, how many, by its name; and those for none
+  // ('-'), when some are for one.
+  function gameTags(games, names) {
+    const count = {};
+    for (const g of games) count[g.console || '-'] = (count[g.console || '-'] || 0) + 1;
+    const tags = Object.keys(count).filter((c) => c !== '-').map((c) => ({ tag: c, name: names[c] || c.toUpperCase(), n: count[c] }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (tags.length && count['-']) tags.push({ tag: '-', name: 'No console', n: count['-'] });
+    return tags;
+  }
+
+  // A console's answer as gameID reads it: JSON with gameID (and gameName), or the ID as text.
+  function readGame(text) {
+    try {
+      const j = JSON.parse(text);
+      if (j && typeof j === 'object') return { id: String(j.gameID || '').trim(), name: String(j.gameName || '').trim() };
+    } catch (e) { /* text */ }
+    return { id: String(text).trim(), name: '' };
+  }
+
+  // What a gameID device is, by its answer: a name to suggest when it's added. A MemCard PRO's JSON by its
+  // mode (PS2: only the PRO2 does it; GC; PS1); the ID as text, a Digital's by its console (kind ps1, n64).
+  // '' when it can't be told (or it's a web page, not an answer).
+  function deviceModel(text, kind) {
+    let j = null;
+    try { j = JSON.parse(text); } catch (e) { /* text */ }
+    if (j && typeof j === 'object') {
+      const m = String(j.currentMode || '').toUpperCase();
+      return m === 'PS2' ? 'MemCard PRO2' : m === 'GC' || m === 'NGC' ? 'MemCard PRO GC' : m === 'PS1' || m === 'PSX' ? 'MemCard PRO' : '';
+    }
+    if (/</.test(text)) return '';
+    return kind === 'ps1' ? 'PS1Digital' : kind === 'n64' ? 'N64Digital' : '';
+  }
+
+  // A console as Cruller last asked it (state.consoles[k]): what it runs, as its card says it.
+  function liveText(l, enabled) {
+    if (!enabled) return 'Not asked';
+    if (!l) return '…';
+    if (!l.on) return 'Off';
+    return l.game ? (l.game_name || l.game) : 'No game';
+  }
+
+  // The SVS input a console is on: the one it's set to, or on Auto (0) the one whose console is of its
+  // kind (as Cruller matches them: its MemCard's mode, else its name), when just one is; 0: not on it.
+  function inputOf(c, kind, inputs) {
+    if (c.svs_input >= 1 && c.svs_input <= inputs.length) return c.svs_input;
+    if (c.svs_input || !kind) return 0;
+    const m = inputs.map((p, i) => (p.device === kind ? i + 1 : 0)).filter(Boolean);
+    return m.length === 1 ? m[0] : 0;
+  }
+
+  // What a game added for a console (its kind) starts with: the game its gameID says it runs (the one on
+  // screen first), unless your games have it; and the profile: that gameID's for games not in your games,
+  // else its SVS input's own, else the own of an input with that console (the one on screen first). Nothing
+  // from another console's. cs: the consoles, each {kind, other, n (its SVS input, 0 none), on, on_screen,
+  // game, game_name}; sv: {input (on screen), inputs, files}.
+  function suggestion(kind, cs, sv, games) {
+    const r = { id: '', name: '', profile: '' };
+    if (!kind) return r;
+    const mine = cs.filter((c) => c.kind === kind);
+    const runs = mine.find((c) => c.on_screen && c.game) || mine.find((c) => c.on && c.game);
+    if (runs && !games.some((g) => g.id === runs.game)) Object.assign(r, { id: runs.game, name: runs.game_name || '' });
+    const own = (n) => (n > 0 && sv.files[n] ? 'SVS/' + sv.files[n] : '');
+    const ns = sv.inputs.map((p, i) => (p.device === kind ? i + 1 : 0)).filter(Boolean);
+    const c = runs || mine[0];
+    r.profile = (c && (c.other || own(c.n))) || own(ns.includes(sv.input) ? sv.input : ns[0]);
+    return r;
+  }
+
+  // The consoles a game can be for, each group by name: yours first (mine: their ids, on the SVS's inputs
+  // or with a gameID), then the others; the game's own when the page knows none by its id, with yours.
+  // names: {id: name}.
+  function consoleChoices(names, mine, current) {
+    const byName = (a, b) => (names[a] || a).localeCompare(names[b] || b);
+    const yours = [...new Set(mine.filter(Boolean))].sort(byName);
+    const others = Object.keys(names).filter((id) => !yours.includes(id)).sort(byName);
+    if (current && !names[current] && !yours.includes(current)) yours.unshift(current);
+    return { yours, others };
+  }
+
+  // An ID as each console's gameID reports it: the ID field's example.
+  const ID_LIKE = { ps2: 'SCUS-97481', ps1: 'SLUS-00594', n64: '3E5055B6-2E92DA52-N-45' };
+
+  const plain = (p) => p.replace(/\.rt[46]$/i, '');
+  const same = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+  const ago = (s) => (s < 5 ? 'just now' : s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago');
+
+  // The profile gameID has for what's on screen, as the card on screen says it under its gameID: from
+  // gameID's state (s, null until read), the switch (sv: known, files {n: its profile in /profile/SVS}) and
+  // the RT4K's power. On the card of k, the console on screen; or of input n, when its console went off and
+  // the input's own is back. The profile, how it stands (badge, its tone: ok, wait, bad), why, and more for
+  // its tooltip. null: nothing to say (no game on screen, or one not in your games: the input's own stays,
+  // as its card shows).
+  function loadedNow(s, sv, power) {
+    if (!s || !s.profile) return null;
+    const input = sv && sv.known ? s.svs_input : 0;
+    const own = input && s.on_svs !== false && sv.files[input] ? 'SVS/' + sv.files[input] : '';
+    const k = s.consoles.findIndex((c) => c.on_screen);
+    const r = { k, n: k < 0 && s.from === 'svs' ? input : 0, profile: s.profile, badge: 'Its profile', tone: '', why: '', more: '' };
+    if (k < 0 && !r.n) return null;
+    r.why = s.from === 'gamedb' ? (same(s.profile, own) ? 'From your games: the input\'s own' : 'From your games') :
+      s.from === 'other' ? 'Its gameID\'s, for games not in your games' : 'Its console went off: the input\'s own';
+    if (s.from === 'gamedb' && own && !same(s.profile, own)) r.more = 'Input ' + input + ' loads its own ' + plain(sv.files[input]) + ' first, this one 3 s after';
+    if (same(s.pending, s.profile)) {
+      Object.assign(r, { badge: power === 'standby' || power === 'starting' ? 'Waits for the RT4K' : 'Loading…', tone: 'wait' });
+    } else if (/^could not load /.test(s.note) && s.note.includes(s.profile)) {
+      Object.assign(r, { badge: 'Could not load', tone: 'bad', more: s.note });
+    } else if (same(s.loaded, s.profile)) {
+      Object.assign(r, { badge: 'Loaded' + (s.note.includes(s.profile) && s.note_age_s >= 0 ? ' · ' + ago(s.note_age_s) : ''), tone: 'ok' });
+    }
+    return r;
+  }
+
+  // --- state ------------------------------------------------------------------------------------------
+
+  let consoles = []; // as Cruller keeps them: {name, url, other, svs_input, enabled}
+  let games = [];    // {id, profile, name}, in the gameDB's order
+  let power = '';
+  let filter = '';
+  let tag = '';      // your games shown: those of this console ('' all; '-' those for none)
+  let adding = null; // the game being added: {id, name, profile, console, typed: {id, name, profile}: yours, not suggested}
+  let live = null;   // Cruller's state, as last read
+  let liveFail = false;
+  let version;       // the consoles' and games' version, as the state last said it (read again when it changes)
+  let built = false;
+  let playing = '';  // the game on screen, as your games last showed it
+  let now = null;    // the profile for what's on screen (loadedNow)
+  let away = '';     // the RT4K's input while it shows another than the SVS's
+
+  const asleep = () => power === 'standby' || power === 'starting';
+  const failure = (e) => (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message);
+  const liveOf = (k) => (live && live.consoles[k] && consoles[k] && live.consoles[k].name === consoles[k].name ? live.consoles[k] : null);
+
+  // The switch, as app.js and profiles.js last read it.
+  function svsInfo() {
+    const sv = window.svsNow ? window.svsNow() : { bridge: false, known: false, input: 0, inputs: [] };
+    sv.files = {};
+    for (let n = 1; n <= sv.inputs.length; n++) sv.files[n] = window.profSvsFile ? window.profSvsFile(n) : '';
+    return sv;
+  }
+  const inputName = (sv, n) => (sv.inputs[n - 1] && sv.inputs[n - 1].name) || 'Input ' + n;
+  const kindOf = (k) => { const l = liveOf(k); return l ? l.kind : ''; };
+  const onScreen = (sv) => (sv.known ? (live ? live.svs_input : sv.input) : 0); // the SVS's input on screen (0 unknown)
+
+  // The consoles as suggestion() takes them: each one's kind (as its device says it, else its SVS input's
+  // console, else its name's), its SVS input and what it runs.
+  function consoleList(sv) {
+    const names = Object.entries(consoleNames());
+    return consoles.map((c, k) => {
+      const l = liveOf(k) || {}, n = inputOf(c, l.kind || '', sv.inputs), byName = names.find(([, s]) => s === c.name);
+      return { kind: l.kind || (n && sv.inputs[n - 1].device) || (byName ? byName[0] : ''), other: c.other, n,
+        on: !!l.on, on_screen: !!l.on_screen, game: l.game || '', game_name: l.game_name || '' };
+    });
+  }
+
+  async function api(path, body) {
+    const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.error || 'HTTP ' + r.status);
+    return j;
+  }
+
+  function status(id, text, bad) {
+    q(id).textContent = text;
+    q(id).classList.toggle('bad', !!bad);
+    q(id).gidHtml = undefined; // (set() writes it again)
+  }
+
+  // An element's HTML, set only when it changes (a focused button stays).
+  function set(el, html) {
+    if (el && el.gidHtml !== html) { el.innerHTML = html; el.gidHtml = html; }
+  }
+
+  // --- the profile picker: a folder at a time under /profile, a file picked ------------------------------
+
+  const DIR = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+  let pickDir = 'profile';
+
+  async function pickList() {
+    const d = pickDir, parts = d.split('/');
+    q('gidpc').innerHTML = parts.map((p, k) => (k === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a href=# data-dir="' + esc(parts.slice(0, k + 1).join('/')) + '">' + esc(p) + '</a>')).join('<span>/</span>');
+    q('gidpl').innerHTML = '';
+    q('gidps').textContent = asleep() ? 'The RT4K is asleep: turn it on to read its SD card.' : 'Reading the folder…';
+    if (asleep()) return;
+    try {
+      const r = await fetch('/rt4k/ls?dir=' + encodeURIComponent(d));
+      const body = await r.text();
+      if (!r.ok) throw new Error(body.trim() || 'HTTP ' + r.status);
+      if (pickDir !== d) return;
+      const sd = window.sdInternals, list = sd.sortEntries(sd.parseList(body), 'name', false).filter((e) => e.dir || /\.rt[46]$/i.test(e.name));
+      q('gidpl').innerHTML = list.map((e) => (e.dir ? '<button type=button data-dir="' + esc(d + '/' + e.name) + '"><span class=ico>' + DIR + '</span>' + esc(e.name) + '</button>'
+        : '<button type=button data-file="' + esc((d + '/' + e.name).replace(/^profile\//, '')) + '">' + esc(plain(e.name)) + '</button>')).join('') || '<div class=pe0>No profiles here</div>';
+      q('gidps').textContent = '';
+    } catch (e) {
+      q('gidps').textContent = 'Could not read the folder: ' + failure(e);
+    }
+  }
+
+  // Resolves the profile picked (its path under /profile), or null.
+  function pickProfile(current) {
+    const dlg = q('gidpk');
+    pickDir = current && current.includes('/') ? 'profile/' + current.split('/').slice(0, -1).join('/') : 'profile';
+    return new Promise((resolve) => {
+      let picked = null;
+      dlg.onclick = (ev) => {
+        const b = ev.target.closest('[data-dir], [data-file]');
+        if (!b) return;
+        ev.preventDefault();
+        if (b.dataset.dir !== undefined) { pickDir = b.dataset.dir; pickList(); return; }
+        picked = b.dataset.file;
+        resolve(picked); // (now: the close event comes later, and a Cancel or Escape resolves null by it)
+        dlg.close();
+      };
+      dlg.onclose = () => resolve(picked);
+      dlg.showModal();
+      pickList();
+    });
+  }
+
+  // --- each console's gameID: in its input's card, or with the consoles not on the SVS -----------------
+
+  // The profile for what's on screen, under the gameID of the card on screen.
+  function nowBlock() {
+    return '<div class="gnow ' + now.tone + '"' + (now.more ? ' title="' + esc(now.more) + '"' : '') + '><div class=gcap>' + esc(now.badge) + '</div>' +
+      '<b>' + esc(plain(now.profile)) + '</b><span>' + esc(now.why) + '</span></div>';
+  }
+
+  // Console k: its address and what it runs (it opens its gameID); a game not in your games, added in a
+  // click; on screen, the profile for it.
+  function device(k) {
+    const c = consoles[k], l = liveOf(k), tone = !c.enabled ? '' : l && l.on ? ' ok' : l ? ' bad' : '';
+    const game = l && l.on && l.game;
+    return '<button type=button class="gdev' + (game ? '' : ' off') + '" data-k=' + k + ' title="Change its gameID">' +
+      '<span class="dot' + tone + '"></span><span><b>' + esc(c.device || 'gameID') + (c.mac ? ' <small>(' + esc(c.mac) + ')</small>' : '') + '</b>' +
+      '<i>' + esc(liveText(l, c.enabled)) + '</i></span></button>' +
+      (game && !games.some((g) => g.id === l.game) ? '<button type=button class=gaddg data-a=addgame data-k=' + k + '>Add ' + esc(l.game_name || l.game) + ' to your games</button>' : '') +
+      (now && now.k === k ? nowBlock() : '');
+  }
+
+  const full = () => consoles.length >= 10;
+
+  function renderSlots() {
+    const sv = svsInfo();
+    document.querySelectorAll('#v-grid .gslot[data-n]').forEach((el) => {
+      const n = +el.dataset.n, ks = consoles.map((c, k) => k).filter((k) => inputOf(consoles[k], kindOf(k), sv.inputs) === n);
+      set(el, '<div class=gcap>gameID</div>' + (ks.length ? ks.map(device).join('') :
+        '<button type=button class=gadd data-a=addfor data-n=' + n + (full() ? ' disabled' : '') + '>+ Add a MemCard or Digital</button>') +
+        (now && now.n === n ? nowBlock() : ''));
+    });
+  }
+
+  function renderOthers() {
+    const sv = svsInfo(), ins = sv.known ? sv.inputs : [];
+    // (the switch not described yet, Cruller just started: those on its inputs wait for it, not listed here)
+    const ks = consoles.map((c, k) => k).filter((k) => inputOf(consoles[k], kindOf(k), ins) === 0 && !(sv.bridge && !ins.length && consoles[k].svs_input > 0));
+    q('gcon').hidden = sv.bridge && !ks.length;
+    const where = (c) => (!sv.bridge ? '' : c.svs_input < 0 ? 'Straight to the RT4K' : c.svs_input ? 'Input ' + c.svs_input + ': this switch has fewer' :
+      'Auto: no input has its console');
+    const lit = (k) => { const l = liveOf(k); return l && l.on_screen; };
+    const failed = liveFail && consoles.length ? '<div class="small gfail">Cruller did not answer: what each console runs may be old.</div>' : '';
+    set(q('gcon'), '<div class=row><h2 class=grow>' + (sv.bridge ? 'Not on the SVS' : 'Consoles') + '</h2>' +
+      '<button type=button data-a=addfor data-n=' + (sv.bridge ? -1 : 0) + (full() ? ' disabled' : '') + '>Add a console</button></div>' +
+      (ks.length ? '<div class="svs-grid gcards">' + ks.map((k) => '<div' + (lit(k) ? ' class=on' : '') + '><span>' + esc(consoles[k].name) + '</span><small>' +
+        (lit(k) ? 'ON SCREEN' : esc(where(consoles[k]))) + '</small><div class=gslot><div class=gcap>gameID</div>' + device(k) + '</div></div>').join('') + '</div>' :
+        '<div class=small>None yet: add one by its MemCard\'s or Digital\'s address, and each game\'s profile loads by itself.</div>') +
+      (sv.bridge ? '' : failed + '<div class=small>With an SVS switch, its SVS Bridge on your network shows its inputs here by itself, each with its gameID.</div>'));
+    set(q('gnot'), (sv.bridge ? failed : '') + (sv.bridge && !ks.length ? 'A console that isn\'t on the SVS? <button type=button class=link data-a=addfor data-n=-1' +
+      (full() ? ' disabled' : '') + '>Add it</button>' : ''));
+  }
+
+  // What Cruller knows, everywhere it shows; your games again when the one on screen changes. The RT4K
+  // going to or from the SVS's input: the SVS's cards (app.js) say it.
+  function renderLive() {
+    if (!built) return;
+    now = loadedNow(live, svsInfo(), power);
+    const a = live && live.on_svs === false ? live.rt4k_input || 'another input' : '';
+    if (a !== away) { away = a; if (window.svsRedraw) window.svsRedraw(); }
+    renderSlots();
+    renderOthers();
+    const p = live && live.playing ? live.playing.game : '';
+    if (p !== playing) { playing = p; renderGames(); }
+  }
+
+  // Every 2 s while the view shows.
+  async function tick() {
+    if (!q('cons') || q('cons').hidden || document.hidden) return;
+    try {
+      const r = await fetch('/api/v1/gameid/state', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      live = await r.json();
+      liveFail = false;
+      // the consoles saved again (by Cruller: a MAC learned, an address found; the API; another page): read again
+      if (live.version !== version && !q('gdlg').open) { version = live.version; loadConsoles(); }
+    } catch (e) {
+      liveFail = true;
+    }
+    renderLive();
+  }
+
+  async function loadConsoles() {
+    try {
+      consoles = (await api('/api/v1/gameid/consoles')).consoles || [];
+    } catch (e) {
+      status('gnot', 'Could not read the consoles: ' + failure(e), true);
+    }
+    renderLive();
+  }
+
+  async function saveConsoles(list) {
+    try {
+      await api('/api/v1/gameid/consoles', { consoles: list });
+      consoles = list;
+      renderLive();
+      return true;
+    } catch (e) {
+      status('gdm', 'Not saved: ' + failure(e), true);
+      return false;
+    }
+  }
+
+  // --- a console's gameID, added or changed ------------------------------------------------------------
+
+  let draft = null, draftK = -1;
+
+  // Console k (-1: a new one, on input n, or not on the SVS). Opened from an input's card it stays on that
+  // input (pick: false); one not on the SVS may be put on an input.
+  async function openConsole(k, n, pick) {
+    // read again first: Cruller may have changed one (its MAC learned, its address found by it)
+    const url = k >= 0 ? consoles[k].url : '';
+    await loadConsoles();
+    if (k >= 0 && (k = consoles.findIndex((c) => c.url === url)) < 0) return;
+    const sv = svsInfo(), ins = sv.known ? sv.inputs : [];
+    draftK = k;
+    draft = k >= 0 ? { ...consoles[k], svs_input: inputOf(consoles[k], kindOf(k), ins) || consoles[k].svs_input } :
+      { name: '', url: '', other: '', svs_input: n || 0, enabled: true, mac: '', device: '' };
+    q('gdil').hidden = !ins.length || !pick;
+    q('gdi').innerHTML = ins.map((p, i) => '<option value=' + (i + 1) + '>Input ' + (i + 1) + (p.name ? ' · ' + esc(p.name) : '') + '</option>').join('') +
+      '<option value=-1>Not on the SVS: straight to the RT4K</option>';
+    q('gdi').value = String(draft.svs_input >= 1 && draft.svs_input <= ins.length ? draft.svs_input : -1);
+    q('gdu').value = shortUrl(draft.url);
+    // the console (asked only for one not on the SVS), by its short name, from those the page knows
+    const names = Object.values(consoleNames()).sort((a, b) => a.localeCompare(b));
+    if (draft.name && !names.includes(draft.name)) names.unshift(draft.name);
+    q('gdn').innerHTML = '<option value="">Pick its console…</option>' + names.map((s) => '<option' + (s === draft.name ? ' selected' : '') + '>' + esc(s) + '</option>').join('');
+    q('gdd').value = draft.device || '';
+    suggested = '';
+    q('gde').checked = draft.enabled;
+    q('gdmac').textContent = k < 0 ? '' : draft.mac ? 'Its MAC: ' + draft.mac + '. If its address changes, Cruller finds it again by it.' :
+      'Its MAC: learned once it answers on this network, to find it again if its address changes.';
+    q('gdr').hidden = k < 0;
+    q('gdsv').textContent = k < 0 ? 'Add' : 'Save';
+    status('gdm', '');
+    dialogFields();
+    q('gdlg').showModal();
+    q(k < 0 ? 'gdu' : 'gdd').focus();
+  }
+
+  // What depends on the input it's on: the title, the console's name (an input's is its console's: asked
+  // only for one not on it), what a game not in your games loads.
+  function dialogFields() {
+    const sv = svsInfo(), v = q('gdil').hidden ? draft.svs_input : +q('gdi').value, n = v > 0 ? v : 0;
+    q('gdt').textContent = n ? 'gameID for input ' + n + ' · ' + inputName(sv, n) : draftK < 0 ? 'Add a console' : draft.name;
+    q('gds').textContent = 'The game it says it runs picks the profile' + (n ? ', while input ' + n + ' is on screen.' :
+      v < 0 ? ', while the RT4K shows another input than the SVS\'s.' : '.');
+    q('gdnl').hidden = !!n;
+    const own = n && sv.files[n] ? plain(sv.files[n]) : '';
+    q('gdokt').textContent = own ? 'Keeps the input\'s own, ' + own : n ? 'Keeps the input\'s own profile' : 'Keeps the profile the RT4K has';
+    q('gdok').checked = !draft.other;
+    q('gdoo').checked = !!draft.other;
+    q('gdoot').textContent = draft.other ? 'Loads ' + plain(draft.other) : 'Loads another profile';
+    q('gdop').textContent = draft.other ? 'Change…' : 'Pick…';
+  }
+
+  // A new one's device, asked by this browser once its address is given (a MemCard answers anyone): a
+  // name for it suggested by its answer, put in while its name is empty or the one suggested before.
+  let suggested = '';
+  async function suggestName() {
+    if (draftK >= 0) return;
+    const url = consoleUrl(q('gdu').value);
+    if (!url || urlProblem(url)) return;
+    const sv = svsInfo(), v = q('gdil').hidden ? draft.svs_input : +q('gdi').value;
+    const byName = Object.entries(consoleNames()).find(([id, s]) => s === q('gdn').value);
+    const kind = v > 0 ? (sv.inputs[v - 1] || {}).device : byName ? byName[0] : '';
+    let model = '';
+    try {
+      const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+      if (r.ok) model = deviceModel(await r.text(), kind);
+    } catch (e) { /* not from this browser: named by hand */ }
+    if (model && (!q('gdd').value.trim() || q('gdd').value === suggested)) q('gdd').value = suggested = model;
+    q('gdmac').textContent = model ? 'Its name as its answer tells it: change it if you like.' : '';
+  }
+
+  async function pickOther() {
+    const p = await pickProfile(draft.other);
+    if (p) draft.other = p;
+    dialogFields();
+  }
+
+  async function saveConsole() {
+    const n = q('gdil').hidden ? draft.svs_input : +q('gdi').value, url = consoleUrl(q('gdu').value);
+    // the console's name: an input's, its console's; its MAC kept, its address changed too (the same device:
+    // found by it; another one answering there: its own learned instead)
+    const c = { name: n > 0 ? inputName(svsInfo(), n) : q('gdn').value.trim(), url, other: draft.other, svs_input: n, enabled: q('gde').checked,
+      mac: draft.mac || '', device: q('gdd').value.trim() };
+    if (!c.name) return status('gdm', 'Pick its console', true);
+    if (!c.device) return status('gdm', 'Give its gameID device a name', true);
+    const bad = urlProblem(c.url);
+    if (bad) return status('gdm', bad, true);
+    const list = consoles.slice();
+    if (draftK >= 0) list[draftK] = c; else list.push(c);
+    if (await saveConsoles(list)) q('gdlg').close();
+  }
+
+  async function removeConsole() {
+    const c = consoles[draftK];
+    if (!(await window.askUser('Remove ' + c.name + '\'s gameID?', 'Cruller stops asking it which game it runs. Your games stay.', 'Remove', true))) return;
+    if (await saveConsoles(consoles.filter((x, k) => k !== draftK))) q('gdlg').close();
+  }
+
+  // --- your games -------------------------------------------------------------------------------------
+
+  // A game's console, picked from those the page knows (app.js): yours first, those on the SVS's inputs and
+  // those with a gameID; its id kept when it knows none by it.
+  const consoleNames = () => (window.consoleNames ? window.consoleNames() : {});
+  function consoleSelect(attrs, current) {
+    const names = consoleNames(), sv = svsInfo();
+    const { yours, others } = consoleChoices(names, sv.inputs.map((p) => p.device).concat(consoleList(sv).map((c) => c.kind)), current);
+    const opt = (id) => '<option value="' + esc(id) + '"' + (id === current ? ' selected' : '') + '>' + esc(names[id] || id) + '</option>';
+    return '<select class=gcs ' + attrs + ' aria-label="Console"><option value="">—</option>' + (yours.length ?
+      '<optgroup label="Your consoles">' + yours.map(opt).join('') + '</optgroup><optgroup label="Other consoles">' + others.map(opt).join('') + '</optgroup>' :
+      others.map(opt).join('')) + '</select>';
+  }
+
+  function renderGames() {
+    if (!built) return;
+    const tags = gameTags(games, consoleNames());
+    if (tag && !tags.some((t) => t.tag === tag)) tag = '';
+    set(q('gidtags'), tags.length ? '<button type=button data-tag="" aria-pressed=' + !tag + '>All <span>' + games.length + '</span></button>' +
+      tags.map((t) => '<button type=button data-tag="' + esc(t.tag) + '" aria-pressed=' + (tag === t.tag) + '>' + esc(t.name) + ' <span>' + t.n + '</span></button>').join('') : '');
+    const shown = filterGames(games, filter, tag);
+    const row = (g) => '<tr data-id="' + esc(g.id) + '"' + (g.id === playing ? ' class=os title="On screen now"' : '') + '><td><input data-f=name value="' + esc(g.name) + '" maxlength=47 aria-label="Name" placeholder="(no name)"></td>' +
+      '<td class=gcn>' + (g.console ? esc(consoleNames()[g.console] || g.console.toUpperCase()) : '<span class=gidn>—</span>') + '</td>' +
+      '<td class=mono>' + esc(g.id) + '</td>' +
+      '<td><button type=button class=gidp data-f=profile>' + esc(plain(g.profile)) + '</button></td>' +
+      '<td class=act><button type=button class="ib del" data-a=del aria-label="Remove ' + esc(g.name || g.id) + '" title="Remove it">×</button></td></tr>';
+    const add = adding ? '<tr class=new><td><input id=gidan value="' + esc(adding.name) + '" maxlength=47 placeholder="Name" autocomplete=off aria-label="Name"></td>' +
+      '<td>' + consoleSelect('id=gidac', adding.console) + '</td>' +
+      '<td class=mono><input id=gidai value="' + esc(adding.id) + '" maxlength=63 placeholder="' + (ID_LIKE[adding.console] ? 'Its ID (' + ID_LIKE[adding.console] + ')' : 'Its ID, as its gameID says it') +
+      '" spellcheck=false autocomplete=off aria-label="ID"></td>' +
+      '<td><button type=button class=gidp id=gidap title="Pick another">' + (adding.profile ? esc(plain(adding.profile)) : '<span class=gidn>Pick its profile…</span>') + '</button>' +
+      (adding.profile ? '<button type=button class="ib del" id=gidapx aria-label="Not this profile" title="Not this one">×</button>' : '') + '</td>' +
+      '<td class=act><button type=button class=primary id=gidas>Add</button><button type=button id=gidax>Cancel</button></td></tr>' : '';
+    q('gidgt').innerHTML = add + shown.map(row).join('') +
+      (!shown.length && !adding ? '<tr><td colspan=5 class=pe0>' + (games.length ? 'No game matches' : 'No games yet: one a console runs is added from its card in a click.') + '</td></tr>' : '');
+    q('gidgs').textContent = (games.length === 1 ? '1 game' : games.length + ' games') + (filter.trim() || tag ? ', ' + shown.length + ' shown' : '');
+    q('gidga').disabled = !!adding || games.length >= 1000;
+  }
+
+  async function loadGames() {
+    try {
+      games = (await api('/api/v1/gameid/games')).games || [];
+    } catch (e) {
+      status('gidgs', 'Could not read them: ' + failure(e), true);
+    }
+    renderGames();
+    renderLive();
+  }
+
+  async function putGame(g, note) {
+    try {
+      const r = await api('/api/v1/gameid/games', g);
+      const k = games.findIndex((x) => x.id === g.id);
+      if (k >= 0) games[k] = { ...g }; else games.push({ ...g });
+      renderGames();
+      renderLive();
+      status('gidgm', note || (r.replaced ? 'Saved ' : 'Added ') + (g.name || g.id));
+      return true;
+    } catch (e) {
+      status('gidgm', 'Not saved: ' + failure(e), true);
+      return false;
+    }
+  }
+
+  // A game to add, from a console's card (its game, its console, its gameID's profile for games not in your
+  // games, else its SVS input's own: n), or from scratch: for the console on screen, what suggestion() says
+  // (a console it can't tell: the SVS input on screen's own profile).
+  function startAdding(g, n) {
+    const sv = svsInfo();
+    if (!g) {
+      const cs = consoleList(sv), c = cs.find((x) => x.on_screen && x.kind), input = onScreen(sv);
+      const kind = c ? c.kind : input > 0 && sv.inputs[input - 1] ? sv.inputs[input - 1].device : '';
+      g = { ...suggestion(kind, cs, { ...sv, input }, games), console: kind };
+      if (!kind) n = input;
+    }
+    const own = n > 0 && sv.files[n] ? 'SVS/' + sv.files[n] : '';
+    adding = { id: g.id || '', name: g.name || '', profile: g.profile || own, console: g.console || '', typed: {} };
+    filter = '';
+    tag = '';
+    q('gidq').value = '';
+    renderGames();
+    q('ggam').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    q(adding.id ? (adding.profile ? 'gidas' : 'gidap') : 'gidai').focus();
+  }
+
+  // The game being added is for another console now: what was suggested is that console's instead (an ID,
+  // a name or a profile you typed or picked stays; a suggested one may go, with nothing in its place).
+  function changeConsole(kind) {
+    const sv = svsInfo(), s = suggestion(kind, consoleList(sv), { ...sv, input: onScreen(sv) }, games), t = adding.typed;
+    adding.console = kind;
+    if (!t.id || !adding.id.trim()) {
+      adding.id = s.id;
+      if (!t.name || !adding.name.trim()) adding.name = s.name;
+    }
+    if (!t.profile || !adding.profile) adding.profile = s.profile;
+    renderGames();
+    q('gidac').focus();
+  }
+
+  // --- the view -------------------------------------------------------------------------------------
+
+  function build() {
+    built = true;
+    q('ggam').innerHTML =
+      '<div class="row sdh"><h2>Your games</h2><span id=gidgs class="small grow"></span><input id=gidq class=gidq placeholder="Find a game" autocomplete=off aria-label="Find a game">' +
+      '<button id=gidga class=primary>Add a game</button></div>' +
+      '<div id=gidtags class=gtags role=group aria-label="By console"></div>' +
+      '<div id=gidgm class=small></div>' +
+      '<div class=gidw><table class=gidt><thead><tr><th>Name</th><th>Console</th><th>ID</th><th>Profile</th><th></th></tr></thead><tbody id=gidgt></tbody></table></div>' +
+      '<div class=small>A game that isn\'t here keeps its input\'s own profile, or its gameID\'s for those.</div>';
+    q('cons').insertAdjacentHTML('beforeend',
+      '<dialog id=gdlg class=pick aria-labelledby=gdt><form method=dialog class=gdf>' +
+      '<div><h3 id=gdt></h3><div id=gds class=small></div></div>' +
+      '<label id=gdil>On the SVS<select id=gdi></select></label>' +
+      '<label id=gdnl>Console<select id=gdn></select></label>' +
+      '<fieldset class=gdg><legend>Its gameID device</legend>' +
+      '<div class=small>A MemCard PRO2 or PRO (its own web page on; on the PRO2, WebUI v2 off), a PS1Digital or an N64Digital: what says which game it runs.</div>' +
+      '<label>Address<input id=gdu class=mono maxlength=120 spellcheck=false autocomplete=off placeholder="192.168.1.50"></label>' +
+      '<div class=small style="margin-top:-4px">Its IP alone will do. Only http for now.</div>' +
+      '<label>Name<input id=gdd maxlength=47 autocomplete=off placeholder="Suggested once its address answers"></label>' +
+      '<div id=gdmac class=small></div></fieldset>' +
+      '<fieldset><legend>A game that isn\'t in your games</legend>' +
+      '<label class=gdo><input type=radio name=gdo id=gdok><span id=gdokt></span></label>' +
+      '<label class=gdo><input type=radio name=gdo id=gdoo><span id=gdoot></span><button type=button id=gdop class=link></button></label></fieldset>' +
+      '<label class=gdc><input type=checkbox id=gde>Ask it which game it runs</label>' +
+      '<div id=gdm class=small></div>' +
+      '<div class=gdb><button type=button id=gdr class=danger>Remove</button><span class=grow></span><button value=no>Cancel</button><button type=button id=gdsv class=primary></button></div>' +
+      '</form></dialog>' +
+      '<dialog id=gidpk class=pick aria-labelledby=gidpt><form method=dialog><h3 id=gidpt>Pick a profile</h3>' +
+      '<nav id=gidpc class=crumbs aria-label=Folder></nav><div id=gidpl class=pepl></div>' +
+      '<div class=row><span id=gidps class="small grow"></span><button value=no>Cancel</button></div></form></dialog>');
+
+    // a console's gameID: opened from its card, added to an input or not on the SVS; a game added from it
+    q('cons').addEventListener('click', (ev) => {
+      const b = ev.target.closest('button');
+      if (!b || b.disabled) return;
+      if (b.classList.contains('gdev')) openConsole(+b.dataset.k, 0, !b.closest('#v-grid')); // (one not on the SVS may be put on an input)
+      else if (b.dataset.a === 'addfor') openConsole(-1, +b.dataset.n, false);
+      else if (b.dataset.a === 'addgame') { // (its console: as its device says, else its SVS input's)
+        const k = +b.dataset.k, l = liveOf(k), sv = svsInfo(), n = l ? inputOf(consoles[k], l.kind, sv.inputs) : 0;
+        if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other, console: l.kind || (n && sv.inputs[n - 1].device) || '' }, n);
+      }
+    });
+    q('gdi').onchange = () => { dialogFields(); suggestName(); };
+    q('gdu').onchange = suggestName;
+    q('gdn').onchange = suggestName; // (a Digital's name goes by its console)
+    q('gdok').onchange = () => { draft.other = ''; dialogFields(); };
+    q('gdoo').onchange = pickOther;
+    q('gdop').onclick = pickOther;
+    q('gdsv').onclick = saveConsole;
+    q('gdr').onclick = removeConsole;
+
+    q('gidga').onclick = () => startAdding(null);
+    q('gidq').oninput = () => { filter = q('gidq').value; renderGames(); };
+    q('gidtags').onclick = (ev) => {
+      const b = ev.target.closest('button[data-tag]');
+      if (b) { tag = b.dataset.tag; renderGames(); }
+    };
+    q('gidgt').onchange = (ev) => {
+      if (ev.target.id === 'gidac') { changeConsole(ev.target.value); return; } // (the game being added)
+      const el = ev.target.closest('[data-f]'), tr = ev.target.closest('tr[data-id]');
+      if (!el || !tr) return;
+      const g = games.find((x) => x.id === tr.dataset.id);
+      if (!g) return;
+      if (el.dataset.f === 'name' && el.value.trim() !== g.name) putGame({ ...g, name: el.value.trim() }, 'Renamed ' + (el.value.trim() || g.id));
+    };
+    q('gidgt').oninput = (ev) => { // the game being added: kept as typed
+      if (!adding) return;
+      if (ev.target.id === 'gidan') { adding.name = ev.target.value; adding.typed.name = true; }
+      if (ev.target.id === 'gidai') { adding.id = ev.target.value; adding.typed.id = true; }
+    };
+    q('gidgt').onclick = async (ev) => {
+      const b = ev.target.closest('button');
+      if (!b) return;
+      if (b.id === 'gidap') {
+        const p = await pickProfile(adding.profile);
+        if (p) { adding.profile = p; adding.typed.profile = true; renderGames(); }
+      } else if (b.id === 'gidapx') {
+        adding.profile = '';
+        renderGames();
+        q('gidap').focus();
+      } else if (b.id === 'gidax') {
+        adding = null;
+        renderGames();
+      } else if (b.id === 'gidas') {
+        const g = { id: adding.id.trim(), name: adding.name.trim(), profile: adding.profile, console: adding.console };
+        if (!g.id) return status('gidgm', 'A game needs its ID: what its console reports', true);
+        if (!profileOk(g.profile)) return status('gidgm', 'Pick its profile', true);
+        if (games.some((x) => x.id === g.id) && !(await window.askUser('Replace ' + g.id + '?', 'Your games have it already: it will load this profile instead.', 'Replace', false))) return;
+        if (await putGame(g)) { adding = null; renderGames(); }
+      } else {
+        const tr = b.closest('tr[data-id]'), g = tr && games.find((x) => x.id === tr.dataset.id);
+        if (!g) return;
+        if (b.dataset.f === 'profile') {
+          const p = await pickProfile(g.profile);
+          if (p && p !== g.profile) putGame({ ...g, profile: p }, (g.name || g.id) + ' loads ' + plain(p));
+        } else if (b.dataset.a === 'del') {
+          if (!(await window.askUser('Remove ' + (g.name || g.id) + '?', 'Its input\'s own profile stays for it instead, or its gameID\'s for games not in your games.', 'Remove', true))) return;
+          try {
+            await api('/api/v1/gameid/games/delete', { id: g.id });
+            games = games.filter((x) => x !== g);
+            renderGames();
+            renderLive();
+            status('gidgm', 'Removed ' + (g.name || g.id));
+          } catch (e) {
+            status('gidgm', 'Not removed: ' + failure(e), true);
+          }
+        }
+      }
+    };
+  }
+
+  // The page shows the view: built the first time, read every time (the API may have changed them).
+  function open() {
+    if (!built) { build(); setInterval(tick, 2000); }
+    tick();
+    loadConsoles();
+    loadGames();
+  }
+
+  function onStatus(s) {
+    power = s.rt4k_power || power;
+  }
+
+  window.gidOpen = open;
+  window.gidStatus = onStatus;
+  window.gidSvs = renderLive; // app.js: the switch as the bridge said it now (the cards may be new)
+  window.gidAway = () => away; // app.js: the RT4K's input while it shows another than the SVS's ('' none)
+  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, deviceModel, liveText, inputOf, suggestion, consoleChoices, loadedNow }; // tests/test_gameid_page.js
+})();

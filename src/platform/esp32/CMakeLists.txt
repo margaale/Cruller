@@ -7,6 +7,9 @@ get_filename_component(CRULLER_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
 include(${CRULLER_ROOT}/src/version.cmake)
 set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z)")
 set(PROJECT_VER ${CRULLER_VERSION})
+# The developer tools (src/platform/platform.h): the CI builds them into pre-releases and pull requests, not
+# into releases.
+option(CRULLER_DEBUG "The developer tools (src/platform/platform.h)" ON)
 set(IDF_TARGET esp32s3)
 # The generated sdkconfig goes to the build directory; sdkconfig.defaults here is the source.
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)

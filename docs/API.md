@@ -50,6 +50,12 @@ The API's version is a whole number: `api` in the TXT, `api_version` in `/api/v1
 | `POST /api/v1/svs` | The SVS Bridge's report. |
 | `POST /api/v1/svs/unpair` | Forget the paired SVS Bridge. |
 | `POST /api/v1/svs/profiles` | Each input's profile, as the page read the RT4K's card, to keep. |
+| `GET /api/v1/gameid/state` | What gameID knows: each console's game, the one on screen, the profile loaded. |
+| `GET /api/v1/gameid/consoles` | The consoles gameID asks which game they run. |
+| `POST /api/v1/gameid/consoles` | Replace them. |
+| `GET /api/v1/gameid/games` | The gameDB: each game and its profile. |
+| `POST /api/v1/gameid/games` | Add a game, or change one. |
+| `POST /api/v1/gameid/games/delete` | Remove a game. |
 
 ### GET /api/v1/info
 
@@ -183,3 +189,68 @@ restarts, writing its flash only when they changed, and `GET /api/v1/svs` gives 
 `profiles_seq` (in both, and in the page's status) changes with them. Answers
 `{"ok": true, "changed": true}`; a line that isn't an input 1-32, a tab and a name (150 bytes at
 most), or more than 1 KB, gets `400`/`413 {"ok": false, "error": "…"}`.
+
+### /api/v1/gameid
+
+gameID loads a game's own RT4K profile when a console reports which game it runs
+([GAMEID.md](GAMEID.md)). These routes keep what it works from: the consoles it asks, and the games,
+each with its profile. Cruller keeps both across restarts in its flash (the gameDB holds 1000 games);
+a factory reset erases them.
+
+`GET /api/v1/gameid/consoles` answers them all; `POST /api/v1/gameid/consoles` replaces them all with
+the body, in the same form:
+
+```json
+{"consoles": [{"name": "PS2", "url": "http://10.10.10.88/api/currentState", "other": "PS2/Generic.rt4",
+               "svs_input": 4, "enabled": true, "mac": "8c:aa:b5:12:34:56", "device": "MemCard PRO2"}]}
+```
+
+| Key | Value |
+|---|---|
+| `name` | The console (47 bytes at most): on an SVS input, the page gives it the console the SVS Bridge says is there. |
+| `url` | What's asked: `http://`, the console's address and its path. Its answer is JSON with `gameID` (a MemCard PRO's or PRO2's, `http://<address>/api/currentState`), or the ID as text (PS1Digital's and N64Digital's, `http://<address>/gameid`). |
+| `other` | The profile for a game the gameDB hasn't (optional; `""`: none). |
+| `svs_input` | With an SVS switch, the input it's on (1-8); `-1`: not on the SVS, straight to the RT4K (it counts while the RT4K shows another input); `0` (the default, Auto): worked out from the console it is. |
+| `enabled` | Asked or not (default `true`). |
+| `mac` | Its MAC, as Cruller learned it when it answered (`""`: not yet; a console off the local network has none): Cruller finds it again by it when its address changes, and saves the new one. A list without it keeps the one learned while the console's address stays. |
+| `device` | What its gameID device is called, as given (optional, 47 bytes at most; `""`: none). The page suggests one when it's added, by how the device answers. |
+
+Ten consoles at most. A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its path under
+`/profile` (`PS2/God of War II.rt4`). Answers `{"ok": true}`; anything else gets
+`400 {"ok": false, "error": "…"}`, and nothing changes.
+
+`GET /api/v1/gameid/games` answers every game, in the order they were added:
+
+```json
+{"games": [{"id": "SCUS-97481", "profile": "PS2/God of War II.rt4", "name": "God of War II", "console": "ps2"}]}
+```
+
+`console` is the console it's for, as the SVS Bridge names them (`ps2`, `n64`; `""`: not known): given, or
+set by Cruller the first time it's on screen on a console it knows. `POST /api/v1/gameid/games` with one
+of them (`name` and `console` optional) adds it, or replaces the one with its
+`id` (compared as written): `{"ok": true, "replaced": false}`. `POST /api/v1/gameid/games/delete`
+with `{"id": "SCUS-97481"}` removes it: `{"ok": true, "found": true}`. A body that isn't one of
+these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "…"}`.
+
+`GET /api/v1/gameid/state` answers what gameID knows as it asks the consoles (every 2 s):
+
+```json
+{"version": 7, "consoles": [{"name": "PS2", "on": true, "game": "SCUS-97481", "game_name": "God of War II", "kind": "ps2",
+               "on_screen": true}],
+ "svs_input": 3, "rt4k_input": "", "on_svs": null,
+ "playing": {"console": "PS2", "game": "SCUS-97481", "game_name": "God of War II"},
+ "profile": "PS2/God of War II.rt4", "from": "gamedb", "pending": "", "loaded": "PS2/God of War II.rt4",
+ "note": "loaded PS2/God of War II.rt4", "note_age_s": 12}
+```
+
+| Key | Value |
+|---|---|
+| `version` | Changes whenever the consoles or the games are saved (by the API, a page, or Cruller itself: a MAC learned, an address found): read them again then. |
+| `consoles` | Each console, in the order kept: `on` (it answered lately), the `game` it runs (`""`: none it can tell) and its `game_name` when it says one, the `kind` of console (`ps2`, `n64`…: from what it reports, else its name; matched to the SVS Bridge's), `on_screen` (its game is the one that counts). |
+| `svs_input` | The SVS switch's input, as its bridge last reported it (`0`: none). |
+| `rt4k_input`, `on_svs` | With consoles not on the SVS, the RT4K's active input (`"HDMI"`, `"HD15 YPbPr"`…, asked with a bare `input`, which only reads it) and whether that's the SVS's (by the output its bridge says goes to the RT4K); `""` and `null` when not asked or not known. |
+| `playing` | The game on screen (`null`: none). |
+| `profile`, `from` | The profile for it, and from where: `gamedb`, `other` (its console's, for a game the gameDB hasn't), `svs` (its console went off, or was disabled: the input's own `S<n>`); `""`: none. |
+| `pending` | A profile about to load: after an input change (the RT4K's own `S<n>` first), once the RT4K comes on, or while it sleeps. |
+| `loaded` | What gameID last loaded. |
+| `note`, `note_age_s` | What it last did, or why it waits, and how long ago. |

@@ -71,7 +71,7 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
 - **Cruller keeps the first bridge that reports** (with an `id`) in its settings. Reports from another
   bridge get `409 {"ok": false, "error": "paired with another SVS Bridge", "paired": "<id>"}`, so a
   bridge set up for another RT4K can't change this one's profiles. `POST /api/v1/svs/unpair` (the Unpair
-  button in the Cruller tab) frees it; a factory reset does too.
+  button in the Debug view) frees it; a factory reset does too.
 
 ## What Cruller does with it
 
@@ -86,10 +86,10 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
   the page fetches `GET /api/v1/svs` then. `GET /api/v1/state` doesn't have it: Home Assistant and
   scripts get the switch's state from the SVS Bridge itself, not through Cruller. Cruller keeps it in RAM: after a restart, the bridge's next report
   (it reports as soon as Cruller announces itself) brings it back.
-- The SVS tab shows each input's console as an icon (by its `device`: its controller or the machine,
+- The Consoles view shows each input's console as an icon (by its `device`: its controller or the machine,
   with the buttons in their own colours; a plain pad and its name when Cruller has no drawing of
   it) and its module, and the output to the RetroTINK.
-- Each input's profile: the SVS tab has a combo per input with the profiles in the RT4K's
+- Each input's profile: the Consoles view has a combo per input with the profiles in the RT4K's
   `/profile/SVS`. The profile is the RT4K's own: with Auto Load SVS on, when the switch tells it input
   n is on (over the HD-15), it loads the first `/profile/SVS/S<n>_<anything>.rt4` it finds, and only
   from that folder, so nothing goes through Cruller then. Picking one makes it that file: renamed to

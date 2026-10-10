@@ -18,7 +18,9 @@
 #include "http.h"
 #include "log.h"
 #include "net.h"
+#include "cfgfs.h"
 #include "console.h"
+#include "gameid_run.h"
 #include "ota.h"
 #include "power.h"
 #include "rfc2217.h"
@@ -26,6 +28,7 @@
 #include "rtl1.h"
 #include "status_led.h"
 #include "ws.h"
+#include "version.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
 #define MAIN_TASK_STACK    512 // words: it peaked at 124 (CYW43 start included), then only logs
@@ -65,7 +68,7 @@ static void main_task(void *param) {
     const char *cause = watchdog_enable_caused_reboot() ? "watchdog timeout (a hang or a fault)"
         : watchdog_hw->reason                          ? "reboot"
                                                        : chip_reset_cause(chip);
-    printf("\nCruller %s, boot partition %d (%s boot), reset: %s, last power reset: %s (0x%08lx)\n", CRULLER_VERSION,
+    printf("\nCruller %s, boot partition %d (%s boot), reset: %s, last power reset: %s (0x%08lx)\n", cruller_version,
         ota_boot_partition(), ota_last_boot_type(), cause, chip_reset_cause(chip), (unsigned long)chip);
 
     health_start(ota_is_trial_boot());
@@ -90,11 +93,14 @@ static void main_task(void *param) {
     health_start_net_probe();
     health_start_sensors();
     status_led_start();
+    // The files (gameID's): before rt4k_start(), so a first format needn't hold the USB host off.
+    if (!cfgfs_mount()) printf("cfgfs: no files this run\n");
     console_start(); // before rt4k_start(): the rt4k task feeds them text from the start
     power_start();
     rt4k_start();
     ws_start();
     http_start();
+    gameid_run_start(); // asks the consoles once the network is up
     rfc2217_start();
     net_start();
 

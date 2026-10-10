@@ -26,7 +26,7 @@ static const uint32_t magics[STORE_KEYS] = {
 };
 
 _Static_assert(sizeof(header_t) + STORE_RECORD_MAX + 4 <= FLASH_SECTOR_SIZE_B, "a record must fit one sector");
-_Static_assert(2u * STORE_KEYS * FLASH_SECTOR_SIZE_B <= DATA_PART_SIZE, "the records must fit the data partition");
+_Static_assert(2u * STORE_KEYS <= STORE_SECTORS, "the records must fit before cfgfs (flash_layout.h)");
 
 static uint32_t crc32_add(uint32_t crc, const void *data, size_t len) {
     const uint8_t *p = data;

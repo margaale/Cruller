@@ -243,6 +243,7 @@ static const char *final_line(const char *cmd, bool *no_reply) {
         {"rm ", "rm ok|rm err|rm:"},
         {"mv ", "mv ok|mv err|mv:"},
         {"pwr on", "Power On Requested"}, // "Bad Command: pwr on" when it's already on
+        {"input", "input="}, // (bare: reads the active input)
         {"input ", "input"},
         {"output ", "output"},
         {"fwup ", "fwup"},

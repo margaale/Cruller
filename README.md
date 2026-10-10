@@ -35,9 +35,11 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
   in `/profile`, load a profile with a click or open it in the profile editor, the loaded one marked;
   tick several to edit them together.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
+- **Each game its own profile (gameID)**: a MemCard PRO2 or PRO, a PS1Digital or an N64Digital says
+  which game runs, and the profile you gave it loads.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
-  screen and the console on each input, and each input's profile picked from the RT4K's
-  `/profile/SVS` (its `S<n>_….rt4`, which it loads with Auto Load SVS).
+  screen and the console on each input, each input's profile picked from the RT4K's `/profile/SVS`
+  (its `S<n>_….rt4`, which it loads with Auto Load SVS), and the gameID on it.
 - **Home Assistant and scripts**: a [Home Assistant integration](https://github.com/margaale/cruller-hacs)
   that finds Cruller by itself, a versioned JSON API, and the RT4K's serial port on the network
   (RFC 2217), where each client gets only the replies to its own commands.
@@ -172,19 +174,38 @@ ones ticked are edited together: a setting shows its value when they agree and *
 don't (its tooltip says who has what), and a value picked goes to all of them, each keeping the rest
 of its own. Saving them replaces each changed one where it is, after one confirmation that names them.
 
-### SVS
+### Consoles
 
-![SVS: eight inputs with their consoles, the one on screen lit, and the recent switches](docs/images/svs-tab.png)
+![Consoles: God of War II on screen with its profile loaded, the SVS's four inputs with their profiles and the PS2's MemCard, your games](docs/images/consoles.png)
 
-The RT4K can't tell when an [SVS](https://scalablevideoswitch.com/) switch changes input, so the
-[SVS Bridge](https://github.com/margaale/svs-bridge) tells Cruller. There's nothing to set up on
-this side: the bridge finds Cruller on the network, you pick it in the bridge's Cruller tab, and
-Cruller pairs with the first bridge that reports to it.
+One view for your consoles and the profile each game loads. The console on screen is lit, and under
+its gameID the profile for its game and how it stands: loaded (and when), loading, waiting for the
+RT4K to come on, or why it couldn't.
 
-The tab shows each input with the console on it (as picked in the bridge's SVS tab), the one on
-screen lit, the output that goes to the RetroTINK, and the recent switches. **Unpair** frees Cruller
-for another bridge. With "Auto Load SVS" on, the RT4K itself loads
-`/profile/SVS/S<input>_….rt4` when the input changes. Per-console game profiles come next.
+**SVS inputs**: the RT4K can't tell when an [SVS](https://scalablevideoswitch.com/) switch changes
+input, so the [SVS Bridge](https://github.com/margaale/svs-bridge) tells Cruller. There's nothing to
+set up on this side: the bridge finds Cruller on the network, you pick it in the bridge's Cruller
+tab, and Cruller pairs with the first bridge that reports to it. Each input shows the console on it
+(as picked in the bridge's SVS tab), the one on screen lit, and **Switched in, loads**: its profile,
+picked from the RT4K's `/profile/SVS` (with "Auto Load SVS" on, the RT4K itself loads
+`S<input>_….rt4` when the input changes).
+
+**gameID**: a console that reports which game it runs (a MemCard PRO2 or PRO, a PS1Digital, an
+N64Digital) can have each game load its own profile. Under an input, **Add a MemCard or Digital**
+takes its address on your network (a MemCard's IP alone will do). Cruller asks it every 2 s, and
+while that input is on screen its game's profile loads, 3 s after the input's own; a game not in your
+games keeps the input's, or loads another profile you pick for those. A console not on the SVS, or
+any without an SVS, is added the same way. A MemCard PRO2 answers with its own web page on (WebUI v2
+off).
+
+**Your games**: each game's ID with its profile, picked from the RT4K's SD card, and the console it's
+for. A game a console runs is added from its card in a click, its console with it; a tag per console
+shows its games alone. A game added starts with what its console suggests: the game its gameID runs
+and that console's profile (its gameID's, else its SVS input's), never another console's.
+
+The SVS Bridge it's paired with (**Unpair** frees Cruller for another bridge) and the recent switches
+are in the Debug view.
+More in [GAMEID.md](docs/GAMEID.md) and [SVS.md](docs/SVS.md).
 
 ### Cruller
 
@@ -319,7 +340,8 @@ installed. A local build takes its version from `src/version.cmake`, and CI pass
 
 `CRULLER_DEBUG=0` builds it without the developer tools: the `/debug` routes that act on the RT4K
 or the board, the RTL1 failure capture and the USB trace (16 KB of RAM). The Debug section then hides
-their buttons. The routes that only read stay.
+their buttons. The routes that only read stay. CI builds releases this way; pre-releases and pull
+requests keep the tools.
 
 `scripts/build.sh esp32`, in an ESP-IDF 6.1 shell, builds the ESP32-S3 port into `build/esp32`.
 
@@ -361,7 +383,8 @@ released. Versions come from GitVersion (`GitVersion.yml`) and
 [CI](.github/workflows/build.yml):
 
 - **`master`**: every push is a release, `vX.Y.Z`. The patch number grows with each one; a line
-  `+semver: minor` in a commit message bumps the minor.
+  `+semver: minor` in a commit message bumps the minor. Releases are built without the developer
+  tools (`CRULLER_DEBUG=0`).
 - **`develop`**: every push is a pre-release, `vX.Y.Z-alpha.N`. N is CI's run number, which grows
   with every build on every branch, so a newer build always has a newer version.
 - **Pull requests**: built as `X.Y.Z-pr.N`, not published. The images are attached to the run.
