@@ -296,7 +296,9 @@
   // Console k (-1: a new one, on input n or none).
   let autoName = ''; // a new one's name as given from its input ('' none): follows the input picked
 
-  async function openConsole(k, n) {
+  // Console k (-1: a new one, on input n, or not on the SVS). Opened from an input's card it stays on that
+  // input (pick: false); one not on the SVS may be put on an input.
+  async function openConsole(k, n, pick) {
     // read again first: Cruller may have changed one (its MAC learned, its address found by it)
     const url = k >= 0 ? consoles[k].url : '';
     await loadConsoles();
@@ -305,7 +307,7 @@
     draftK = k;
     draft = k >= 0 ? { ...consoles[k], svs_input: inputOf(consoles[k], kindOf(k), ins) || consoles[k].svs_input } :
       { name: '', url: '', other: '', svs_input: n || 0, enabled: true, mac: '' };
-    q('gdil').hidden = !ins.length;
+    q('gdil').hidden = !ins.length || !pick;
     q('gdi').innerHTML = ins.map((p, i) => '<option value=' + (i + 1) + '>Input ' + (i + 1) + (p.name ? ' · ' + esc(p.name) : '') + '</option>').join('') +
       '<option value=-1>Not on the SVS: straight to the RT4K</option>';
     q('gdi').value = String(draft.svs_input >= 1 && draft.svs_input <= ins.length ? draft.svs_input : -1);
@@ -326,7 +328,7 @@
   // What depends on the input it's on: the title, a new one's name (its console's), what a game not in your
   // games loads.
   function dialogFields() {
-    const sv = svsInfo(), v = q('gdil').hidden ? 0 : +q('gdi').value, n = v > 0 ? v : 0;
+    const sv = svsInfo(), v = q('gdil').hidden ? draft.svs_input : +q('gdi').value, n = v > 0 ? v : 0;
     q('gdt').textContent = n ? 'gameID for input ' + n + ' · ' + inputName(sv, n) : draftK < 0 ? 'Add a console' : draft.name;
     q('gds').textContent = 'The game it says it runs picks the profile' + (n ? ', while input ' + n + ' is on screen.' :
       v < 0 ? ', while the RT4K shows another input than the SVS\'s.' : '.');
@@ -451,8 +453,8 @@
     q('cons').addEventListener('click', (ev) => {
       const b = ev.target.closest('button');
       if (!b || b.disabled) return;
-      if (b.classList.contains('gdev')) openConsole(+b.dataset.k);
-      else if (b.dataset.a === 'addfor') openConsole(-1, +b.dataset.n);
+      if (b.classList.contains('gdev')) openConsole(+b.dataset.k, 0, !b.closest('#v-grid')); // (one not on the SVS may be put on an input)
+      else if (b.dataset.a === 'addfor') openConsole(-1, +b.dataset.n, false);
       else if (b.dataset.a === 'addgame') {
         const k = +b.dataset.k, l = liveOf(k);
         if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other });
