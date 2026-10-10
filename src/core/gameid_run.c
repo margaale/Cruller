@@ -9,6 +9,9 @@
 #include "semphr.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "lwip/etharp.h"
+#include "lwip/netif.h"
+#include "lwip/tcpip.h"
 
 #include "console.h"
 #include "gameid.h"
@@ -27,13 +30,18 @@
 #define AFTER_SVS_MS  3000 // after an input change, so the RT4K's own S<n> loads first
 #define AFTER_ON_MS   6000 // after the RT4K comes on, so it's settled
 #define LOAD_MS       15000
+#define SEEK_AFTER_MS 30000  // the console the RT4K may show, not answering this long: looked for by its MAC
+#define SEEK_EVERY_MS 120000 // ... and again at most this often
+#define SEEK_BATCH    6      // ARP requests at a time (lwIP's table, where the replies land, holds ARP_TABLE_SIZE)
+#define SEEK_WAIT_MS  100    // for their replies
 
 // --- asking a console ------------------------------------------------------------------------------------
 
 static char reply[1536]; // (the task's alone)
 
-// 1: it said what it runs (*rep); 0: it answered something else (changes nothing); -1: no answer.
-static int ask(const gameid_console_t *c, gameid_report_t *rep) {
+// 1: it said what it runs (*rep); 0: it answered something else (changes nothing); -1: no answer. *ip: the
+// address asked (network order).
+static int ask(const gameid_console_t *c, gameid_report_t *rep, uint32_t *ip) {
     char host[GAMEID_HOST_MAX], port_s[6];
     uint16_t port;
     const char *path;
@@ -42,6 +50,7 @@ static int ask(const gameid_console_t *c, gameid_report_t *rep) {
     const struct addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_STREAM};
     struct addrinfo *res = NULL;
     if (getaddrinfo(host, port_s, &hints, &res) != 0 || !res) return -1;
+    *ip = ((const struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
     const int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (fd < 0) {
         freeaddrinfo(res);
@@ -87,6 +96,61 @@ static int ask(const gameid_console_t *c, gameid_report_t *rep) {
     return gameid_reply(reply, got, &body, &len) == 200 && gameid_read_report(body, len, rep) ? 1 : 0;
 }
 
+// --- a console's MAC: learned when it answers, and looked for when its address may have changed --------------
+
+// The MAC lwIP's ARP table has for ip (network order), into mac. False when it has none: an address off the
+// local network has none (it goes through the gateway).
+static bool arp_mac(uint32_t ip, uint8_t mac[6]) {
+    ip4_addr_t a;
+    ip4_addr_set_u32(&a, ip);
+    struct eth_addr *eth = NULL;
+    const ip4_addr_t *at = NULL;
+    bool ok = false;
+    LOCK_TCPIP_CORE();
+    if (netif_default && etharp_find_addr(netif_default, &a, &eth, &at) >= 0 && eth) {
+        memcpy(mac, eth->addr, 6);
+        ok = true;
+    }
+    UNLOCK_TCPIP_CORE();
+    return ok;
+}
+
+// Looks for mac on the local network: an ARP request to each address of it (a /24 at most: the one around
+// Cruller's own address when it's bigger), a few at a time, lwIP's table read after each few. Where it is
+// (network order), or 0.
+static uint32_t arp_seek(const uint8_t mac[6]) {
+    uint32_t me = 0, mask = 0;
+    LOCK_TCPIP_CORE();
+    if (netif_default && netif_is_up(netif_default) && netif_is_link_up(netif_default)) {
+        me = ip4_addr_get_u32(netif_ip4_addr(netif_default));
+        mask = ip4_addr_get_u32(netif_ip4_netmask(netif_default));
+    }
+    UNLOCK_TCPIP_CORE();
+    if (!me) return 0;
+    const uint32_t m = lwip_ntohl(mask) | 0xFFFFFF00u, base = lwip_ntohl(me) & m, hosts = ~m; // (/24 at most)
+    for (uint32_t h = 1; h < hosts; h += SEEK_BATCH) {
+        LOCK_TCPIP_CORE();
+        for (uint32_t j = h; j < h + SEEK_BATCH && j < hosts && netif_default; j++) {
+            ip4_addr_t a;
+            ip4_addr_set_u32(&a, lwip_htonl(base | j));
+            if (ip4_addr_get_u32(&a) != me) etharp_request(netif_default, &a);
+        }
+        UNLOCK_TCPIP_CORE();
+        vTaskDelay(pdMS_TO_TICKS(SEEK_WAIT_MS));
+        uint32_t found = 0;
+        LOCK_TCPIP_CORE();
+        for (size_t i = 0; i < ARP_TABLE_SIZE && !found; i++) {
+            ip4_addr_t *ip;
+            struct netif *nif;
+            struct eth_addr *eth;
+            if (etharp_get_entry(i, &ip, &nif, &eth) && !memcmp(eth->addr, mac, 6)) found = ip4_addr_get_u32(ip);
+        }
+        UNLOCK_TCPIP_CORE();
+        if (found) return found;
+    }
+    return 0;
+}
+
 // --- what it knows ----------------------------------------------------------------------------------------
 
 static SemaphoreHandle_t lock; // the state below, between the task and GET /api/v1/gameid/state
@@ -107,6 +171,9 @@ static char loaded[GAMEID_PROFILE_MAX];  // what gameID loaded last
 static char note[200];                   // what it last did, or why it waits
 static uint32_t note_ms;
 static bool rt4k_was_on;
+static const char *last_device = "";    // the SVS input's console, as the bridge says it ("" none)
+static uint32_t lost_at[GAMEID_CONSOLES_MAX], sought_at[GAMEID_CONSOLES_MAX]; // seek(): since when its console
+                                        // hasn't answered (0: it does), when it was last looked for
 
 static void say(const char *fmt, const char *a, const char *b, const char *c) {
     char s[sizeof(note)];
@@ -153,12 +220,35 @@ static void reload(void) {
     }
     seq++;
     xSemaphoreGive(lock);
+    memset(lost_at, 0, sizeof(lost_at)); // (by index: counted again)
+    memset(sought_at, 0, sizeof(sought_at));
+}
+
+// Console k's gameID device, as the log names it: "MemCard PRO2 (on PS2)", or "PS2's gameID device".
+static const char *device_of(int k) {
+    static char s[2 * GAMEID_NAME_MAX + 24];
+    if (con[k].device[0]) snprintf(s, sizeof(s), "%s (on %s)", con[k].device, con[k].name);
+    else snprintf(s, sizeof(s), "%s's gameID device", con[k].name);
+    return s;
+}
+
+// Console k's gameID device answered at ip: its MAC, saved when it's new (Cruller finds it by it if its
+// address changes).
+static void learn_mac(int k, uint32_t ip) {
+    uint8_t mac[6];
+    char text[GAMEID_MAC_MAX];
+    if (!arp_mac(ip, mac)) return;
+    gameid_mac_text(mac, text);
+    if (!strcmp(con[k].mac, text)) return;
+    if (gameid_console_found(con[k].url, NULL, text)) printf("gameid: %s: MAC %s\n", device_of(k), text);
 }
 
 static void ask_all(void) {
     for (int k = 0; k < con_n; k++) {
         gameid_report_t rep;
-        const int r = con[k].enabled ? ask(&con[k], &rep) : -1;
+        uint32_t ip = 0;
+        const int r = con[k].enabled ? ask(&con[k], &rep, &ip) : -1;
+        if (r > 0) learn_mac(k, ip);
         xSemaphoreTake(lock, portMAX_DELAY);
         gameid_seen_t *s = &seen[k];
         if (r > 0) {
@@ -307,6 +397,7 @@ static void decide(void) {
     }
     if (came_on && want[0] && !pending[0]) schedule(want, now + AFTER_ON_MS);
     last_input = input;
+    last_device = device;
     xSemaphoreGive(lock);
 
     if (!pending[0] || (int32_t)(now - pending_at) < 0) return;
@@ -315,6 +406,35 @@ static void decide(void) {
         return; // (kept: loaded once it's on)
     }
     load();
+}
+
+// The console the RT4K may be showing (gameid_seek), while it's on, not answering for SEEK_AFTER_MS: looked
+// for by its MAC (every SEEK_EVERY_MS at most), its address saved when it's elsewhere. One a round.
+static void seek(void) {
+    const uint32_t now = plat_ms();
+    const bool on = power_state() == PWR_ON;
+    for (int k = 0; k < con_n; k++) {
+        if (!on || !gameid_seek(&con[k], &seen[k], last_input, last_device, on_svs)) {
+            lost_at[k] = 0;
+            continue;
+        }
+        if (!lost_at[k]) lost_at[k] = now | 1;
+        if (now - lost_at[k] < SEEK_AFTER_MS || (sought_at[k] && now - sought_at[k] < SEEK_EVERY_MS)) continue;
+        sought_at[k] = now | 1;
+        uint8_t mac[6];
+        if (!gameid_mac_bytes(con[k].mac, mac)) continue;
+        const uint32_t ip = arp_seek(mac);
+        char at[16] = "", url[GAMEID_URL_MAX];
+        if (ip) {
+            ip4_addr_t a;
+            ip4_addr_set_u32(&a, ip);
+            ip4addr_ntoa_r(&a, at, sizeof(at));
+        }
+        if (!ip) printf("gameid: %s, MAC %s, not found on the network\n", device_of(k), con[k].mac);
+        else if (!gameid_url_moved(con[k].url, at, url, sizeof(url)) || !strcmp(url, con[k].url)) printf("gameid: %s found at %s, where it was\n", device_of(k), at);
+        else if (gameid_console_found(con[k].url, url, NULL)) printf("gameid: %s moved to %s (found by its MAC): its address saved\n", device_of(k), at);
+        return;
+    }
 }
 
 static void task(void *arg) {
@@ -329,6 +449,7 @@ static void task(void *arg) {
         if (con_n) {
             ask_all();
             decide();
+            seek();
         }
         const uint32_t took = plat_ms() - t0;
         vTaskDelay(pdMS_TO_TICKS(took < PERIOD_MS ? PERIOD_MS - took : 100));
@@ -367,7 +488,8 @@ size_t gameid_state_json(char *out, size_t size) {
     if (!lock) return 0;
     size_t n = 0;
     char num[48];
-    bool ok = add(out, size, &n, "{\"consoles\":[");
+    snprintf(num, sizeof(num), "{\"version\":%lu,\"consoles\":[", (unsigned long)gameid_version());
+    bool ok = add(out, size, &n, num);
     xSemaphoreTake(lock, portMAX_DELAY);
     for (int k = 0; ok && k < con_n; k++) {
         const gameid_seen_t *s = &seen[k];
