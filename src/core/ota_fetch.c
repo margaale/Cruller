@@ -11,6 +11,7 @@
 #include "ota_fetch_proto.h"
 #include "platform.h"
 #include "tls.h"
+#include "version.h"
 
 #define FETCH_TASK_STACK    3072  // words: mbedTLS's handshake (ECDHE, the chain's RSA and ECDSA checks)
 #define FETCH_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
@@ -107,7 +108,7 @@ static bool download(fetch_t *f) {
         char err[96];
         if (!(t = tls_connect(f->host, port, FETCH_TIMEOUT_MS, err, sizeof(err)))) return fail("%s", err);
         const int n = snprintf((char *)f->buf, sizeof(f->buf), "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Cruller/%s\r\n"
-            "Accept: application/octet-stream\r\nConnection: close\r\n\r\n", path, f->host, CRULLER_VERSION);
+            "Accept: application/octet-stream\r\nConnection: close\r\n\r\n", path, f->host, cruller_version);
         if (n <= 0 || (size_t)n >= sizeof(f->buf)) {
             tls_close(t);
             return fail("the address from %s is too long", f->host);

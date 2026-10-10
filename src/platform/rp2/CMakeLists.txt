@@ -17,6 +17,8 @@ set(CMAKE_CXX_STANDARD 17)
 include(${CRULLER_ROOT}/src/version.cmake)
 set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z or X.Y.Z-label.N)")
 set(CRULLER_BUILD 0 CACHE STRING "Build number: CI's run number (github.run_number), 0 for a local build")
+# The developer tools (src/platform/platform.h): the CI builds them into pre-releases and pull requests, not
+# into releases.
 option(CRULLER_DEBUG "The developer tools (src/platform/platform.h): 16 KB of RAM" ON)
 
 pico_sdk_init()
@@ -71,6 +73,7 @@ target_sources(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core/settings.c
     ${CRULLER_ROOT}/src/core/svs.c
     ${CRULLER_ROOT}/src/core/svs_proto.c
+    ${CRULLER_ROOT}/src/core/version.c
     ${CRULLER_ROOT}/src/core/ws.c
     ${CRULLER_ROOT}/src/core/ws_proto.c
 
@@ -111,9 +114,10 @@ foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.j
     target_sources(cruller_app INTERFACE ${out})
 endforeach()
 target_compile_definitions(cruller_app INTERFACE
-    CRULLER_VERSION="${CRULLER_VERSION}"
     CYW43_HOST_NAME="cruller"
 )
+# The version for version.c alone: a new one compiles that file again, no other (ccache keeps the rest).
+set_source_files_properties(${CRULLER_ROOT}/src/core/version.c PROPERTIES COMPILE_DEFINITIONS CRULLER_VERSION="${CRULLER_VERSION}")
 if (NOT CRULLER_DEBUG)
     target_compile_definitions(cruller_app INTERFACE CRULLER_DEBUG=0)
 endif()
@@ -135,10 +139,15 @@ target_link_libraries(cruller_app INTERFACE
     FreeRTOS-Kernel-Heap4
 )
 
+# The image's version (CRULLER_BIN_MAJOR/MINOR, above) goes in crt0's metadata block, and only crt0 is
+# built with it: pico_set_binary_version() would define it for every file, and the build number changes
+# with every CI run, so the CI's ccache would find none of them again.
+set_source_files_properties(${PICO_SDK_PATH}/src/rp2_common/pico_crt0/crt0.S PROPERTIES COMPILE_DEFINITIONS
+    "PICO_CRT0_VERSION_MAJOR=${CRULLER_BIN_MAJOR};PICO_CRT0_VERSION_MINOR=${CRULLER_BIN_MINOR}")
+
 function(cruller_image TARGET)
     add_executable(${TARGET})
     target_link_libraries(${TARGET} PRIVATE cruller_app)
-    pico_set_binary_version(${TARGET} MAJOR ${CRULLER_BIN_MAJOR} MINOR ${CRULLER_BIN_MINOR})
     if ("${TARGET}" MATCHES "_bench$")
         # Bench board on a PC: USB is a serial console (the log, live) and there is no RT4K link.
         target_sources(${TARGET} PRIVATE ${CRULLER_ROOT}/src/core/rt4k_stub.c)
@@ -166,12 +175,6 @@ target_compile_definitions(cruller PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
 cruller_image(cruller_bench)
 target_compile_definitions(cruller_bench PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
 set_target_properties(cruller_bench PROPERTIES EXCLUDE_FROM_ALL TRUE)
-
-# Same OTA image without the developer tools (CRULLER_DEBUG=0), so that build keeps building. Not
-# built by default.
-cruller_image(cruller_nodebug)
-target_compile_definitions(cruller_nodebug PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1 CRULLER_DEBUG=0)
-set_target_properties(cruller_nodebug PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # First image, installed by DonutShop's OTA stage-3 with a normal boot: must not be TBYB.
 cruller_image(cruller_migration_app)

@@ -339,7 +339,8 @@ installed. A local build takes its version from `src/version.cmake`, and CI pass
 
 `CRULLER_DEBUG=0` builds it without the developer tools: the `/debug` routes that act on the RT4K
 or the board, the RTL1 failure capture and the USB trace (16 KB of RAM). The Debug section then hides
-their buttons. The routes that only read stay.
+their buttons. The routes that only read stay. CI builds releases this way; pre-releases and pull
+requests keep the tools.
 
 `scripts/build.sh esp32`, in an ESP-IDF 6.1 shell, builds the ESP32-S3 port into `build/esp32`.
 
@@ -381,7 +382,8 @@ released. Versions come from GitVersion (`GitVersion.yml`) and
 [CI](.github/workflows/build.yml):
 
 - **`master`**: every push is a release, `vX.Y.Z`. The patch number grows with each one; a line
-  `+semver: minor` in a commit message bumps the minor.
+  `+semver: minor` in a commit message bumps the minor. Releases are built without the developer
+  tools (`CRULLER_DEBUG=0`).
 - **`develop`**: every push is a pre-release, `vX.Y.Z-alpha.N`. N is CI's run number, which grows
   with every build on every branch, so a newer build always has a newer version.
 - **Pull requests**: built as `X.Y.Z-pr.N`, not published. The images are attached to the run.

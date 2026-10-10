@@ -28,6 +28,7 @@
 #include "rtl1.h"
 #include "status_led.h"
 #include "ws.h"
+#include "version.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
 #define MAIN_TASK_STACK    512 // words: it peaked at 124 (CYW43 start included), then only logs
@@ -67,7 +68,7 @@ static void main_task(void *param) {
     const char *cause = watchdog_enable_caused_reboot() ? "watchdog timeout (a hang or a fault)"
         : watchdog_hw->reason                          ? "reboot"
                                                        : chip_reset_cause(chip);
-    printf("\nCruller %s, boot partition %d (%s boot), reset: %s, last power reset: %s (0x%08lx)\n", CRULLER_VERSION,
+    printf("\nCruller %s, boot partition %d (%s boot), reset: %s, last power reset: %s (0x%08lx)\n", cruller_version,
         ota_boot_partition(), ota_last_boot_type(), cause, chip_reset_cause(chip), (unsigned long)chip);
 
     health_start(ota_is_trial_boot());
