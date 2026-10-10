@@ -107,6 +107,7 @@
   let adding = null; // the game being added: {id, name, profile}
   let live = null;   // Cruller's state, as last read
   let liveFail = false;
+  let version;       // the consoles' and games' version, as the state last said it (read again when it changes)
   let built = false;
   let playing = '';  // the game on screen, as your games last showed it
   let now = null;    // the profile for what's on screen (loadedNow)
@@ -204,7 +205,7 @@
     const c = consoles[k], l = liveOf(k), tone = !c.enabled ? '' : l && l.on ? ' ok' : l ? ' bad' : '';
     const game = l && l.on && l.game;
     return '<button type=button class="gdev' + (game ? '' : ' off') + '" data-k=' + k + ' title="Change its gameID">' +
-      '<span class="dot' + tone + '"></span><span>' + (c.device ? '<b>' + esc(c.device) + '</b><em>' + esc(shortUrl(c.url)) + '</em>' : '<em>' + esc(shortUrl(c.url)) + '</em>') +
+      '<span class="dot' + tone + '"></span><span><b>' + esc(c.device || 'gameID') + (c.mac ? ' <small>(' + esc(c.mac) + ')</small>' : '') + '</b>' +
       '<i>' + esc(liveText(l, c.enabled)) + '</i></span></button>' +
       (game && !games.some((g) => g.id === l.game) ? '<button type=button class=gaddg data-a=addgame data-k=' + k + '>Add ' + esc(l.game_name || l.game) + ' to your games</button>' : '') +
       (now && now.k === k ? nowBlock() : '');
@@ -261,8 +262,8 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       live = await r.json();
       liveFail = false;
-      // the consoles changed elsewhere (the API, another page): read again
-      if (live.consoles.map((c) => c.name).join('\n') !== consoles.map((c) => c.name).join('\n') && !q('gdlg').open) loadConsoles();
+      // the consoles saved again (by Cruller: a MAC learned, an address found; the API; another page): read again
+      if (live.version !== version && !q('gdlg').open) { version = live.version; loadConsoles(); }
     } catch (e) {
       liveFail = true;
     }

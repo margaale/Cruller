@@ -224,7 +224,15 @@ static void reload(void) {
     memset(sought_at, 0, sizeof(sought_at));
 }
 
-// Console k answered as a gameID device at ip: its MAC, saved when it's new (Cruller finds it by it if its
+// Console k's gameID device, as the log names it: "MemCard PRO2 (on PS2)", or "PS2's gameID device".
+static const char *device_of(int k) {
+    static char s[2 * GAMEID_NAME_MAX + 24];
+    if (con[k].device[0]) snprintf(s, sizeof(s), "%s (on %s)", con[k].device, con[k].name);
+    else snprintf(s, sizeof(s), "%s's gameID device", con[k].name);
+    return s;
+}
+
+// Console k's gameID device answered at ip: its MAC, saved when it's new (Cruller finds it by it if its
 // address changes).
 static void learn_mac(int k, uint32_t ip) {
     uint8_t mac[6];
@@ -232,7 +240,7 @@ static void learn_mac(int k, uint32_t ip) {
     if (!arp_mac(ip, mac)) return;
     gameid_mac_text(mac, text);
     if (!strcmp(con[k].mac, text)) return;
-    if (gameid_console_found(con[k].url, NULL, text)) printf("gameid: %s's MAC is %s\n", con[k].name, text);
+    if (gameid_console_found(con[k].url, NULL, text)) printf("gameid: %s: MAC %s\n", device_of(k), text);
 }
 
 static void ask_all(void) {
@@ -422,9 +430,9 @@ static void seek(void) {
             ip4_addr_set_u32(&a, ip);
             ip4addr_ntoa_r(&a, at, sizeof(at));
         }
-        if (!ip) printf("gameid: %s (%s) not found on the network\n", con[k].name, con[k].mac);
-        else if (!gameid_url_moved(con[k].url, at, url, sizeof(url)) || !strcmp(url, con[k].url)) printf("gameid: %s found at %s, where it was\n", con[k].name, at);
-        else if (gameid_console_found(con[k].url, url, NULL)) printf("gameid: %s moved to %s (found by its MAC): its address saved\n", con[k].name, at);
+        if (!ip) printf("gameid: %s, MAC %s, not found on the network\n", device_of(k), con[k].mac);
+        else if (!gameid_url_moved(con[k].url, at, url, sizeof(url)) || !strcmp(url, con[k].url)) printf("gameid: %s found at %s, where it was\n", device_of(k), at);
+        else if (gameid_console_found(con[k].url, url, NULL)) printf("gameid: %s moved to %s (found by its MAC): its address saved\n", device_of(k), at);
         return;
     }
 }
@@ -480,7 +488,8 @@ size_t gameid_state_json(char *out, size_t size) {
     if (!lock) return 0;
     size_t n = 0;
     char num[48];
-    bool ok = add(out, size, &n, "{\"consoles\":[");
+    snprintf(num, sizeof(num), "{\"version\":%lu,\"consoles\":[", (unsigned long)gameid_version());
+    bool ok = add(out, size, &n, num);
     xSemaphoreTake(lock, portMAX_DELAY);
     for (int k = 0; ok && k < con_n; k++) {
         const gameid_seen_t *s = &seen[k];

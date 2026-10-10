@@ -233,7 +233,7 @@ these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "
 `GET /api/v1/gameid/state` answers what gameID knows as it asks the consoles (every 2 s):
 
 ```json
-{"consoles": [{"name": "PS2", "on": true, "game": "SCUS-97481", "game_name": "God of War II", "kind": "ps2",
+{"version": 7, "consoles": [{"name": "PS2", "on": true, "game": "SCUS-97481", "game_name": "God of War II", "kind": "ps2",
                "on_screen": true}],
  "svs_input": 3, "rt4k_input": "", "on_svs": null,
  "playing": {"console": "PS2", "game": "SCUS-97481", "game_name": "God of War II"},
@@ -243,6 +243,7 @@ these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "
 
 | Key | Value |
 |---|---|
+| `version` | Changes whenever the consoles or the games are saved (by the API, a page, or Cruller itself: a MAC learned, an address found): read them again then. |
 | `consoles` | Each console, in the order kept: `on` (it answered lately), the `game` it runs (`""`: none it can tell) and its `game_name` when it says one, the `kind` of console (`ps2`, `n64`…: from what it reports, else its name; matched to the SVS Bridge's), `on_screen` (its game is the one that counts). |
 | `svs_input` | The SVS switch's input, as its bridge last reported it (`0`: none). |
 | `rt4k_input`, `on_svs` | With consoles not on the SVS, the RT4K's active input (`"HDMI"`, `"HD15 YPbPr"`…, asked with a bare `input`, which only reads it) and whether that's the SVS's (by the output its bridge says goes to the RT4K); `""` and `null` when not asked or not known. |
