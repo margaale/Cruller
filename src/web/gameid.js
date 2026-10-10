@@ -408,7 +408,8 @@
     const add = adding ? '<tr class=new><td><input id=gidan value="' + esc(adding.name) + '" maxlength=47 placeholder="Name" aria-label="Name"></td>' +
       '<td>' + consoleSelect('id=gidac', adding.console) + '</td>' +
       '<td class=mono><input id=gidai value="' + esc(adding.id) + '" maxlength=63 placeholder="Its ID (SCUS-97481)" spellcheck=false aria-label="ID"></td>' +
-      '<td><button type=button class=gidp id=gidap>' + (adding.profile ? esc(plain(adding.profile)) : '<span class=gidn>Pick its profile…</span>') + '</button></td>' +
+      '<td><button type=button class=gidp id=gidap title="Pick another">' + (adding.profile ? esc(plain(adding.profile)) : '<span class=gidn>Pick its profile…</span>') + '</button>' +
+      (adding.profile ? '<button type=button class="ib del" id=gidapx aria-label="Not this profile" title="Not this one">×</button>' : '') + '</td>' +
       '<td class=act><button type=button class=primary id=gidas>Add</button><button type=button id=gidax>Cancel</button></td></tr>' : '';
     q('gidgt').innerHTML = add + shown.map(row).join('') +
       (!shown.length && !adding ? '<tr><td colspan=5 class=pe0>' + (games.length ? 'No game matches' : 'No games yet: one a console runs is added from its card in a click.') + '</td></tr>' : '');
@@ -442,14 +443,18 @@
   }
 
   // A game to add (its ID and name from what's on screen or a console), its profile next.
-  function startAdding(g) {
-    adding = { id: g.id || '', name: g.name || '', profile: g.profile || '', console: g.console || '' };
+  // A game to add (its ID and name from what's on screen or a console), its profile next: at first its
+  // console's for games not in your games, else its SVS input's own (n; none given: the input on screen).
+  function startAdding(g, n) {
+    const sv = svsInfo(), input = n || (sv.known ? (live ? live.svs_input : sv.input) : 0);
+    const own = input > 0 && sv.files[input] ? 'SVS/' + sv.files[input] : '';
+    adding = { id: g.id || '', name: g.name || '', profile: g.profile || own, console: g.console || '' };
     filter = '';
     tag = '';
     q('gidq').value = '';
     renderGames();
     q('ggam').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    q(adding.id ? 'gidap' : 'gidai').focus();
+    q(adding.id ? (adding.profile ? 'gidas' : 'gidap') : 'gidai').focus();
   }
 
   // --- the view -------------------------------------------------------------------------------------
@@ -493,7 +498,7 @@
       else if (b.dataset.a === 'addfor') openConsole(-1, +b.dataset.n, false);
       else if (b.dataset.a === 'addgame') { // (its console: as its device says, else its SVS input's)
         const k = +b.dataset.k, l = liveOf(k), sv = svsInfo(), n = l ? inputOf(consoles[k], l.kind, sv.inputs) : 0;
-        if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other, console: l.kind || (n && sv.inputs[n - 1].device) || '' });
+        if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other, console: l.kind || (n && sv.inputs[n - 1].device) || '' }, n);
       }
     });
     q('gdi').onchange = dialogFields;
@@ -531,6 +536,10 @@
       if (b.id === 'gidap') {
         const p = await pickProfile(adding.profile);
         if (p) { adding.profile = p; renderGames(); }
+      } else if (b.id === 'gidapx') {
+        adding.profile = '';
+        renderGames();
+        q('gidap').focus();
       } else if (b.id === 'gidax') {
         adding = null;
         renderGames();
