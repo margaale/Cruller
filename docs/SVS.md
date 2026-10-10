@@ -71,7 +71,7 @@ client (`esp_http_client`) and mDNS browsing (`mdns_query_ptr`) in ESP-IDF.
 - **Cruller keeps the first bridge that reports** (with an `id`) in its settings. Reports from another
   bridge get `409 {"ok": false, "error": "paired with another SVS Bridge", "paired": "<id>"}`, so a
   bridge set up for another RT4K can't change this one's profiles. `POST /api/v1/svs/unpair` (the Unpair
-  button in the Cruller tab) frees it; a factory reset does too.
+  button in the Debug view) frees it; a factory reset does too.
 
 ## What Cruller does with it
 

@@ -213,7 +213,7 @@ the body, in the same form:
 | `svs_input` | With an SVS switch, the input it's on (1-8); `-1`: not on the SVS, straight to the RT4K (it counts while the RT4K shows another input); `0` (the default, Auto): worked out from the console it is. |
 | `enabled` | Asked or not (default `true`). |
 | `mac` | Its MAC, as Cruller learned it when it answered (`""`: not yet; a console off the local network has none): Cruller finds it again by it when its address changes, and saves the new one. A list without it keeps the one learned while the console's address stays. |
-| `device` | What its gameID device is called, as given (optional, 47 bytes at most; `""`: none). |
+| `device` | What its gameID device is called (optional, 47 bytes at most): as given, or, when none is, as Cruller tells by how it answered (a MemCard PRO's mode: `MemCard PRO2` for PS2, `MemCard PRO GC`, `MemCard PRO`; an ID as text: `PS1Digital`, `N64Digital` by its console). |
 
 Ten consoles at most. A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its path under
 `/profile` (`PS2/God of War II.rt4`). Answers `{"ok": true}`; anything else gets
@@ -222,10 +222,12 @@ Ten consoles at most. A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its
 `GET /api/v1/gameid/games` answers every game, in the order they were added:
 
 ```json
-{"games": [{"id": "SCUS-97481", "profile": "PS2/God of War II.rt4", "name": "God of War II"}]}
+{"games": [{"id": "SCUS-97481", "profile": "PS2/God of War II.rt4", "name": "God of War II", "console": "ps2"}]}
 ```
 
-`POST /api/v1/gameid/games` with one of them (`name` optional) adds it, or replaces the one with its
+`console` is the console it's for, as the SVS Bridge names them (`ps2`, `n64`; `""`: not known): given, or
+set by Cruller the first time it's on screen on a console it knows. `POST /api/v1/gameid/games` with one
+of them (`name` and `console` optional) adds it, or replaces the one with its
 `id` (compared as written): `{"ok": true, "replaced": false}`. `POST /api/v1/gameid/games/delete`
 with `{"id": "SCUS-97481"}` removes it: `{"ok": true, "found": true}`. A body that isn't one of
 these, more than 8 KB, or a full gameDB gets `400`/`413 {"ok": false, "error": "…"}`.

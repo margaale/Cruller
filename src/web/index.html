@@ -92,6 +92,11 @@ dialog.pick::backdrop{background:#0008;backdrop-filter:blur(2px)}dialog.pick h3{
 .gidt .ib{padding:0 10px;font-size:13px}.gidt .ib.del{width:32px;padding:0;font:500 16px/1 var(--sans);color:var(--faint)}.gidt .ib.del:hover{color:#F07A74;border-color:#5A2A28}
 .gidt tr.os td{background:var(--raised)}.gidt tr.new td{background:var(--raised)}.gidt .pe0{padding:14px 6px}
 .gidp{height:32px;max-width:280px;padding:0 10px;justify-content:flex-start;font:500 13px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gidn{color:var(--faint);font-family:var(--sans)}
+/* Your games: a tag per console to show its games alone (gameid.js) */
+.gtags{display:flex;flex-wrap:wrap;gap:6px}.gtags:empty{display:none}
+.gtags button{width:auto;height:30px;padding:0 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--soft)}.gtags button span{margin-left:4px;color:var(--faint);font-weight:500}
+.gtags button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#1A0B11}.gtags button[aria-pressed=true] span{color:#1A0B11}
+.gidt select.gcs{width:auto;min-width:96px;height:32px;font-size:13px}#gidapx{margin-left:4px;height:32px}
 .gidq{width:200px;height:32px;font-size:13px}#gidgm.bad,#gidgs.bad{color:#F07A74}
 .pepl>button:hover,.pepl>label:hover{background:var(--raised)}.pepl .ico{display:inline-flex;color:var(--warn)}.pepl input{width:16px;height:16px;margin:0;padding:0;flex:none}.pepl label.in{color:var(--faint);cursor:default}
 .pebar label,.pegrp{display:flex;align-items:center;gap:6px;min-width:0}.pebar input[type=checkbox]{width:14px;height:14px;min-height:0;padding:0;flex:none}
@@ -203,6 +208,8 @@ dialog#ask::backdrop{background:#0008;backdrop-filter:blur(2px)}
 /* Consoles: a console's gameID, added or changed (gameid.js) */
 .gdf{display:flex;flex-direction:column;gap:12px}.gdf>label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--soft)}
 .gdf fieldset{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:8px}.gdf legend{padding:0 0 8px;font-size:13px;color:var(--soft)}
+.gdf fieldset.gdg{padding:4px 12px 12px;border:1px solid var(--line);border-radius:10px}.gdf .gdg legend{padding:0 6px;font-weight:600;color:var(--text)}
+.gdg>label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--soft)}
 .gdo{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 12px;border:1px solid var(--line);border-radius:8px;background:var(--well);font-size:14px;cursor:pointer}
 .gdo:has(input:checked){border-color:var(--accent);background:var(--raised)}.gdo>span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .gdf input[type=radio],.gdf input[type=checkbox]{width:16px;height:16px;margin:0;padding:0;flex:none;accent-color:var(--accent)}
@@ -460,19 +467,6 @@ screen, the profile for its game (gameid.js, docs/GAMEID.md); the consoles not o
 <div class="small" id="gnot"></div></div>
 <div class="panel span3" id="gcon" hidden></div>
 <div class="panel span3" id="ggam"></div>
-
-<div class="panel svs-more">
-<h2>SVS Bridge</h2>
-<div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span><span>To the RetroTINK</span><span id="v-out">–</span></div>
-<div class="small" id="v-hint">The SVS Bridge finds this Cruller on the network and pairs with it by itself.</div>
-<div class="grow"></div>
-<button onclick="unpair()" id="v-unpair" hidden>Unpair</button>
-</div>
-
-<div class="panel span2 svs-more">
-<h2>Recent switches</h2>
-<table class="tbl"><thead><tr><th>Input</th><th class="r">When</th></tr></thead><tbody id="v-hist"><tr><td colspan="2" class="small">None yet</td></tr></tbody></table>
-</div>
 </section>
 
 <!-- Setup wizard: what the portal (192.168.4.1) shows -->
@@ -600,6 +594,20 @@ screen, the profile for its game (gameid.js, docs/GAMEID.md); the consoles not o
 <div class="panel span3" id="mp"></div>
 <div class="panel span2"><div class="row"><h2 class="grow">Tasks</h2><span class="small">on request: reading the stacks pauses both cores for a few ms</span><button onclick="stacks()">Read tasks</button></div>
 <table class="tbl"><thead><tr><th>Task</th><th>State</th><th class="r">Priority</th><th class="r">Stack never used</th></tr></thead><tbody id="t-rows"><tr><td colspan="4" class="small">Not read yet</td></tr></tbody></table></div>
+
+<!-- The SVS Bridge (app.js, docs/SVS.md) -->
+<div class="panel svs-more">
+<h2>SVS Bridge</h2>
+<div class="kv"><span>Paired with</span><span id="v-paired">–</span><span>Last heard</span><span id="v-heard">–</span><span>To the RetroTINK</span><span id="v-out">–</span></div>
+<div class="small" id="v-hint">The SVS Bridge finds this Cruller on the network and pairs with it by itself.</div>
+<div class="grow"></div>
+<button onclick="unpair()" id="v-unpair" hidden>Unpair</button>
+</div>
+
+<div class="panel span2 svs-more">
+<h2>Recent switches</h2>
+<table class="tbl"><thead><tr><th>Input</th><th class="r">When</th></tr></thead><tbody id="v-hist"><tr><td colspan="2" class="small">None yet</td></tr></tbody></table>
+</div>
 </section>
 </main>
 </div>

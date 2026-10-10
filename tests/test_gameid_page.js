@@ -35,6 +35,15 @@ const games = [{ id: 'SCUS-97481', name: 'God of War II', profile: 'PS2/GoW.rt4'
 check(g.filterGames(games, '').length === 2 && g.filterGames(games, '  ').length === 2, 'no search: all');
 check(g.filterGames(games, 'war')[0].id === 'SCUS-97481' && g.filterGames(games, 'slus').length === 1 && g.filterGames(games, 'ps1/')[0].name === 'Ridge Racer', 'by name, ID or profile, any case');
 
+// By console: a tag each, how many, by name; those for none when some are for one.
+const tagged = [{ id: 'SCUS-97481', name: 'God of War II', profile: 'a.rt4', console: 'ps2' }, { id: 'SLUS-00214', name: 'Ridge Racer', profile: 'b.rt4', console: 'ps1' },
+  { id: 'SLUS-20946', name: 'Shadow of the Colossus', profile: 'c.rt4', console: 'ps2' }, { id: 'X', name: 'Unknown', profile: 'd.rt4', console: '' }];
+const names = { ps1: 'PS1', ps2: 'PS2', n64: 'N64' };
+check(JSON.stringify(g.gameTags(tagged, names)) === '[{"tag":"ps1","name":"PS1","n":1},{"tag":"ps2","name":"PS2","n":2},{"tag":"-","name":"No console","n":1}]', 'tags: ' + JSON.stringify(g.gameTags(tagged, names)));
+check(g.gameTags(games, names).length === 0 && g.gameTags([{ console: 'jaguar' }], names)[0].name === 'JAGUAR', 'none for none; an unknown one by its id');
+check(g.filterGames(tagged, '', 'ps2').length === 2 && g.filterGames(tagged, '', '-')[0].id === 'X' && g.filterGames(tagged, 'shadow', 'ps2').length === 1 && g.filterGames(tagged, 'shadow', 'ps1').length === 0, 'by tag, and with the search');
+check(g.filterGames(tagged, 'ps2').length === 2, 'the search finds a console too');
+
 check(JSON.stringify(g.readGame('{"currentMode":"PS2","gameName":"God of War II","gameID":"SCUS-97481"}')) === '{"id":"SCUS-97481","name":"God of War II"}', 'a MemCard PRO2\'s answer');
 check(JSON.stringify(g.readGame('3E5055B6-2E92DA52-N-45\n')) === '{"id":"3E5055B6-2E92DA52-N-45","name":""}', 'an N64Digital\'s, as text');
 check(g.readGame('{"currentMode":"PS2"}').id === '', 'JSON without a game: none');

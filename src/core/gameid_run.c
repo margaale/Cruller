@@ -232,15 +232,17 @@ static const char *device_of(int k) {
     return s;
 }
 
-// Console k's gameID device answered at ip: its MAC, saved when it's new (Cruller finds it by it if its
-// address changes).
-static void learn_mac(int k, uint32_t ip) {
+// Console k's gameID device answered (rep) at ip: its MAC, saved when it's new (Cruller finds it by it if
+// its address changes), and a name for it when it has none (gameid_model).
+static void learn(int k, uint32_t ip, const gameid_report_t *rep) {
     uint8_t mac[6];
-    char text[GAMEID_MAC_MAX];
-    if (!arp_mac(ip, mac)) return;
-    gameid_mac_text(mac, text);
-    if (!strcmp(con[k].mac, text)) return;
-    if (gameid_console_found(con[k].url, NULL, text)) printf("gameid: %s: MAC %s\n", device_of(k), text);
+    char text[GAMEID_MAC_MAX] = "";
+    if (arp_mac(ip, mac)) gameid_mac_text(mac, text);
+    const char *mac_new = text[0] && strcmp(con[k].mac, text) ? text : NULL;
+    const char *model = con[k].device[0] ? "" : gameid_model(rep, gameid_kind(rep->mode, con[k].name));
+    if ((!mac_new && !model[0]) || !gameid_console_found(con[k].url, NULL, mac_new, model)) return;
+    if (model[0]) printf("gameid: %s's gameID device: %s\n", con[k].name, model);
+    if (mac_new) printf("gameid: %s: MAC %s\n", model[0] ? model : device_of(k), text);
 }
 
 static void ask_all(void) {
@@ -248,7 +250,7 @@ static void ask_all(void) {
         gameid_report_t rep;
         uint32_t ip = 0;
         const int r = con[k].enabled ? ask(&con[k], &rep, &ip) : -1;
-        if (r > 0) learn_mac(k, ip);
+        if (r > 0) learn(k, ip, &rep);
         xSemaphoreTake(lock, portMAX_DELAY);
         gameid_seen_t *s = &seen[k];
         if (r > 0) {
@@ -373,6 +375,16 @@ static void decide(void) {
         found_version = gameid_version();
         found = gameid_game_find(found_id, &g);
     }
+    // its console, when the gameDB doesn't say it: the one it's seen on (its device's, else its SVS input's)
+    const char *kind = k < 0 ? "" : seen[k].kind[0] ? seen[k].kind : con[k].svs_input > 0 && con[k].svs_input == input ? device : "";
+    static gameid_game_t tag;
+    static char tagged[GAMEID_ID_MAX]; // (once a game: a write that fails isn't tried again each round)
+    const bool tag_it = k >= 0 && found && !g.console[0] && kind[0] && strlen(kind) < sizeof(g.console) && strcmp(tagged, g.id);
+    if (tag_it) {
+        tag = g;
+        snprintf(tag.console, sizeof(tag.console), "%s", kind);
+        memcpy(tagged, g.id, sizeof(tagged));
+    }
     if (k >= 0 && found) { snprintf(w, sizeof(w), "%s", g.profile); from = "gamedb"; }
     else if (k >= 0 && con[k].other[0]) { snprintf(w, sizeof(w), "%s", con[k].other); from = "other"; }
     else if (k < 0 && king >= 0 && input > 0 && input == last_input && on_svs != 0) { // its console went off: the input's own again
@@ -399,6 +411,8 @@ static void decide(void) {
     last_input = input;
     last_device = device;
     xSemaphoreGive(lock);
+    bool replaced;
+    if (tag_it && gameid_game_put(&tag, &replaced)) printf("gameid: %s is a %s game\n", tag.name[0] ? tag.name : tag.id, tag.console);
 
     if (!pending[0] || (int32_t)(now - pending_at) < 0) return;
     if (!on) {
@@ -432,7 +446,7 @@ static void seek(void) {
         }
         if (!ip) printf("gameid: %s, MAC %s, not found on the network\n", device_of(k), con[k].mac);
         else if (!gameid_url_moved(con[k].url, at, url, sizeof(url)) || !strcmp(url, con[k].url)) printf("gameid: %s found at %s, where it was\n", device_of(k), at);
-        else if (gameid_console_found(con[k].url, url, NULL)) printf("gameid: %s moved to %s (found by its MAC): its address saved\n", device_of(k), at);
+        else if (gameid_console_found(con[k].url, url, NULL, NULL)) printf("gameid: %s moved to %s (found by its MAC): its address saved\n", device_of(k), at);
         return;
     }
 }

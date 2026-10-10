@@ -30,7 +30,9 @@ within 0.8 s, or misses two rounds, is off, so one that's off doesn't hold the o
 ## The gameDB
 
 Each game: the ID a console reports, compared as written (`SCUS-97481`, an N64's
-`3E5055B6-2E92DA52-N-45`), the profile to load, and a name. 1000 games at most. A game the gameDB
+`3E5055B6-2E92DA52-N-45`), the profile to load, a name, and the console it's for (`ps2`: what its
+device says, else its SVS input's; kept when it's added from a console's card, or the first time it's on
+screen; the page shows your games by console). 1000 games at most. A game the gameDB
 hasn't loads its console's own profile ("other"), when it has one.
 
 A profile is a `.rt4` or `.rt6` on the RT4K's SD card, its path under `/profile`. Cruller loads it with

@@ -198,10 +198,12 @@ games keeps the input's, or loads another profile you pick for those. A console 
 any without an SVS, is added the same way. A MemCard PRO2 answers with its own web page on (WebUI v2
 off).
 
-**Your games**: each game's ID with its profile, picked from the RT4K's SD card. A game a console
-runs is added from its card in a click.
+**Your games**: each game's ID with its profile, picked from the RT4K's SD card, and the console it's
+for. A game a console runs is added from its card in a click, its console with it; a tag per console
+shows its games alone.
 
-Under them, the SVS Bridge (**Unpair** frees Cruller for another bridge) and the recent switches.
+The SVS Bridge it's paired with (**Unpair** frees Cruller for another bridge) and the recent switches
+are in the Debug view.
 More in [GAMEID.md](docs/GAMEID.md) and [SVS.md](docs/SVS.md).
 
 ### Cruller
