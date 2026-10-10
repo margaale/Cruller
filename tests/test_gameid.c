@@ -75,12 +75,19 @@ static void test_game_text(void) {
     CHECK(!game("{\"id\":\"\",\"profile\":\"a.rt4\"}", &g) && strstr(why, "ID"));
     CHECK(!game("{\"id\":\"x\",\"profile\":\"a\"}", &g) && strstr(why, ".rt4 or .rt6"));
     char l[512];
-    g = (gameid_game_t){"3E5055B6-2E92DA52-N-45", "N64/Mario Kart 64.rt4", "Mario Kart \"64\""};
+    g = (gameid_game_t){"3E5055B6-2E92DA52-N-45", "N64/Mario Kart 64.rt4", "Mario Kart \"64\"", "n64"};
     const size_t n = gameid_game_line(&g, l, sizeof(l));
     gameid_game_t back;
-    CHECK(n && !strchr(l, '\n') && gameid_game_from_line(l, &back) && !memcmp(&back, &g, sizeof(g)));
+    CHECK(n && !strchr(l, '\n') && gameid_game_from_line(l, &back) && !memcmp(&back, &g, sizeof(g)) && strstr(l, ",\"n64\"]"));
     CHECK(!gameid_game_from_line("{\"v\":1}", &back) && !gameid_game_from_line("[\"a\",\"b\"]", &back));
-    CHECK(gameid_game_json(&g, l, sizeof(l)) && strstr(l, "\"name\":\"Mario Kart \\\"64\\\"\""));
+    CHECK(gameid_game_json(&g, l, sizeof(l)) && strstr(l, "\"name\":\"Mario Kart \\\"64\\\"\"") && strstr(l, "\"console\":\"n64\""));
+    // its console: given, or not (a line from before has none, and none is written)
+    CHECK(game("{\"id\":\"x\",\"profile\":\"a.rt4\",\"console\":\"ps2\"}", &g) && !strcmp(g.console, "ps2"));
+    CHECK(!game("{\"id\":\"x\",\"profile\":\"a.rt4\",\"console\":\"PS 2\"}", &g) && strstr(why, "console"));
+    CHECK(gameid_game_from_line("[\"SCUS-97481\",\"PS2/GoW2.rt4\",\"God of War II\"]", &back) && !back.console[0]);
+    g = (gameid_game_t){"SCUS-97481", "PS2/GoW2.rt4", "God of War II", ""};
+    CHECK(gameid_game_line(&g, l, sizeof(l)) && !strcmp(l, "[\"SCUS-97481\",\"PS2/GoW2.rt4\",\"God of War II\"]"));
+    CHECK(!gameid_game_from_line("[\"a\",\"b.rt4\",\"c\",\"d\",\"e\"]", &back));
 }
 
 static int listed;
@@ -134,7 +141,7 @@ static void test_files(void) {
         CHECK(gameid_game_put(&g, &replaced) && !replaced);
     }
     CHECK(gameid_game_find("SCUS-97481", &f) && !strcmp(f.profile, "P/1.rt4") && !gameid_game_find("scus-97481", &f)); // as written
-    g = (gameid_game_t){"SCUS-97481", "PS2/God of War II.rt4", "God of War II"};
+    g = (gameid_game_t){"SCUS-97481", "PS2/God of War II.rt4", "God of War II", ""};
     CHECK(gameid_game_put(&g, &replaced) && replaced && gameid_game_find("SCUS-97481", &f) && !strcmp(f.name, "God of War II"));
     listed = 0;
     CHECK(gameid_games_each(list, NULL) == 3 && !strcmp(listed_ids[0], "SLUS-00214") && !strcmp(listed_ids[1], "SCUS-97481")); // kept its place

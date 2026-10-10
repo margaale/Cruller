@@ -8,7 +8,7 @@
 #define CONSOLES_FILE "gameid-consoles.json"
 #define GAMES_FILE    "gameid-games.jsonl"
 #define GAMES_HEAD    "{\"v\":1}\n"
-#define LINE_MAX      (2 * (GAMEID_ID_MAX + GAMEID_PROFILE_MAX + GAMEID_NAME_MAX)) // escaped, at worst
+#define LINE_MAX      (2 * (GAMEID_ID_MAX + GAMEID_PROFILE_MAX + GAMEID_NAME_MAX + GAMEID_KIND_MAX)) // escaped, at worst
 
 static volatile uint32_t version = 1;
 

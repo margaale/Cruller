@@ -373,6 +373,16 @@ static void decide(void) {
         found_version = gameid_version();
         found = gameid_game_find(found_id, &g);
     }
+    // its console, when the gameDB doesn't say it: the one it's seen on (its device's, else its SVS input's)
+    const char *kind = k < 0 ? "" : seen[k].kind[0] ? seen[k].kind : con[k].svs_input > 0 && con[k].svs_input == input ? device : "";
+    static gameid_game_t tag;
+    static char tagged[GAMEID_ID_MAX]; // (once a game: a write that fails isn't tried again each round)
+    const bool tag_it = k >= 0 && found && !g.console[0] && kind[0] && strlen(kind) < sizeof(g.console) && strcmp(tagged, g.id);
+    if (tag_it) {
+        tag = g;
+        snprintf(tag.console, sizeof(tag.console), "%s", kind);
+        memcpy(tagged, g.id, sizeof(tagged));
+    }
     if (k >= 0 && found) { snprintf(w, sizeof(w), "%s", g.profile); from = "gamedb"; }
     else if (k >= 0 && con[k].other[0]) { snprintf(w, sizeof(w), "%s", con[k].other); from = "other"; }
     else if (k < 0 && king >= 0 && input > 0 && input == last_input && on_svs != 0) { // its console went off: the input's own again
@@ -399,6 +409,8 @@ static void decide(void) {
     last_input = input;
     last_device = device;
     xSemaphoreGive(lock);
+    bool replaced;
+    if (tag_it && gameid_game_put(&tag, &replaced)) printf("gameid: %s is a %s game\n", tag.name[0] ? tag.name : tag.id, tag.console);
 
     if (!pending[0] || (int32_t)(now - pending_at) < 0) return;
     if (!on) {

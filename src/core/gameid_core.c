@@ -45,6 +45,9 @@ bool gameid_console_ok(const gameid_console_t *c, const char **why) {
 bool gameid_game_ok(const gameid_game_t *g, const char **why) {
     if (!g->id[0]) { *why = "a game needs its ID"; return false; }
     if (!gameid_profile_ok(g->profile)) { *why = "a profile is a .rt4 or .rt6 under /profile"; return false; }
+    for (const char *c = g->console; *c; c++) {
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9'))) { *why = "a console as the SVS Bridge names them: \"ps2\", \"n64\""; return false; }
+    }
     return true;
 }
 
@@ -120,36 +123,39 @@ size_t gameid_consoles_json(const gameid_console_t *c, int count, bool versioned
 }
 
 bool gameid_game_parse(const char *json, size_t len, gameid_game_t *g, const char **why) {
-    json_tok_t tok[8];
-    *why = "a game: {\"id\", \"profile\", \"name\"}, strings that fit";
+    json_tok_t tok[12];
+    *why = "a game: {\"id\", \"profile\", \"name\", \"console\"}, strings that fit";
     memset(g, 0, sizeof(*g));
-    if (json_parse(json, len, tok, 8) < 1 || tok[0].type != JSON_OBJECT) return false;
-    const int vn = json_get(json, tok, 0, "name");
+    if (json_parse(json, len, tok, 12) < 1 || tok[0].type != JSON_OBJECT) return false;
+    const int vn = json_get(json, tok, 0, "name"), vc = json_get(json, tok, 0, "console");
     if (!json_str(json, tok, json_get(json, tok, 0, "id"), g->id, sizeof(g->id)) ||
         !json_str(json, tok, json_get(json, tok, 0, "profile"), g->profile, sizeof(g->profile)) ||
-        (vn >= 0 && !json_str(json, tok, vn, g->name, sizeof(g->name)))) return false;
+        (vn >= 0 && !json_str(json, tok, vn, g->name, sizeof(g->name))) ||
+        (vc >= 0 && !json_str(json, tok, vc, g->console, sizeof(g->console)))) return false;
     return gameid_game_ok(g, why);
 }
 
 bool gameid_game_from_line(const char *line, gameid_game_t *g) {
-    json_tok_t tok[5];
+    json_tok_t tok[6];
     memset(g, 0, sizeof(*g));
-    return json_parse(line, strlen(line), tok, 5) == 4 && tok[0].type == JSON_ARRAY && tok[0].size == 3 &&
+    const int n = json_parse(line, strlen(line), tok, 6);
+    return (n == 4 || n == 5) && tok[0].type == JSON_ARRAY && tok[0].size == n - 1 &&
         json_str(line, tok, 1, g->id, sizeof(g->id)) && json_str(line, tok, 2, g->profile, sizeof(g->profile)) &&
-        json_str(line, tok, 3, g->name, sizeof(g->name));
+        json_str(line, tok, 3, g->name, sizeof(g->name)) && (n == 4 || json_str(line, tok, 4, g->console, sizeof(g->console)));
 }
 
 size_t gameid_game_line(const gameid_game_t *g, char *out, size_t size) {
     size_t n = 0;
     return put(out, size, &n, "[") && put_str(out, size, &n, g->id) && put(out, size, &n, ",") && put_str(out, size, &n, g->profile) &&
-        put(out, size, &n, ",") && put_str(out, size, &n, g->name) && put(out, size, &n, "]") ? n : 0;
+        put(out, size, &n, ",") && put_str(out, size, &n, g->name) &&
+        (!g->console[0] || (put(out, size, &n, ",") && put_str(out, size, &n, g->console))) && put(out, size, &n, "]") ? n : 0;
 }
 
 size_t gameid_game_json(const gameid_game_t *g, char *out, size_t size) {
     size_t n = 0;
     return put(out, size, &n, "{\"id\":") && put_str(out, size, &n, g->id) && put(out, size, &n, ",\"profile\":") &&
         put_str(out, size, &n, g->profile) && put(out, size, &n, ",\"name\":") && put_str(out, size, &n, g->name) &&
-        put(out, size, &n, "}") ? n : 0;
+        put(out, size, &n, ",\"console\":") && put_str(out, size, &n, g->console) && put(out, size, &n, "}") ? n : 0;
 }
 
 // --- asking a console ----------------------------------------------------------------------------------

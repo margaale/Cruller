@@ -17,6 +17,7 @@
 #define GAMEID_SVS_INPUTS   8
 #define GAMEID_NOT_ON_SVS   (-1) // a console's svs_input: straight to the RT4K, not through the SVS
 #define GAMEID_MAC_MAX      18  // a MAC as kept, its 0 included
+#define GAMEID_KIND_MAX     16  // a console as the SVS Bridge names them ("ps2", "gamecube"), its 0 included
 
 typedef struct {
     char name[GAMEID_NAME_MAX];
@@ -33,7 +34,9 @@ typedef struct {
 typedef struct {
     char id[GAMEID_ID_MAX];
     char profile[GAMEID_PROFILE_MAX];
-    char name[GAMEID_NAME_MAX]; // what it's called (the console's own name for it, when it has one)
+    char name[GAMEID_NAME_MAX];       // what it's called (the console's own name for it, when it has one)
+    char console[GAMEID_KIND_MAX];    // the console it's for, as the SVS Bridge names them ("ps2"; "" not known):
+                                      // the one it was seen on, or given
 } gameid_game_t;
 
 // A profile as gameID keeps it: a .rt4 or .rt6 under /profile, its path from there, no "..", no leading
@@ -51,14 +54,16 @@ int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, i
 // The same written out, with "v": 1 when versioned. Its length, or 0 when it doesn't fit.
 size_t gameid_consoles_json(const gameid_console_t *c, int n, bool versioned, char *out, size_t size);
 
-// A game as the API takes it: {"id", "profile", "name"}.
+// A game as the API takes it: {"id", "profile", "name", "console"}.
 bool gameid_game_parse(const char *json, size_t len, gameid_game_t *g, const char **why);
 
-// A game as the file keeps it, a line each: ["id", "profile", "name"] (the first line: {"v": 1}).
+// A game as the file keeps it, a line each: ["id", "profile", "name"], and its console when known
+// ["id", "profile", "name", "ps2"] (the first line: {"v": 1}).
 bool gameid_game_from_line(const char *line, gameid_game_t *g);
 size_t gameid_game_line(const gameid_game_t *g, char *out, size_t size); // its length, 0 when it doesn't fit
 
-// A game as the API sends it: {"id": ..., "profile": ..., "name": ...}. Its length, 0 when it doesn't fit.
+// A game as the API sends it: {"id": ..., "profile": ..., "name": ..., "console": ...}. Its length, 0 when
+// it doesn't fit.
 size_t gameid_game_json(const gameid_game_t *g, char *out, size_t size);
 
 // --- asking a console (gameid_run.c) -------------------------------------------------------------------

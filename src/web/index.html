@@ -92,6 +92,11 @@ dialog.pick::backdrop{background:#0008;backdrop-filter:blur(2px)}dialog.pick h3{
 .gidt .ib{padding:0 10px;font-size:13px}.gidt .ib.del{width:32px;padding:0;font:500 16px/1 var(--sans);color:var(--faint)}.gidt .ib.del:hover{color:#F07A74;border-color:#5A2A28}
 .gidt tr.os td{background:var(--raised)}.gidt tr.new td{background:var(--raised)}.gidt .pe0{padding:14px 6px}
 .gidp{height:32px;max-width:280px;padding:0 10px;justify-content:flex-start;font:500 13px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gidn{color:var(--faint);font-family:var(--sans)}
+/* Your games: a tag per console to show its games alone (gameid.js) */
+.gtags{display:flex;flex-wrap:wrap;gap:6px}.gtags:empty{display:none}
+.gtags button{width:auto;height:30px;padding:0 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--soft)}.gtags button span{margin-left:4px;color:var(--faint);font-weight:500}
+.gtags button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#1A0B11}.gtags button[aria-pressed=true] span{color:#1A0B11}
+.gidt select.gcs{width:auto;min-width:96px;height:32px;font-size:13px}
 .gidq{width:200px;height:32px;font-size:13px}#gidgm.bad,#gidgs.bad{color:#F07A74}
 .pepl>button:hover,.pepl>label:hover{background:var(--raised)}.pepl .ico{display:inline-flex;color:var(--warn)}.pepl input{width:16px;height:16px;margin:0;padding:0;flex:none}.pepl label.in{color:var(--faint);cursor:default}
 .pebar label,.pegrp{display:flex;align-items:center;gap:6px;min-width:0}.pebar input[type=checkbox]{width:14px;height:14px;min-height:0;padding:0;flex:none}

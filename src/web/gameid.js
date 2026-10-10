@@ -37,9 +37,21 @@
   const profileOk = (p) => !!p && !/^\//.test(p) && !/\.\./.test(p) && !/\/\//.test(p) && !/[\x00-\x1f\\]/.test(p) && /\.rt[46]$/i.test(p);
 
   // The games whose name, ID or profile has the text (any case).
-  function filterGames(games, text) {
+  function filterGames(games, text, tag) {
     const t = String(text).trim().toLowerCase();
-    return t ? games.filter((g) => (g.name + '\n' + g.id + '\n' + g.profile).toLowerCase().includes(t)) : games;
+    return games.filter((g) => (!tag || (tag === '-' ? !g.console : g.console === tag)) &&
+      (!t || (g.name + '\n' + g.id + '\n' + g.profile + '\n' + (g.console || '')).toLowerCase().includes(t)));
+  }
+
+  // The consoles' tags over your games: each console they're for, how many, by its name; and those for none
+  // ('-'), when some are for one.
+  function gameTags(games, names) {
+    const count = {};
+    for (const g of games) count[g.console || '-'] = (count[g.console || '-'] || 0) + 1;
+    const tags = Object.keys(count).filter((c) => c !== '-').map((c) => ({ tag: c, name: names[c] || c.toUpperCase(), n: count[c] }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (tags.length && count['-']) tags.push({ tag: '-', name: 'No console', n: count['-'] });
+    return tags;
   }
 
   // A console's answer as gameID reads it: JSON with gameID (and gameName), or the ID as text.
@@ -104,6 +116,7 @@
   let games = [];    // {id, profile, name}, in the gameDB's order
   let power = '';
   let filter = '';
+  let tag = '';      // your games shown: those of this console ('' all; '-' those for none)
   let adding = null; // the game being added: {id, name, profile}
   let live = null;   // Cruller's state, as last read
   let liveFail = false;
@@ -368,20 +381,35 @@
 
   // --- your games -------------------------------------------------------------------------------------
 
+  // A game's console, picked from those the page knows (app.js), its id kept when it knows none by it.
+  const consoleNames = () => (window.consoleNames ? window.consoleNames() : {});
+  function consoleSelect(attrs, current) {
+    const names = consoleNames(), ids = Object.keys(names).sort((a, b) => names[a].localeCompare(names[b]));
+    if (current && !names[current]) ids.unshift(current);
+    return '<select class=gcs ' + attrs + ' aria-label="Console"><option value="">—</option>' +
+      ids.map((id) => '<option value="' + esc(id) + '"' + (id === current ? ' selected' : '') + '>' + esc(names[id] || id) + '</option>').join('') + '</select>';
+  }
+
   function renderGames() {
     if (!built) return;
-    const shown = filterGames(games, filter);
+    const tags = gameTags(games, consoleNames());
+    if (tag && !tags.some((t) => t.tag === tag)) tag = '';
+    set(q('gidtags'), tags.length ? '<button type=button data-tag="" aria-pressed=' + !tag + '>All <span>' + games.length + '</span></button>' +
+      tags.map((t) => '<button type=button data-tag="' + esc(t.tag) + '" aria-pressed=' + (tag === t.tag) + '>' + esc(t.name) + ' <span>' + t.n + '</span></button>').join('') : '');
+    const shown = filterGames(games, filter, tag);
     const row = (g) => '<tr data-id="' + esc(g.id) + '"' + (g.id === playing ? ' class=os title="On screen now"' : '') + '><td><input data-f=name value="' + esc(g.name) + '" maxlength=47 aria-label="Name" placeholder="(no name)"></td>' +
+      '<td>' + consoleSelect('data-f=console', g.console || '') + '</td>' +
       '<td class=mono>' + esc(g.id) + '</td>' +
       '<td><button type=button class=gidp data-f=profile>' + esc(plain(g.profile)) + '</button></td>' +
       '<td class=act><button type=button class="ib del" data-a=del aria-label="Remove ' + esc(g.name || g.id) + '" title="Remove it">×</button></td></tr>';
     const add = adding ? '<tr class=new><td><input id=gidan value="' + esc(adding.name) + '" maxlength=47 placeholder="Name" aria-label="Name"></td>' +
+      '<td>' + consoleSelect('id=gidac', adding.console) + '</td>' +
       '<td class=mono><input id=gidai value="' + esc(adding.id) + '" maxlength=63 placeholder="Its ID (SCUS-97481)" spellcheck=false aria-label="ID"></td>' +
       '<td><button type=button class=gidp id=gidap>' + (adding.profile ? esc(plain(adding.profile)) : '<span class=gidn>Pick its profile…</span>') + '</button></td>' +
       '<td class=act><button type=button class=primary id=gidas>Add</button><button type=button id=gidax>Cancel</button></td></tr>' : '';
     q('gidgt').innerHTML = add + shown.map(row).join('') +
-      (!shown.length && !adding ? '<tr><td colspan=4 class=pe0>' + (games.length ? 'No game matches' : 'No games yet: one a console runs is added from its card in a click.') + '</td></tr>' : '');
-    q('gidgs').textContent = (games.length === 1 ? '1 game' : games.length + ' games') + (filter.trim() ? ', ' + shown.length + ' shown' : '');
+      (!shown.length && !adding ? '<tr><td colspan=5 class=pe0>' + (games.length ? 'No game matches' : 'No games yet: one a console runs is added from its card in a click.') + '</td></tr>' : '');
+    q('gidgs').textContent = (games.length === 1 ? '1 game' : games.length + ' games') + (filter.trim() || tag ? ', ' + shown.length + ' shown' : '');
     q('gidga').disabled = !!adding || games.length >= 1000;
   }
 
@@ -412,8 +440,9 @@
 
   // A game to add (its ID and name from what's on screen or a console), its profile next.
   function startAdding(g) {
-    adding = { id: g.id || '', name: g.name || '', profile: g.profile || '' };
+    adding = { id: g.id || '', name: g.name || '', profile: g.profile || '', console: g.console || '' };
     filter = '';
+    tag = '';
     q('gidq').value = '';
     renderGames();
     q('ggam').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -427,8 +456,9 @@
     q('ggam').innerHTML =
       '<div class="row sdh"><h2>Your games</h2><span id=gidgs class="small grow"></span><input id=gidq class=gidq placeholder="Find a game" autocomplete=off aria-label="Find a game">' +
       '<button id=gidga class=primary>Add a game</button></div>' +
+      '<div id=gidtags class=gtags role=group aria-label="By console"></div>' +
       '<div id=gidgm class=small></div>' +
-      '<div class=gidw><table class=gidt><thead><tr><th>Name</th><th>ID</th><th>Profile</th><th></th></tr></thead><tbody id=gidgt></tbody></table></div>' +
+      '<div class=gidw><table class=gidt><thead><tr><th>Name</th><th>Console</th><th>ID</th><th>Profile</th><th></th></tr></thead><tbody id=gidgt></tbody></table></div>' +
       '<div class=small>A game that isn\'t here keeps its input\'s own profile, or its gameID\'s for those.</div>';
     q('cons').insertAdjacentHTML('beforeend',
       '<dialog id=gdlg class=pick aria-labelledby=gdt><form method=dialog class=gdf>' +
@@ -457,9 +487,9 @@
       if (!b || b.disabled) return;
       if (b.classList.contains('gdev')) openConsole(+b.dataset.k, 0, !b.closest('#v-grid')); // (one not on the SVS may be put on an input)
       else if (b.dataset.a === 'addfor') openConsole(-1, +b.dataset.n, false);
-      else if (b.dataset.a === 'addgame') {
-        const k = +b.dataset.k, l = liveOf(k);
-        if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other });
+      else if (b.dataset.a === 'addgame') { // (its console: as its device says, else its SVS input's)
+        const k = +b.dataset.k, l = liveOf(k), sv = svsInfo(), n = l ? inputOf(consoles[k], l.kind, sv.inputs) : 0;
+        if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other, console: l.kind || (n && sv.inputs[n - 1].device) || '' });
       }
     });
     q('gdi').onchange = dialogFields;
@@ -471,11 +501,20 @@
 
     q('gidga').onclick = () => startAdding({});
     q('gidq').oninput = () => { filter = q('gidq').value; renderGames(); };
+    q('gidtags').onclick = (ev) => {
+      const b = ev.target.closest('button[data-tag]');
+      if (b) { tag = b.dataset.tag; renderGames(); }
+    };
     q('gidgt').onchange = (ev) => {
-      const el = ev.target.closest('[data-f=name]'), tr = ev.target.closest('tr[data-id]');
+      if (ev.target.id === 'gidac') { adding.console = ev.target.value; return; } // (the game being added)
+      const el = ev.target.closest('[data-f]'), tr = ev.target.closest('tr[data-id]');
       if (!el || !tr) return;
       const g = games.find((x) => x.id === tr.dataset.id);
-      if (g && el.value.trim() !== g.name) putGame({ ...g, name: el.value.trim() }, 'Renamed ' + (el.value.trim() || g.id));
+      if (!g) return;
+      if (el.dataset.f === 'name' && el.value.trim() !== g.name) putGame({ ...g, name: el.value.trim() }, 'Renamed ' + (el.value.trim() || g.id));
+      if (el.dataset.f === 'console' && el.value !== (g.console || '')) {
+        putGame({ ...g, console: el.value }, (g.name || g.id) + (el.value ? ' is for ' + (consoleNames()[el.value] || el.value) : ' is for no console'));
+      }
     };
     q('gidgt').oninput = (ev) => { // the game being added: kept as typed
       if (!adding) return;
@@ -492,7 +531,7 @@
         adding = null;
         renderGames();
       } else if (b.id === 'gidas') {
-        const g = { id: adding.id.trim(), name: adding.name.trim(), profile: adding.profile };
+        const g = { id: adding.id.trim(), name: adding.name.trim(), profile: adding.profile, console: adding.console };
         if (!g.id) return status('gidgm', 'A game needs its ID: what its console reports', true);
         if (!profileOk(g.profile)) return status('gidgm', 'Pick its profile', true);
         if (games.some((x) => x.id === g.id) && !(await window.askUser('Replace ' + g.id + '?', 'Your games have it already: it will load this profile instead.', 'Replace', false))) return;
@@ -535,5 +574,5 @@
   window.gidStatus = onStatus;
   window.gidSvs = renderLive; // app.js: the switch as the bridge said it now (the cards may be new)
   window.gidAway = () => away; // app.js: the RT4K's input while it shows another than the SVS's ('' none)
-  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, readGame, liveText, inputOf, loadedNow }; // tests/test_gameid_page.js
+  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, liveText, inputOf, loadedNow }; // tests/test_gameid_page.js
 })();

@@ -667,6 +667,10 @@ window.svsRedraw = () => { if (svsSw.last) showSvs(svsSw.last); };
 
 // gameid.js: the switch as the bridge last said it. bridge: one is paired or reporting; inputs: each one's
 // console, by its short name and its id in the bridge's list ('' when nothing's picked on it).
+// gameid.js: the consoles this page knows, by their id in the SVS Bridge's list: their short names (a
+// game's console, picked or shown as a tag).
+window.consoleNames = () => Object.fromEntries(Object.entries(CONSOLES).map(([id, c]) => [id, c[0]]));
+
 window.svsNow = () => {
   const v = svsSw.last, known = !!(v && v.known);
   const ins = known && v.switch_seq && svsSw.data ? svsSw.data.inputs : [];
