@@ -200,7 +200,8 @@ off).
 
 **Your games**: each game's ID with its profile, picked from the RT4K's SD card, and the console it's
 for. A game a console runs is added from its card in a click, its console with it; a tag per console
-shows its games alone.
+shows its games alone. A game added starts with what its console suggests: the game its gameID runs
+and that console's profile (its gameID's, else its SVS input's), never another console's.
 
 The SVS Bridge it's paired with (**Unpair** frees Cruller for another bridge) and the recent switches
 are in the Debug view.
