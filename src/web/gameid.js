@@ -63,6 +63,20 @@
     return { id: String(text).trim(), name: '' };
   }
 
+  // What a gameID device is, by its answer: a name to suggest when it's added. A MemCard PRO's JSON by its
+  // mode (PS2: only the PRO2 does it; GC; PS1); the ID as text, a Digital's by its console (kind ps1, n64).
+  // '' when it can't be told (or it's a web page, not an answer).
+  function deviceModel(text, kind) {
+    let j = null;
+    try { j = JSON.parse(text); } catch (e) { /* text */ }
+    if (j && typeof j === 'object') {
+      const m = String(j.currentMode || '').toUpperCase();
+      return m === 'PS2' ? 'MemCard PRO2' : m === 'GC' || m === 'NGC' ? 'MemCard PRO GC' : m === 'PS1' || m === 'PSX' ? 'MemCard PRO' : '';
+    }
+    if (/</.test(text)) return '';
+    return kind === 'ps1' ? 'PS1Digital' : kind === 'n64' ? 'N64Digital' : '';
+  }
+
   // A console as Cruller last asked it (state.consoles[k]): what it runs, as its card says it.
   function liveText(l, enabled) {
     if (!enabled) return 'Not asked';
@@ -329,6 +343,7 @@
     if (draft.name && !names.includes(draft.name)) names.unshift(draft.name);
     q('gdn').innerHTML = '<option value="">Pick its console…</option>' + names.map((s) => '<option' + (s === draft.name ? ' selected' : '') + '>' + esc(s) + '</option>').join('');
     q('gdd').value = draft.device || '';
+    suggested = '';
     q('gde').checked = draft.enabled;
     q('gdmac').textContent = k < 0 ? '' : draft.mac ? 'Its MAC: ' + draft.mac + '. If its address changes, Cruller finds it again by it.' :
       'Its MAC: learned once it answers on this network, to find it again if its address changes.';
@@ -356,6 +371,25 @@
     q('gdop').textContent = draft.other ? 'Change…' : 'Pick…';
   }
 
+  // A new one's device, asked by this browser once its address is given (a MemCard answers anyone): a
+  // name for it suggested by its answer, put in while its name is empty or the one suggested before.
+  let suggested = '';
+  async function suggestName() {
+    if (draftK >= 0) return;
+    const url = consoleUrl(q('gdu').value);
+    if (!url || urlProblem(url)) return;
+    const sv = svsInfo(), v = q('gdil').hidden ? draft.svs_input : +q('gdi').value;
+    const byName = Object.entries(consoleNames()).find(([id, s]) => s === q('gdn').value);
+    const kind = v > 0 ? (sv.inputs[v - 1] || {}).device : byName ? byName[0] : '';
+    let model = '';
+    try {
+      const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+      if (r.ok) model = deviceModel(await r.text(), kind);
+    } catch (e) { /* not from this browser: named by hand */ }
+    if (model && (!q('gdd').value.trim() || q('gdd').value === suggested)) q('gdd').value = suggested = model;
+    q('gdmac').textContent = model ? 'Its name as its answer tells it: change it if you like.' : '';
+  }
+
   async function pickOther() {
     const p = await pickProfile(draft.other);
     if (p) draft.other = p;
@@ -369,6 +403,7 @@
     const c = { name: n > 0 ? inputName(svsInfo(), n) : q('gdn').value.trim(), url, other: draft.other, svs_input: n, enabled: q('gde').checked,
       mac: draft.mac || '', device: q('gdd').value.trim() };
     if (!c.name) return status('gdm', 'Pick its console', true);
+    if (!c.device) return status('gdm', 'Give its gameID device a name', true);
     const bad = urlProblem(c.url);
     if (bad) return status('gdm', bad, true);
     const list = consoles.slice();
@@ -401,7 +436,7 @@
       tags.map((t) => '<button type=button data-tag="' + esc(t.tag) + '" aria-pressed=' + (tag === t.tag) + '>' + esc(t.name) + ' <span>' + t.n + '</span></button>').join('') : '');
     const shown = filterGames(games, filter, tag);
     const row = (g) => '<tr data-id="' + esc(g.id) + '"' + (g.id === playing ? ' class=os title="On screen now"' : '') + '><td><input data-f=name value="' + esc(g.name) + '" maxlength=47 aria-label="Name" placeholder="(no name)"></td>' +
-      '<td>' + consoleSelect('data-f=console', g.console || '') + '</td>' +
+      '<td class=gcn>' + (g.console ? esc(consoleNames()[g.console] || g.console.toUpperCase()) : '<span class=gidn>—</span>') + '</td>' +
       '<td class=mono>' + esc(g.id) + '</td>' +
       '<td><button type=button class=gidp data-f=profile>' + esc(plain(g.profile)) + '</button></td>' +
       '<td class=act><button type=button class="ib del" data-a=del aria-label="Remove ' + esc(g.name || g.id) + '" title="Remove it">×</button></td></tr>';
@@ -477,7 +512,7 @@
       '<div class=small>A MemCard PRO2 or PRO (its own web page on; on the PRO2, WebUI v2 off), a PS1Digital or an N64Digital: what says which game it runs.</div>' +
       '<label>Address<input id=gdu class=mono maxlength=120 spellcheck=false autocomplete=off placeholder="192.168.1.50"></label>' +
       '<div class=small style="margin-top:-4px">Its IP alone will do. Only http for now.</div>' +
-      '<label>Name<input id=gdd maxlength=47 autocomplete=off placeholder="To tell it apart (optional)"></label>' +
+      '<label>Name<input id=gdd maxlength=47 autocomplete=off placeholder="Suggested once its address answers"></label>' +
       '<div id=gdmac class=small></div></fieldset>' +
       '<fieldset><legend>A game that isn\'t in your games</legend>' +
       '<label class=gdo><input type=radio name=gdo id=gdok><span id=gdokt></span></label>' +
@@ -501,7 +536,9 @@
         if (l && l.game) startAdding({ id: l.game, name: l.game_name, profile: consoles[k].other, console: l.kind || (n && sv.inputs[n - 1].device) || '' }, n);
       }
     });
-    q('gdi').onchange = dialogFields;
+    q('gdi').onchange = () => { dialogFields(); suggestName(); };
+    q('gdu').onchange = suggestName;
+    q('gdn').onchange = suggestName; // (a Digital's name goes by its console)
     q('gdok').onchange = () => { draft.other = ''; dialogFields(); };
     q('gdoo').onchange = pickOther;
     q('gdop').onclick = pickOther;
@@ -521,9 +558,6 @@
       const g = games.find((x) => x.id === tr.dataset.id);
       if (!g) return;
       if (el.dataset.f === 'name' && el.value.trim() !== g.name) putGame({ ...g, name: el.value.trim() }, 'Renamed ' + (el.value.trim() || g.id));
-      if (el.dataset.f === 'console' && el.value !== (g.console || '')) {
-        putGame({ ...g, console: el.value }, (g.name || g.id) + (el.value ? ' is for ' + (consoleNames()[el.value] || el.value) : ' is for no console'));
-      }
     };
     q('gidgt').oninput = (ev) => { // the game being added: kept as typed
       if (!adding) return;
@@ -587,5 +621,5 @@
   window.gidStatus = onStatus;
   window.gidSvs = renderLive; // app.js: the switch as the bridge said it now (the cards may be new)
   window.gidAway = () => away; // app.js: the RT4K's input while it shows another than the SVS's ('' none)
-  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, liveText, inputOf, loadedNow }; // tests/test_gameid_page.js
+  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, deviceModel, liveText, inputOf, loadedNow }; // tests/test_gameid_page.js
 })();
