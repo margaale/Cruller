@@ -48,6 +48,12 @@ check(JSON.stringify(g.readGame('{"currentMode":"PS2","gameName":"God of War II"
 check(JSON.stringify(g.readGame('3E5055B6-2E92DA52-N-45\n')) === '{"id":"3E5055B6-2E92DA52-N-45","name":""}', 'an N64Digital\'s, as text');
 check(g.readGame('{"currentMode":"PS2"}').id === '', 'JSON without a game: none');
 
+// A device's name suggested by its answer: a MemCard PRO by its mode, a Digital by its console.
+check(g.deviceModel('{"currentMode":"PS2","gameID":"SCUS-97481"}', 'ps2') === 'MemCard PRO2' && g.deviceModel('{"currentMode":"GC"}', '') === 'MemCard PRO GC' &&
+  g.deviceModel('{"currentMode":"PS1"}', 'ps1') === 'MemCard PRO', 'a MemCard by its mode');
+check(g.deviceModel('{"gameID":"X"}', 'ps2') === '' && g.deviceModel('SLUS-00594\n', 'ps1') === 'PS1Digital' && g.deviceModel('3E5055B6-2E92DA52-N-45', 'n64') === 'N64Digital', 'JSON without its mode: none; a Digital by its console');
+check(g.deviceModel('SLUS-00594', '') === '' && g.deviceModel('<html><body>404</body></html>', 'ps1') === '', 'a Digital on no known console, a web page: none');
+
 // What Cruller knows, as the view says it.
 check(g.liveText(null, false) === 'Not asked' && g.liveText(null, true) === '…' && g.liveText({ on: false }, true) === 'Off', 'a console not asked, not known yet, off');
 check(g.liveText({ on: true, game: '' }, true) === 'No game' && g.liveText({ on: true, game: 'SCUS-97481', game_name: 'God of War II' }, true) === 'God of War II' &&
