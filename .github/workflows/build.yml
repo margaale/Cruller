@@ -22,7 +22,8 @@ env:
   ARM_GCC_RELEASE: "14.2.Rel1"
   ESP_IDF_VERSION: "v6.1"
   GITVERSION_VERSION: "6.x"
-  ESBUILD_VERSION: "0.28.2" # scripts/minify-web.sh, which minifies the page's JavaScript for the images
+  ESBUILD_VERSION: "0.28.2" # scripts/minify-web.sh, which minifies the page for the images: its JavaScript
+  HTML_MINIFIER_VERSION: "7.2.0" # ... and its index.html
 
 jobs:
   version:
@@ -63,12 +64,13 @@ jobs:
         with:
           node-version: 22
       - run: bash tests/run.sh
-      # The page's JavaScript minified, as the images embed it: its tests again (not check_page and
-      # check_api, which read the sources).
+      # The page minified, as the images embed it: its tests again, and check_page (each id app.js uses,
+      # in index.html); not check_api, which reads the sources.
       - name: Tests on the minified page
         run: |
           bash scripts/minify-web.sh
           for t in editor mapper profiles sd fw gameid_page; do node tests/test_$t.js; done
+          node tests/check_page.js
 
   # Raspberry Pi RP2 boards: Pico SDK, target src/platform/rp2.
   rp2:
@@ -97,7 +99,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Minify the page's JavaScript
+      - name: Minify the page
         run: bash scripts/minify-web.sh
 
       - name: Pico SDK, TinyUSB, FreeRTOS
@@ -192,7 +194,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Minify the page's JavaScript
+      - name: Minify the page
         run: bash scripts/minify-web.sh
 
       # ESP-IDF's image from Google's mirror of Docker Hub (the same image, by its digest): Docker Hub
