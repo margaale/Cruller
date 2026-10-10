@@ -174,11 +174,12 @@ extern const size_t web_app_js_len;
 extern const unsigned char web_index_html[];
 extern const size_t web_index_html_len;
 
+// A web asset, embedded gzipped (src/web/embed.cmake): sent as it is, for the browser to unzip.
 // no-store: with no-cache (and no validators) browsers still ran the previous app.js after an update.
 static void respond_asset(int fd, const char *type, const unsigned char *body, size_t len) {
-    char hdr[192];
+    char hdr[224];
     const int n = snprintf(hdr, sizeof(hdr),
-        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %u\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Encoding: gzip\r\nContent-Length: %u\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         type, (unsigned)len);
     send_all(fd, hdr, (size_t)n);
     send_all(fd, body, len);

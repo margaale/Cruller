@@ -252,7 +252,8 @@
 
   function renderOthers() {
     const sv = svsInfo(), ins = sv.known ? sv.inputs : [];
-    const ks = consoles.map((c, k) => k).filter((k) => inputOf(consoles[k], kindOf(k), ins) === 0);
+    // (the switch not described yet, Cruller just started: those on its inputs wait for it, not listed here)
+    const ks = consoles.map((c, k) => k).filter((k) => inputOf(consoles[k], kindOf(k), ins) === 0 && !(sv.bridge && !ins.length && consoles[k].svs_input > 0));
     q('gcon').hidden = sv.bridge && !ks.length;
     const where = (c) => (!sv.bridge ? '' : c.svs_input < 0 ? 'Straight to the RT4K' : c.svs_input ? 'Input ' + c.svs_input + ': this switch has fewer' :
       'Auto: no input has its console');
