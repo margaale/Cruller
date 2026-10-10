@@ -204,7 +204,7 @@
     const c = consoles[k], l = liveOf(k), tone = !c.enabled ? '' : l && l.on ? ' ok' : l ? ' bad' : '';
     const game = l && l.on && l.game;
     return '<button type=button class="gdev' + (game ? '' : ' off') + '" data-k=' + k + ' title="Change its gameID">' +
-      '<span class="dot' + tone + '"></span><span><b>' + esc(shortUrl(c.url)) + '</b><i>' + esc(liveText(l, c.enabled)) + '</i></span></button>' +
+      '<span class="dot' + tone + '"></span><span><b>' + esc(c.name) + '</b><em>' + esc(shortUrl(c.url)) + '</em><i>' + esc(liveText(l, c.enabled)) + '</i></span></button>' +
       (game && !games.some((g) => g.id === l.game) ? '<button type=button class=gaddg data-a=addgame data-k=' + k + '>Add ' + esc(l.game_name || l.game) + ' to your games</button>' : '') +
       (now && now.k === k ? nowBlock() : '');
   }
@@ -294,34 +294,43 @@
   let draft = null, draftK = -1;
 
   // Console k (-1: a new one, on input n or none).
-  function openConsole(k, n) {
+  let autoName = ''; // a new one's name as given from its input ('' none): follows the input picked
+
+  async function openConsole(k, n) {
+    // read again first: Cruller may have changed one (its MAC learned, its address found by it)
+    const url = k >= 0 ? consoles[k].url : '';
+    await loadConsoles();
+    if (k >= 0 && (k = consoles.findIndex((c) => c.url === url)) < 0) return;
     const sv = svsInfo(), ins = sv.known ? sv.inputs : [];
     draftK = k;
     draft = k >= 0 ? { ...consoles[k], svs_input: inputOf(consoles[k], kindOf(k), ins) || consoles[k].svs_input } :
-      { name: '', url: '', other: '', svs_input: n || 0, enabled: true };
+      { name: '', url: '', other: '', svs_input: n || 0, enabled: true, mac: '' };
     q('gdil').hidden = !ins.length;
     q('gdi').innerHTML = ins.map((p, i) => '<option value=' + (i + 1) + '>Input ' + (i + 1) + (p.name ? ' · ' + esc(p.name) : '') + '</option>').join('') +
       '<option value=-1>Not on the SVS: straight to the RT4K</option>';
     q('gdi').value = String(draft.svs_input >= 1 && draft.svs_input <= ins.length ? draft.svs_input : -1);
     q('gdu').value = shortUrl(draft.url);
     q('gdn').value = draft.name;
+    autoName = '';
     q('gde').checked = draft.enabled;
+    q('gdmac').textContent = k < 0 ? '' : draft.mac ? 'Its MAC: ' + draft.mac + '. If its address changes, Cruller finds it again by it.' :
+      'Its MAC: learned once it answers on this network, to find it again if its address changes.';
     q('gdr').hidden = k < 0;
     q('gdsv').textContent = k < 0 ? 'Add' : 'Save';
     status('gdm', '');
     dialogFields();
     q('gdlg').showModal();
-    q('gdu').focus();
+    q(k < 0 ? 'gdu' : 'gdn').focus();
   }
 
-  // What depends on the input it's on: the title, its name (an input's console's own), what a game not in
-  // your games loads.
+  // What depends on the input it's on: the title, a new one's name (its console's), what a game not in your
+  // games loads.
   function dialogFields() {
     const sv = svsInfo(), v = q('gdil').hidden ? 0 : +q('gdi').value, n = v > 0 ? v : 0;
     q('gdt').textContent = n ? 'gameID for input ' + n + ' · ' + inputName(sv, n) : draftK < 0 ? 'Add a console' : draft.name;
     q('gds').textContent = 'The game it says it runs picks the profile' + (n ? ', while input ' + n + ' is on screen.' :
       v < 0 ? ', while the RT4K shows another input than the SVS\'s.' : '.');
-    q('gdnl').hidden = !!n;
+    if (draftK < 0 && q('gdn').value === autoName) q('gdn').value = autoName = n ? inputName(sv, n) : '';
     const own = n && sv.files[n] ? plain(sv.files[n]) : '';
     q('gdokt').textContent = own ? 'Keeps the input\'s own, ' + own : n ? 'Keeps the input\'s own profile' : 'Keeps the profile the RT4K has';
     q('gdok').checked = !draft.other;
@@ -337,8 +346,9 @@
   }
 
   async function saveConsole() {
-    const sv = svsInfo(), n = q('gdil').hidden ? draft.svs_input : +q('gdi').value;
-    const c = { name: n > 0 && !q('gdil').hidden ? inputName(sv, n) : q('gdn').value.trim(), url: consoleUrl(q('gdu').value), other: draft.other, svs_input: n, enabled: q('gde').checked };
+    const n = q('gdil').hidden ? draft.svs_input : +q('gdi').value, url = consoleUrl(q('gdu').value);
+    // its MAC kept while its address stays (another address may be another device: learned again)
+    const c = { name: q('gdn').value.trim(), url, other: draft.other, svs_input: n, enabled: q('gde').checked, mac: url === draft.url ? draft.mac || '' : '' };
     if (!c.name) return status('gdm', 'It needs a name', true);
     const bad = urlProblem(c.url);
     if (bad) return status('gdm', bad, true);
@@ -421,10 +431,11 @@
       '<dialog id=gdlg class=pick aria-labelledby=gdt><form method=dialog class=gdf>' +
       '<div><h3 id=gdt></h3><div id=gds class=small></div></div>' +
       '<label id=gdil>On the SVS<select id=gdi></select></label>' +
-      '<label id=gdnl>Its name<input id=gdn maxlength=47 autocomplete=off placeholder="N64, PS1…: the console it is"></label>' +
+      '<label id=gdnl>Its name<input id=gdn maxlength=47 autocomplete=off placeholder="MemCard PRO2, N64Digital…"></label>' +
       '<label>Its address<input id=gdu class=mono maxlength=120 spellcheck=false autocomplete=off placeholder="192.168.1.50"></label>' +
       '<div class=small style="margin-top:-6px">A MemCard PRO2 or PRO (its own web page on; on the PRO2, WebUI v2 off), a PS1Digital or an N64Digital: ' +
       'its IP alone will do. Only http for now.</div>' +
+      '<div id=gdmac class=small></div>' +
       '<fieldset><legend>A game that isn\'t in your games</legend>' +
       '<label class=gdo><input type=radio name=gdo id=gdok><span id=gdokt></span></label>' +
       '<label class=gdo><input type=radio name=gdo id=gdoo><span id=gdoot></span><button type=button id=gdop class=link></button></label></fieldset>' +

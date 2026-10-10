@@ -1,5 +1,6 @@
 #include "gameid.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "cfgfs.h"
@@ -41,15 +42,50 @@ size_t gameid_consoles_get_json(char *out, size_t size) {
     return n;
 }
 
+// The consoles as they were, for what a new list doesn't say: each one's MAC, kept while its address stays.
+static gameid_console_t kept[GAMEID_CONSOLES_MAX];
+
 bool gameid_consoles_put_json(const char *json, size_t len, const char **why) {
     cfgfs_hold();
+    const int was = load();
+    memcpy(kept, consoles, (size_t)was * sizeof(*kept));
     const int n = gameid_consoles_parse(json, len, consoles, GAMEID_CONSOLES_MAX, why);
     bool ok = n >= 0;
+    for (int k = 0; ok && k < n; k++) {
+        for (int j = 0; j < was && !consoles[k].mac[0]; j++) {
+            if (!strcmp(consoles[k].url, kept[j].url)) memcpy(consoles[k].mac, kept[j].mac, sizeof(consoles[k].mac));
+        }
+    }
     if (ok) {
         const size_t k = gameid_consoles_json(consoles, n, true, text, sizeof(text));
         ok = k && cfgfs_write(CONSOLES_FILE, text, k);
         if (!ok) *why = "could not save them";
         else version++;
+    }
+    cfgfs_release();
+    return ok;
+}
+
+bool gameid_console_found(const char *url, const char *new_url, const char *mac) {
+    cfgfs_hold();
+    const int n = load();
+    bool ok = true, changed = false;
+    for (int k = 0; k < n; k++) {
+        if (strcmp(consoles[k].url, url)) continue;
+        if (new_url && new_url[0] && strcmp(consoles[k].url, new_url)) {
+            snprintf(consoles[k].url, sizeof(consoles[k].url), "%s", new_url);
+            changed = true;
+        }
+        if (mac && mac[0] && strcmp(consoles[k].mac, mac)) {
+            snprintf(consoles[k].mac, sizeof(consoles[k].mac), "%s", mac);
+            changed = true;
+        }
+        break;
+    }
+    if (changed) {
+        const size_t len = gameid_consoles_json(consoles, n, true, text, sizeof(text));
+        ok = len && cfgfs_write(CONSOLES_FILE, text, len);
+        if (ok) version++;
     }
     cfgfs_release();
     return ok;

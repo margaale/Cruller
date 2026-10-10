@@ -55,6 +55,16 @@ overwrites the SVS's `S1`…`S8` (DonutShop sent `SVS NEW INPUT=n` or `remote pr
   nothing.
 - The RT4K asleep: the profile is kept and loaded once it's on.
 
+## Its address changed
+
+A console's address may change (DHCP gave it another). Cruller learns each console's MAC when it
+answers (from its ARP table: only a console on the same local network as Cruller has one there) and
+keeps it with it. When the console the RT4K may be showing doesn't answer for 30 s while the RT4K is
+on, Cruller looks for its MAC on the local network (an ARP request to each address of its /24, a few at
+a time, about 5 s) and, found at another address, saves it there. Which console: with an SVS input
+active and the RT4K on the SVS, the one on that input; with none active, or the RT4K on another input,
+those not on the SVS. Again every 2 min at most. It never adds a console: it only finds those it has.
+
 ## Where it's kept
 
 `gameid-consoles.json` and `gameid-games.jsonl` in Cruller's files (`cfgfs.h`): littlefs in the Pico's

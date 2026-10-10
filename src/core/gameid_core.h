@@ -16,6 +16,7 @@
 #define GAMEID_PROFILE_MAX  128 // a profile's path under the SD card's /profile ("PS2/God of War II.rt4")
 #define GAMEID_SVS_INPUTS   8
 #define GAMEID_NOT_ON_SVS   (-1) // a console's svs_input: straight to the RT4K, not through the SVS
+#define GAMEID_MAC_MAX      18  // a MAC as kept, its 0 included
 
 typedef struct {
     char name[GAMEID_NAME_MAX];
@@ -24,6 +25,8 @@ typedef struct {
     int8_t svs_input;              // the SVS input it's on, 1-8; 0 (Auto): worked out from the console it is;
                                    // GAMEID_NOT_ON_SVS: not on the SVS
     bool enabled;
+    char mac[GAMEID_MAC_MAX];      // as Cruller learned it when it answered ("8c:aa:b5:12:34:56"; "" not yet): found
+                                   // by it again when its address changes
 } gameid_console_t;
 
 typedef struct {
@@ -40,8 +43,8 @@ bool gameid_profile_ok(const char *path);
 bool gameid_console_ok(const gameid_console_t *c, const char **why);
 bool gameid_game_ok(const gameid_game_t *g, const char **why);
 
-// {"consoles": [{"name", "url", "other", "svs_input", "enabled"}, ...]} (as the API takes them and the
-// file keeps them; "v", the format's version, is 1 or absent). How many, or -1 (*why says why).
+// {"consoles": [{"name", "url", "other", "svs_input", "enabled", "mac"}, ...]} (as the API takes them and
+// the file keeps them; "v", the format's version, is 1 or absent). How many, or -1 (*why says why).
 int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, int max, const char **why);
 
 // The same written out, with "v": 1 when versioned. Its length, or 0 when it doesn't fit.
@@ -104,6 +107,23 @@ int gameid_pick(const gameid_console_t *c, const gameid_seen_t *seen, int n, int
 // The RT4K's active input, by its name, from its answer to a bare "input" ("input=0 HDMI ic=2 model=0"):
 // false when it isn't one.
 bool gameid_rt4k_input(const char *reply, char *name, size_t size);
+
+// A MAC as kept: "" or six lower-case hex pairs joined by colons.
+bool gameid_mac_ok(const char *mac);
+
+// A MAC's 6 bytes as kept (out: GAMEID_MAC_MAX), and back (false when it isn't one).
+void gameid_mac_text(const uint8_t mac[6], char *out);
+bool gameid_mac_bytes(const char *mac, uint8_t out[6]);
+
+// A console's address with its host now ip ("10.10.10.91"), its port and path kept: false when its host
+// isn't an IPv4 address (a name stays as it is), or it doesn't fit.
+bool gameid_url_moved(const char *url, const char *ip, char *out, size_t size);
+
+// Whether console c (enabled, its MAC known, not answering: s) is to be looked for by its MAC, as one the
+// RT4K may be showing: with an SVS input active (svs_input > 0) and the RT4K on the SVS (on_svs not 0),
+// one set to that input, or on Auto of the console the SVS Bridge says there (svs_device); with no SVS
+// input active, or the RT4K on another input, one not on the SVS.
+bool gameid_seek(const gameid_console_t *c, const gameid_seen_t *s, int svs_input, const char *svs_device, int on_svs);
 
 // Whether the RT4K shows the SVS: 1, 0, or -1 when it can't be told. input: its active input's name
 // ("HDMI", "HD15 YPbPr", "SCART RGBS", "RCA YPbPr"...); svs_out: the SVS's output to it, as the bridge says

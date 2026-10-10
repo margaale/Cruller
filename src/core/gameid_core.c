@@ -38,6 +38,7 @@ bool gameid_console_ok(const gameid_console_t *c, const char **why) {
         *why = "the SVS input is 1 to 8, 0 (worked out) or -1 (not on the SVS)";
         return false;
     }
+    if (!gameid_mac_ok(c->mac)) { *why = "a MAC is six hex pairs joined by colons"; return false; }
     return true;
 }
 
@@ -47,7 +48,7 @@ bool gameid_game_ok(const gameid_game_t *g, const char **why) {
     return true;
 }
 
-#define TOKENS (3 + GAMEID_CONSOLES_MAX * 12)
+#define TOKENS (3 + GAMEID_CONSOLES_MAX * 14)
 
 int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, int max, const char **why) {
     static json_tok_t tok[TOKENS]; // (one caller at a time: the HTTP task, or gameid.c's lock)
@@ -64,15 +65,17 @@ int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, i
         gameid_console_t c = {.enabled = true};
         long input = 0;
         const int vin = json_get(json, tok, o, "svs_input"), ven = json_get(json, tok, o, "enabled"), vot = json_get(json, tok, o, "other");
+        const int vmac = json_get(json, tok, o, "mac");
         if (tok[o].type != JSON_OBJECT || !json_str(json, tok, json_get(json, tok, o, "name"), c.name, sizeof(c.name)) ||
             !json_str(json, tok, json_get(json, tok, o, "url"), c.url, sizeof(c.url)) ||
             (vot >= 0 && !json_str(json, tok, vot, c.other, sizeof(c.other))) ||
             (vin >= 0 && (!json_long(json, tok, vin, &input) || input < GAMEID_NOT_ON_SVS || input > GAMEID_SVS_INPUTS)) ||
-            (ven >= 0 && !json_bool(json, tok, ven, &c.enabled))) {
-            *why = "each console: a name and a url (strings that fit), other a string, svs_input -1 to 8, enabled true or false";
+            (ven >= 0 && !json_bool(json, tok, ven, &c.enabled)) || (vmac >= 0 && !json_str(json, tok, vmac, c.mac, sizeof(c.mac)))) {
+            *why = "each console: a name and a url (strings that fit), other and mac strings, svs_input -1 to 8, enabled true or false";
             return -1;
         }
         c.svs_input = (int8_t)input;
+        for (char *m = c.mac; *m; m++) if (*m >= 'A' && *m <= 'F') *m = (char)(*m - 'A' + 'a'); // (kept in lower case)
         if (!gameid_console_ok(&c, why)) return -1;
         out[k] = c;
     }
@@ -108,7 +111,8 @@ size_t gameid_consoles_json(const gameid_console_t *c, int count, bool versioned
         snprintf(tail, sizeof(tail), ",\"svs_input\":%d,\"enabled\":%s}", c[k].svs_input, c[k].enabled ? "true" : "false");
         if (!put(out, size, &n, k ? ",{\"name\":" : "{\"name\":") || !put_str(out, size, &n, c[k].name) ||
             !put(out, size, &n, ",\"url\":") || !put_str(out, size, &n, c[k].url) ||
-            !put(out, size, &n, ",\"other\":") || !put_str(out, size, &n, c[k].other) || !put(out, size, &n, tail)) return 0;
+            !put(out, size, &n, ",\"other\":") || !put_str(out, size, &n, c[k].other) ||
+            !put(out, size, &n, ",\"mac\":") || !put_str(out, size, &n, c[k].mac) || !put(out, size, &n, tail)) return 0;
     }
     return put(out, size, &n, "]}") ? n : 0;
 }
@@ -345,4 +349,64 @@ int gameid_on_svs(const char *input, const char *svs_out) {
         : !strcmp(svs_out, "component") ? "RCA YPbPr" : NULL;
     if (!port) return -1;
     return !strncmp(input, port, strlen(port));
+}
+
+bool gameid_mac_ok(const char *mac) {
+    if (!mac[0]) return true;
+    for (int k = 0; k < 17; k++) {
+        const char c = mac[k];
+        if (k % 3 == 2 ? c != ':' : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    return !mac[17];
+}
+
+void gameid_mac_text(const uint8_t mac[6], char *out) {
+    snprintf(out, GAMEID_MAC_MAX, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+bool gameid_mac_bytes(const char *mac, uint8_t out[6]) {
+    if (!mac[0] || !gameid_mac_ok(mac)) return false;
+    for (int k = 0; k < 6; k++) {
+        const char *p = mac + 3 * k;
+        const int hi = p[0] <= '9' ? p[0] - '0' : p[0] - 'a' + 10, lo = p[1] <= '9' ? p[1] - '0' : p[1] - 'a' + 10;
+        out[k] = (uint8_t)(hi * 16 + lo);
+    }
+    return true;
+}
+
+// An IPv4 address as written: four numbers of up to three digits, joined by dots.
+static bool ipv4(const char *s) {
+    int dots = 0, digits = 0;
+    for (; *s; s++) {
+        if (*s == '.') {
+            if (!digits) return false;
+            dots++;
+            digits = 0;
+        } else if (*s >= '0' && *s <= '9' && digits < 3) {
+            digits++;
+        } else {
+            return false;
+        }
+    }
+    return dots == 3 && digits;
+}
+
+bool gameid_url_moved(const char *url, const char *ip, char *out, size_t size) {
+    char host[GAMEID_HOST_MAX];
+    uint16_t port;
+    const char *path;
+    if (!gameid_split_url(url, host, sizeof(host), &port, &path) || !ipv4(host) || !ipv4(ip)) return false;
+    char at[8] = "";
+    if (port != 80) snprintf(at, sizeof(at), ":%u", (unsigned)port);
+    const int n = snprintf(out, size, "http://%s%s%s", ip, at, path);
+    return n > 0 && (size_t)n < size;
+}
+
+bool gameid_seek(const gameid_console_t *c, const gameid_seen_t *s, int svs_input, const char *svs_device, int on_svs) {
+    if (!c->enabled || !c->mac[0] || s->on) return false;
+    if (svs_input > 0 && on_svs != 0) {
+        if (c->svs_input > 0) return c->svs_input == svs_input;
+        return c->svs_input == 0 && s->kind[0] && svs_device && !strcmp(s->kind, svs_device);
+    }
+    return c->svs_input == GAMEID_NOT_ON_SVS;
 }
