@@ -118,5 +118,13 @@ check(sug('') === '{"id":"","name":"","profile":""}', 'no console: nothing');
 const twoPs1 = { input: 5, inputs: inputs.concat([{ name: 'PS1', device: 'ps1' }]), files: { 1: 'S1_PS1.rt4', 5: 'S5_PS1.rt4' } };
 check(sug('ps1', [], null, twoPs1) === '{"id":"","name":"","profile":"SVS/S5_PS1.rt4"}', 'two inputs with its console: the one on screen\'s');
 
+// The consoles a game can be for: yours first (on the SVS's inputs, with a gameID), each group by name.
+const all = { nes: 'NES', n64: 'N64', ps1: 'PS1', ps2: 'PS2', megadrive: 'Mega Drive', saturn: 'Saturn' };
+let ch = g.consoleChoices(all, ['ps1', 'megadrive', '', 'ps2', 'ps2', 'n64'], 'ps2');
+check(ch.yours.join() === 'megadrive,n64,ps1,ps2' && ch.others.join() === 'nes,saturn', 'yours first, once each, by name: ' + JSON.stringify(ch));
+ch = g.consoleChoices(all, [], '');
+check(ch.yours.length === 0 && ch.others.join() === 'megadrive,n64,nes,ps1,ps2,saturn', 'none yours: all by name');
+check(g.consoleChoices(all, ['ps2'], 'jaguar').yours.join() === 'jaguar,ps2', 'one it doesn\'t know: kept, with yours');
+
 console.log(failures ? `gameid.js: ${failures} of ${checks} checks failed` : `gameid.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);

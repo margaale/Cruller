@@ -112,6 +112,17 @@
     return r;
   }
 
+  // The consoles a game can be for, each group by name: yours first (mine: their ids, on the SVS's inputs
+  // or with a gameID), then the others; the game's own when the page knows none by its id, with yours.
+  // names: {id: name}.
+  function consoleChoices(names, mine, current) {
+    const byName = (a, b) => (names[a] || a).localeCompare(names[b] || b);
+    const yours = [...new Set(mine.filter(Boolean))].sort(byName);
+    const others = Object.keys(names).filter((id) => !yours.includes(id)).sort(byName);
+    if (current && !names[current] && !yours.includes(current)) yours.unshift(current);
+    return { yours, others };
+  }
+
   // An ID as each console's gameID reports it: the ID field's example.
   const ID_LIKE = { ps2: 'SCUS-97481', ps1: 'SLUS-00594', n64: '3E5055B6-2E92DA52-N-45' };
 
@@ -453,13 +464,16 @@
 
   // --- your games -------------------------------------------------------------------------------------
 
-  // A game's console, picked from those the page knows (app.js), its id kept when it knows none by it.
+  // A game's console, picked from those the page knows (app.js): yours first, those on the SVS's inputs and
+  // those with a gameID; its id kept when it knows none by it.
   const consoleNames = () => (window.consoleNames ? window.consoleNames() : {});
   function consoleSelect(attrs, current) {
-    const names = consoleNames(), ids = Object.keys(names).sort((a, b) => names[a].localeCompare(names[b]));
-    if (current && !names[current]) ids.unshift(current);
-    return '<select class=gcs ' + attrs + ' aria-label="Console"><option value="">—</option>' +
-      ids.map((id) => '<option value="' + esc(id) + '"' + (id === current ? ' selected' : '') + '>' + esc(names[id] || id) + '</option>').join('') + '</select>';
+    const names = consoleNames(), sv = svsInfo();
+    const { yours, others } = consoleChoices(names, sv.inputs.map((p) => p.device).concat(consoleList(sv).map((c) => c.kind)), current);
+    const opt = (id) => '<option value="' + esc(id) + '"' + (id === current ? ' selected' : '') + '>' + esc(names[id] || id) + '</option>';
+    return '<select class=gcs ' + attrs + ' aria-label="Console"><option value="">—</option>' + (yours.length ?
+      '<optgroup label="Your consoles">' + yours.map(opt).join('') + '</optgroup><optgroup label="Other consoles">' + others.map(opt).join('') + '</optgroup>' :
+      others.map(opt).join('')) + '</select>';
   }
 
   function renderGames() {
@@ -676,5 +690,5 @@
   window.gidStatus = onStatus;
   window.gidSvs = renderLive; // app.js: the switch as the bridge said it now (the cards may be new)
   window.gidAway = () => away; // app.js: the RT4K's input while it shows another than the SVS's ('' none)
-  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, deviceModel, liveText, inputOf, suggestion, loadedNow }; // tests/test_gameid_page.js
+  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, deviceModel, liveText, inputOf, suggestion, consoleChoices, loadedNow }; // tests/test_gameid_page.js
 })();
