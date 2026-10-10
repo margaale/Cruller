@@ -228,10 +228,14 @@ jobs:
           esp_idf_docker_image: mirror.gcr.io/espressif/idf
           esp_idf_version: ${{ env.ESP_IDF_VERSION }}
           target: ${{ matrix.chip }}
+          # ccache through CMake's launchers instead of ESP-IDF's own (IDF_CCACHE_ENABLE): they reach the
+          # bootloader's build too (124 files), which ESP-IDF's doesn't.
           # CCACHE_COMPILERCHECK: ccache checks -specs files as it checks the compiler, by date by default,
           # and ESP-IDF writes its picolibc.specs again in each build: by date, no file was ever found again.
           extra_docker_args: >-
-            -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=1
+            -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=0
+            -e CMAKE_C_COMPILER_LAUNCHER=ccache -e CMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -e CMAKE_ASM_COMPILER_LAUNCHER=ccache
             -e CCACHE_COMPILERCHECK=content -e CCACHE_MAXSIZE=150M
             -e CRULLER_VERSION=${{ needs.version.outputs.version }}
             -e CRULLER_DEBUG=${{ needs.version.outputs.debug }}
