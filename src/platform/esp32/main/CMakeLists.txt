@@ -28,6 +28,7 @@ idf_component_register(
         ${CORE}/settings.c
         ${CORE}/svs.c
         ${CORE}/svs_proto.c
+        ${CORE}/version.c
         ${CORE}/ws.c
         ${CORE}/ws_proto.c
         ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
@@ -50,7 +51,11 @@ idf_component_register(
         lwip mbedtls nvs_flash vfs
 )
 
-target_compile_definitions(${COMPONENT_LIB} PRIVATE CRULLER_VERSION="${CRULLER_VERSION}")
+# The version for version.c alone: a new one compiles that file again, no other (ccache keeps the rest).
+set_source_files_properties(${CORE}/version.c PROPERTIES COMPILE_DEFINITIONS CRULLER_VERSION="${CRULLER_VERSION}")
+if (NOT CRULLER_DEBUG)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CRULLER_DEBUG=0)
+endif()
 # littlefs (cfgfs.h) as on rp2: static buffers, quiet.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
 

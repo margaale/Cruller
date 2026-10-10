@@ -38,6 +38,7 @@
 #include "ota.h"
 #include "ota_fetch.h"
 #include "platform.h"
+#include "version.h"
 
 #define HTTP_TASK_STACK     3072
 #define HTTP_TASK_PRIORITY  (tskIDLE_PRIORITY + 2)
@@ -564,7 +565,7 @@ void http_status_json(char *body, size_t size) {
         "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,\"rt4k_flow\":%s,"
         "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\","
         "\"web_clients\":%d,\"event_clients\":%d,\"rfc2217_count\":%d,\"clients_max\":%d,\"rfc2217_clients\":\"%s\"}",
-        CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), state_name(net_state()),
+        cruller_version, (unsigned long)(plat_ms() / 1000), state_name(net_state()),
         ssid, net_ip(), net_rssi(), ota_boot_partition(), ota_last_boot_type(), (unsigned)xPortGetFreeHeapSize(),
         rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud,
         rt4k_flow_control() ? "true" : "false",
@@ -1140,7 +1141,7 @@ static void handle_api_info(int fd) {
     snprintf(body, sizeof(body),
         "{\"id\":\"%s\",\"name\":\"%s\",\"hostname\":\"%s\",\"sw_version\":\"%s\",\"platform\":\"%s\","
         "\"api_version\":" HTTP_API_VERSION "}",
-        id, name, net_hostname(), CRULLER_VERSION, PLAT_NAME);
+        id, name, net_hostname(), cruller_version, PLAT_NAME);
     respond(fd, 200, "OK", "application/json", body);
 }
 
@@ -1179,7 +1180,7 @@ void http_api_state_json(char *body, size_t size) {
         ADD(",\"profile\":null");
     }
     ADD("},\"cruller\":{\"sw_version\":\"%s\",\"uptime_s\":%lu,\"rssi\":%d",
-        CRULLER_VERSION, (unsigned long)(plat_ms() / 1000), net_rssi());
+        cruller_version, (unsigned long)(plat_ms() / 1000), net_rssi());
     // The board's own sensors (health.h), each only where it has it.
     health_sensors_t hs;
     if (health_sensors(&hs)) {

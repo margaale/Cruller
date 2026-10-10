@@ -3,7 +3,7 @@
 # machine's setup; override them through the environment.
 #   [CRULLER_VERSION=x.y.z] [CRULLER_BUILD=n] [CRULLER_DEBUG=0] [PICO_BOARD=pico2_w] scripts/build.sh [rp2] [Debug|Release]
 #   (CRULLER_DEBUG=0: without the developer tools, see src/platform/platform.h)
-#   [CRULLER_VERSION=x.y.z] scripts/build.sh esp32       (in an ESP-IDF 6.1 shell: idf.py on the PATH)
+#   [CRULLER_VERSION=x.y.z] [CRULLER_DEBUG=0] scripts/build.sh esp32   (in an ESP-IDF 6.1 shell: idf.py on the PATH)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -15,7 +15,8 @@ out="build/$target"
 
 if [ "$target" = esp32 ]; then
     # Optimization comes from sdkconfig.defaults, not a build type.
-    idf.py -C "$src" -B "$out" ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} reconfigure
+    idf.py -C "$src" -B "$out" ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} \
+        -DCRULLER_DEBUG="${CRULLER_DEBUG:-1}" reconfigure
     ninja -C "$out" -k 0 # every error at once, not just the first
     # A new board over USB: bootloader, partition table, OTA data and app in one file, at 0x0.
     idf.py -C "$src" -B "$out" merge-bin -o "$PWD/$out/cruller-factory.bin"

@@ -34,6 +34,9 @@ jobs:
       # in the repository, so the newest build is the newest version whatever its branch: squash
       # merges leave no commit count to compare.
       version: ${{ steps.version.outputs.version }}
+      # The developer tools (CRULLER_DEBUG, src/platform/platform.h): 1 in pre-releases and pull requests,
+      # 0 in a release.
+      debug: ${{ steps.version.outputs.debug }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,9 +52,10 @@ jobs:
           LABEL: ${{ steps.gitversion.outputs.preReleaseLabel }}
           RELEASE: ${{ github.ref == 'refs/heads/master' }}
         run: |
-          if [ "$RELEASE" = true ] || [ -z "$LABEL" ]; then v="$CORE"; else v="$CORE-$LABEL.$GITHUB_RUN_NUMBER"; fi
+          if [ "$RELEASE" = true ] || [ -z "$LABEL" ]; then v="$CORE" debug=0; else v="$CORE-$LABEL.$GITHUB_RUN_NUMBER" debug=1; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "Cruller $v (build $GITHUB_RUN_NUMBER)"
+          echo "debug=$debug" >> "$GITHUB_OUTPUT"
+          echo "Cruller $v (build $GITHUB_RUN_NUMBER, CRULLER_DEBUG=$debug)"
 
   # src/core's pure modules and the page's JavaScript, on the host: the same for every board.
   tests:
@@ -94,7 +98,17 @@ jobs:
         with:
           release: ${{ env.ARM_GCC_RELEASE }}
 
-      - run: sudo apt-get install -y ninja-build
+      - run: sudo apt-get install -y ninja-build ccache
+
+      # Compiles through ccache: its directory kept between runs, so only what changed is compiled again.
+      # Nothing that changes with every run is on the compilers' command lines (src/core/version.c and
+      # crt0 alone get the version), or every file would be new each time.
+      - name: ccache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-rp2-${{ matrix.board }}-${{ github.sha }}
+          restore-keys: ccache-rp2-${{ matrix.board }}-
 
       - uses: actions/setup-node@v7
         with:
@@ -132,6 +146,7 @@ jobs:
         env:
           CRULLER_VERSION: ${{ needs.version.outputs.version }}
           CRULLER_BUILD: ${{ github.run_number }}
+          CRULLER_DEBUG: ${{ needs.version.outputs.debug }}
           PICO_BOARD: ${{ matrix.board }}
           PICO_SDK_PATH: ${{ env.TOOLS }}/pico-sdk
           FREERTOS_KERNEL_PATH: ${{ env.TOOLS }}/FreeRTOS-Kernel
@@ -139,9 +154,17 @@ jobs:
           PICO_TOOLCHAIN_PATH: ${{ steps.arm.outputs.path }}
           PICOTOOL_DIR: ${{ env.TOOLS }}/picotool-install/lib/cmake/picotool
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          CMAKE_ASM_COMPILER_LAUNCHER: ccache
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_COMPILERCHECK: content # the compiler is downloaded again in each run: its contents, not its date
+          CCACHE_MAXSIZE: 150M
         run: |
+          ccache -z
           bash scripts/build.sh rp2 Release
-          ninja -C build/rp2 cruller_bench cruller_nodebug # built so they keep building; not published
+          ninja -C build/rp2 cruller_bench # built so it keeps building; not published
+          ccache -s
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.uf2 installs a new board
       # (BOOTSEL, then drop it on the drive); cruller.uf2 is the OTA image the Cruller tab looks for.
@@ -187,8 +210,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .ccache
-          key: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
-          restore-keys: ccache-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-
+          key: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
+          restore-keys: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-
 
       # On the runner: ESP-IDF's container has no node, and builds the workspace it mounts.
       - uses: actions/setup-node@v7
@@ -205,10 +228,14 @@ jobs:
           esp_idf_docker_image: mirror.gcr.io/espressif/idf
           esp_idf_version: ${{ env.ESP_IDF_VERSION }}
           target: ${{ matrix.chip }}
+          # CCACHE_COMPILERCHECK: ccache checks -specs files as it checks the compiler, by date by default,
+          # and ESP-IDF writes its picolibc.specs again in each build: by date, no file was ever found again.
           extra_docker_args: >-
             -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=1
+            -e CCACHE_COMPILERCHECK=content -e CCACHE_MAXSIZE=150M
             -e CRULLER_VERSION=${{ needs.version.outputs.version }}
-          command: bash scripts/build.sh esp32 && ccache -s
+            -e CRULLER_DEBUG=${{ needs.version.outputs.debug }}
+          command: ccache -z && bash scripts/build.sh esp32 && ccache -s
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.bin installs a new board
       # over USB at 0x0 (bootloader, partition table, OTA data and app in one); cruller.bin is the OTA image.

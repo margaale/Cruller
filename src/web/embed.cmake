@@ -6,6 +6,11 @@ cmake_minimum_required(VERSION 3.19) # (file(ARCHIVE_CREATE ... FORMAT raw COMPR
 file(ARCHIVE_CREATE OUTPUT "${OUT}.gz" PATHS "${IN}" FORMAT raw COMPRESSION GZip COMPRESSION_LEVEL 9)
 file(READ "${OUT}.gz" hex HEX)
 file(REMOVE "${OUT}.gz")
+# Without the gzip header's time (bytes 4-7; 0 is "none", RFC 1952): the same page gives the same image,
+# and the CI's ccache finds these files again.
+string(SUBSTRING "${hex}" 0 8 head)
+string(SUBSTRING "${hex}" 16 -1 tail)
+set(hex "${head}00000000${tail}")
 string(LENGTH "${hex}" digits)
 math(EXPR len "${digits} / 2")
 string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${hex}")
