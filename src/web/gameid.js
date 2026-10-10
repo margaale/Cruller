@@ -324,7 +324,10 @@
       '<option value=-1>Not on the SVS: straight to the RT4K</option>';
     q('gdi').value = String(draft.svs_input >= 1 && draft.svs_input <= ins.length ? draft.svs_input : -1);
     q('gdu').value = shortUrl(draft.url);
-    q('gdn').value = draft.name;
+    // the console (asked only for one not on the SVS), by its short name, from those the page knows
+    const names = Object.values(consoleNames()).sort((a, b) => a.localeCompare(b));
+    if (draft.name && !names.includes(draft.name)) names.unshift(draft.name);
+    q('gdn').innerHTML = '<option value="">Pick its console…</option>' + names.map((s) => '<option' + (s === draft.name ? ' selected' : '') + '>' + esc(s) + '</option>').join('');
     q('gdd').value = draft.device || '';
     q('gde').checked = draft.enabled;
     q('gdmac').textContent = k < 0 ? '' : draft.mac ? 'Its MAC: ' + draft.mac + '. If its address changes, Cruller finds it again by it.' :
@@ -365,7 +368,7 @@
     // found by it; another one answering there: its own learned instead)
     const c = { name: n > 0 ? inputName(svsInfo(), n) : q('gdn').value.trim(), url, other: draft.other, svs_input: n, enabled: q('gde').checked,
       mac: draft.mac || '', device: q('gdd').value.trim() };
-    if (!c.name) return status('gdm', 'Which console it is: its name', true);
+    if (!c.name) return status('gdm', 'Pick its console', true);
     const bad = urlProblem(c.url);
     if (bad) return status('gdm', bad, true);
     const list = consoles.slice();
@@ -464,12 +467,13 @@
       '<dialog id=gdlg class=pick aria-labelledby=gdt><form method=dialog class=gdf>' +
       '<div><h3 id=gdt></h3><div id=gds class=small></div></div>' +
       '<label id=gdil>On the SVS<select id=gdi></select></label>' +
-      '<label id=gdnl>The console<input id=gdn maxlength=47 autocomplete=off placeholder="PS1, N64…"></label>' +
-      '<label>Its name<input id=gdd maxlength=47 autocomplete=off placeholder="MemCard PRO2, PS1Digital… (optional)"></label>' +
-      '<label>Its address<input id=gdu class=mono maxlength=120 spellcheck=false autocomplete=off placeholder="192.168.1.50"></label>' +
-      '<div class=small style="margin-top:-6px">A MemCard PRO2 or PRO (its own web page on; on the PRO2, WebUI v2 off), a PS1Digital or an N64Digital: ' +
-      'its IP alone will do. Only http for now.</div>' +
-      '<div id=gdmac class=small></div>' +
+      '<label id=gdnl>Console<select id=gdn></select></label>' +
+      '<fieldset class=gdg><legend>Its gameID device</legend>' +
+      '<div class=small>A MemCard PRO2 or PRO (its own web page on; on the PRO2, WebUI v2 off), a PS1Digital or an N64Digital: what says which game it runs.</div>' +
+      '<label>Address<input id=gdu class=mono maxlength=120 spellcheck=false autocomplete=off placeholder="192.168.1.50"></label>' +
+      '<div class=small style="margin-top:-4px">Its IP alone will do. Only http for now.</div>' +
+      '<label>Name<input id=gdd maxlength=47 autocomplete=off placeholder="To tell it apart (optional)"></label>' +
+      '<div id=gdmac class=small></div></fieldset>' +
       '<fieldset><legend>A game that isn\'t in your games</legend>' +
       '<label class=gdo><input type=radio name=gdo id=gdok><span id=gdokt></span></label>' +
       '<label class=gdo><input type=radio name=gdo id=gdoo><span id=gdoot></span><button type=button id=gdop class=link></button></label></fieldset>' +

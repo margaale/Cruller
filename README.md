@@ -202,7 +202,8 @@ off).
 for. A game a console runs is added from its card in a click, its console with it; a tag per console
 shows its games alone.
 
-Under them, the SVS Bridge (**Unpair** frees Cruller for another bridge) and the recent switches.
+The SVS Bridge it's paired with (**Unpair** frees Cruller for another bridge) and the recent switches
+are in the Debug view.
 More in [GAMEID.md](docs/GAMEID.md) and [SVS.md](docs/SVS.md).
 
 ### Cruller

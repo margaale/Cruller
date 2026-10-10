@@ -66,7 +66,7 @@ bool gameid_consoles_put_json(const char *json, size_t len, const char **why) {
     return ok;
 }
 
-bool gameid_console_found(const char *url, const char *new_url, const char *mac) {
+bool gameid_console_found(const char *url, const char *new_url, const char *mac, const char *device) {
     cfgfs_hold();
     const int n = load();
     bool ok = true, changed = false;
@@ -78,6 +78,10 @@ bool gameid_console_found(const char *url, const char *new_url, const char *mac)
         }
         if (mac && mac[0] && strcmp(consoles[k].mac, mac)) {
             snprintf(consoles[k].mac, sizeof(consoles[k].mac), "%s", mac);
+            changed = true;
+        }
+        if (device && device[0] && !consoles[k].device[0]) { // (a name given stays)
+            snprintf(consoles[k].device, sizeof(consoles[k].device), "%s", device);
             changed = true;
         }
         break;

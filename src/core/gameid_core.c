@@ -278,6 +278,7 @@ bool gameid_read_report(const char *body, size_t len, gameid_report_t *out) {
         if (vi < 0 || !json_str(j, tok, vi, out->id, sizeof(out->id))) return false;
         if (vn >= 0 && !json_str(j, tok, vn, out->name, sizeof(out->name))) out->name[0] = 0;
         if (vm >= 0 && !json_str(j, tok, vm, out->mode, sizeof(out->mode))) out->mode[0] = 0;
+        out->json = true;
         return true;
     }
     // text: one line, printable, short enough to be an ID ("" when the console runs nothing it can tell)
@@ -417,4 +418,12 @@ bool gameid_seek(const gameid_console_t *c, const gameid_seen_t *s, int svs_inpu
         return c->svs_input == 0 && s->kind[0] && svs_device && !strcmp(s->kind, svs_device);
     }
     return c->svs_input == GAMEID_NOT_ON_SVS;
+}
+
+const char *gameid_model(const gameid_report_t *r, const char *kind) {
+    if (r->json) {
+        const char *k = r->mode[0] ? gameid_kind(r->mode, NULL) : "";
+        return !strcmp(k, "ps2") ? "MemCard PRO2" : !strcmp(k, "gamecube") ? "MemCard PRO GC" : !strcmp(k, "ps1") ? "MemCard PRO" : "";
+    }
+    return !kind ? "" : !strcmp(kind, "ps1") ? "PS1Digital" : !strcmp(kind, "n64") ? "N64Digital" : "";
 }

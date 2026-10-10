@@ -113,18 +113,23 @@ static void test_files(void) {
     CHECK(gameid_consoles_get_json(out, sizeof(out)) && !strstr(out, "\"v\"") && strstr(out, "\"name\":\"PS2\""));
     CHECK(!gameid_consoles_put_json("{\"consoles\":[{}]}", 17, &why) && gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1); // refused: kept
     // its MAC, learned: kept by a list without it while its address stays, not when it changes
-    CHECK(gameid_console_found("http://10.10.10.88/api/currentState", NULL, "8c:aa:b5:12:34:56") &&
+    CHECK(gameid_console_found("http://10.10.10.88/api/currentState", NULL, "8c:aa:b5:12:34:56", NULL) &&
           gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 && !strcmp(c[0].mac, "8c:aa:b5:12:34:56"));
     const uint32_t v1 = gameid_version();
-    CHECK(gameid_console_found("http://10.10.10.88/api/currentState", NULL, "8c:aa:b5:12:34:56") && gameid_version() == v1); // the same: not saved again
+    CHECK(gameid_console_found("http://10.10.10.88/api/currentState", NULL, "8c:aa:b5:12:34:56", NULL) && gameid_version() == v1); // the same: not saved again
     const char *renamed = "{\"consoles\":[{\"name\":\"MemCard PRO2\",\"url\":\"http://10.10.10.88/api/currentState\",\"svs_input\":4}]}";
     CHECK(gameid_consoles_put_json(renamed, strlen(renamed), &why) && gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 &&
           !strcmp(c[0].name, "MemCard PRO2") && !strcmp(c[0].mac, "8c:aa:b5:12:34:56"));
     // found elsewhere by it: its address saved
-    CHECK(gameid_console_found("http://10.10.10.88/api/currentState", "http://10.10.10.91/api/currentState", NULL) &&
+    CHECK(gameid_console_found("http://10.10.10.88/api/currentState", "http://10.10.10.91/api/currentState", NULL, NULL) &&
           gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 && !strcmp(c[0].url, "http://10.10.10.91/api/currentState") && !strcmp(c[0].mac, "8c:aa:b5:12:34:56"));
-    CHECK(gameid_console_found("http://10.10.10.1/x", "http://10.10.10.2/x", NULL) && gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 &&
+    CHECK(gameid_console_found("http://10.10.10.1/x", "http://10.10.10.2/x", NULL, NULL) && gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 &&
           !strcmp(c[0].url, "http://10.10.10.91/api/currentState")); // another address: nothing changes
+    // its device's name, when it has none: given by Cruller; one given stays
+    CHECK(gameid_console_found("http://10.10.10.91/api/currentState", NULL, NULL, "MemCard PRO2") && gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 &&
+          !strcmp(c[0].device, "MemCard PRO2"));
+    CHECK(gameid_console_found("http://10.10.10.91/api/currentState", NULL, NULL, "MemCard PRO") && gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 &&
+          !strcmp(c[0].device, "MemCard PRO2"));
     const char *moved = "{\"consoles\":[{\"name\":\"MemCard PRO2\",\"url\":\"http://10.10.10.50/api/currentState\"}]}";
     CHECK(gameid_consoles_put_json(moved, strlen(moved), &why) && gameid_consoles_load(c, GAMEID_CONSOLES_MAX) == 1 && !c[0].mac[0]); // another device, maybe
     CHECK(gameid_consoles_put_json(json, strlen(json), &why));
@@ -244,6 +249,19 @@ static void test_mac(void) {
     CHECK(!gameid_url_moved("http://ps1digital.local/gameid", "10.10.10.91", url, sizeof(url))); // a name stays
     CHECK(!gameid_url_moved("http://10.10.10.88/x", "not.an.ip", url, sizeof(url)) && !gameid_url_moved("http://10.10.10.88/x", "10.10.10.91", url, 12));
 
+    // a name for its device, by how it answered
+    gameid_report_t r = {0};
+    const char *pro2 = "{\"gameID\":\"SCUS-97481\",\"currentMode\":\"PS2\"}";
+    CHECK(gameid_read_report(pro2, strlen(pro2), &r) && r.json && !strcmp(gameid_model(&r, "ps2"), "MemCard PRO2"));
+    snprintf(r.mode, sizeof(r.mode), "GC");
+    CHECK(!strcmp(gameid_model(&r, ""), "MemCard PRO GC"));
+    snprintf(r.mode, sizeof(r.mode), "PS1");
+    CHECK(!strcmp(gameid_model(&r, "ps1"), "MemCard PRO"));
+    r.mode[0] = 0;
+    CHECK(!strcmp(gameid_model(&r, "ps1"), "")); // JSON without its mode: can't be told
+    CHECK(gameid_read_report("SLUS-00594\n", 11, &r) && !r.json && !strcmp(gameid_model(&r, "ps1"), "PS1Digital") &&
+          !strcmp(gameid_model(&r, "n64"), "N64Digital") && !strcmp(gameid_model(&r, ""), "") && !strcmp(gameid_model(&r, NULL), ""));
+
     // looked for: the console the RT4K may be showing, not answering, its MAC known
     gameid_console_t ps2 = {.name = "PS2", .url = "http://a/", .svs_input = 4, .enabled = true, .mac = "8c:aa:b5:12:34:56"};
     gameid_console_t ps1d = {.name = "PS1", .url = "http://b/", .svs_input = GAMEID_NOT_ON_SVS, .enabled = true, .mac = "8c:aa:b5:00:00:01"};
@@ -263,24 +281,24 @@ static void test_mac(void) {
 
 static void test_pick(void) {
     gameid_console_t c[3] = {{"PS2", "http://a/", "", 0, true, "", ""}, {"N64", "http://b/", "", 0, true, "", ""}, {"PS2 two", "http://c/", "", 5, true, "", ""}};
-    gameid_seen_t s[3] = {{true, {"SCUS-97481", "", "PS2"}, "ps2", 10}, {true, {"3E5055B6", "", ""}, "n64", 20}, {false, {"", "", ""}, "", 0}};
+    gameid_seen_t s[3] = {{true, {"SCUS-97481", "", "PS2", false}, "ps2", 10}, {true, {"3E5055B6", "", "", false}, "n64", 20}, {false, {"", "", "", false}, "", 0}};
     CHECK(gameid_pick(c, s, 3, 0, NULL, -1) == 1);        // no SVS: the last that changed
     CHECK(gameid_pick(c, s, 3, 2, "ps2", -1) == 0);       // input 2 is the PS2's: the N64 isn't on screen
     CHECK(gameid_pick(c, s, 3, 3, "n64", -1) == 1);
     CHECK(gameid_pick(c, s, 3, 4, "snes", -1) == -1);     // neither's input
     CHECK(gameid_pick(c, s, 3, 4, "", -1) == 1);          // the input's console not known: both count, the last
-    s[2] = (gameid_seen_t){true, {"SLUS-20946", "", "PS2"}, "ps2", 30};
+    s[2] = (gameid_seen_t){true, {"SLUS-20946", "", "PS2", false}, "ps2", 30};
     CHECK(gameid_pick(c, s, 3, 5, "ps2", -1) == 2 && gameid_pick(c, s, 3, 2, "ps2", -1) == 0); // set to input 5: there only
     s[1].game.id[0] = 0;                                // the N64 runs no game it can tell
     CHECK(gameid_pick(c, s, 3, 0, NULL, -1) == 2);
     c[2].enabled = false;
     CHECK(gameid_pick(c, s, 3, 0, NULL, -1) == 0);
-    s[1] = (gameid_seen_t){true, {"X", "", ""}, "", 40}; // a console whose kind isn't known counts on any input
+    s[1] = (gameid_seen_t){true, {"X", "", "", false}, "", 40}; // a console whose kind isn't known counts on any input
     CHECK(gameid_pick(c, s, 3, 2, "ps2", -1) == 1);
 
     // a console not on the SVS (a PS1Digital on HDMI) next to one on input 2
     gameid_console_t d[2] = {{"PS2", "http://a/", "", 2, true, "", ""}, {"PS1", "http://ps1digital.local/gameid", "", GAMEID_NOT_ON_SVS, true, "", ""}};
-    gameid_seen_t e[2] = {{true, {"SCUS-97481", "", "PS2"}, "ps2", 10}, {true, {"SLUS-00594", "", ""}, "ps1", 20}};
+    gameid_seen_t e[2] = {{true, {"SCUS-97481", "", "PS2", false}, "ps2", 10}, {true, {"SLUS-00594", "", "", false}, "ps1", 20}};
     CHECK(gameid_pick(d, e, 2, 2, "ps2", 1) == 0);  // the RT4K shows the SVS: the PS1 isn't on it, though its game is newer
     CHECK(gameid_pick(d, e, 2, 2, "ps2", 0) == 1);  // it shows another input: the PS1's
     CHECK(gameid_pick(d, e, 2, 2, "ps2", -1) == 0); // not known: as on the SVS (the PS1 isn't a PS2)

@@ -232,15 +232,17 @@ static const char *device_of(int k) {
     return s;
 }
 
-// Console k's gameID device answered at ip: its MAC, saved when it's new (Cruller finds it by it if its
-// address changes).
-static void learn_mac(int k, uint32_t ip) {
+// Console k's gameID device answered (rep) at ip: its MAC, saved when it's new (Cruller finds it by it if
+// its address changes), and a name for it when it has none (gameid_model).
+static void learn(int k, uint32_t ip, const gameid_report_t *rep) {
     uint8_t mac[6];
-    char text[GAMEID_MAC_MAX];
-    if (!arp_mac(ip, mac)) return;
-    gameid_mac_text(mac, text);
-    if (!strcmp(con[k].mac, text)) return;
-    if (gameid_console_found(con[k].url, NULL, text)) printf("gameid: %s: MAC %s\n", device_of(k), text);
+    char text[GAMEID_MAC_MAX] = "";
+    if (arp_mac(ip, mac)) gameid_mac_text(mac, text);
+    const char *mac_new = text[0] && strcmp(con[k].mac, text) ? text : NULL;
+    const char *model = con[k].device[0] ? "" : gameid_model(rep, gameid_kind(rep->mode, con[k].name));
+    if ((!mac_new && !model[0]) || !gameid_console_found(con[k].url, NULL, mac_new, model)) return;
+    if (model[0]) printf("gameid: %s's gameID device: %s\n", con[k].name, model);
+    if (mac_new) printf("gameid: %s: MAC %s\n", model[0] ? model : device_of(k), text);
 }
 
 static void ask_all(void) {
@@ -248,7 +250,7 @@ static void ask_all(void) {
         gameid_report_t rep;
         uint32_t ip = 0;
         const int r = con[k].enabled ? ask(&con[k], &rep, &ip) : -1;
-        if (r > 0) learn_mac(k, ip);
+        if (r > 0) learn(k, ip, &rep);
         xSemaphoreTake(lock, portMAX_DELAY);
         gameid_seen_t *s = &seen[k];
         if (r > 0) {
@@ -444,7 +446,7 @@ static void seek(void) {
         }
         if (!ip) printf("gameid: %s, MAC %s, not found on the network\n", device_of(k), con[k].mac);
         else if (!gameid_url_moved(con[k].url, at, url, sizeof(url)) || !strcmp(url, con[k].url)) printf("gameid: %s found at %s, where it was\n", device_of(k), at);
-        else if (gameid_console_found(con[k].url, url, NULL)) printf("gameid: %s moved to %s (found by its MAC): its address saved\n", device_of(k), at);
+        else if (gameid_console_found(con[k].url, url, NULL, NULL)) printf("gameid: %s moved to %s (found by its MAC): its address saved\n", device_of(k), at);
         return;
     }
 }

@@ -20,9 +20,10 @@ size_t gameid_consoles_get_json(char *out, size_t size);
 // without a MAC keeps the one it had while its address stays.
 bool gameid_consoles_put_json(const char *json, size_t len, const char **why);
 
-// The console at url as gameID found it: its MAC (learned when it answered) or its new address (found by
-// its MAC), either NULL or "" to leave as it is. Saved only when it changes; false when it couldn't be.
-bool gameid_console_found(const char *url, const char *new_url, const char *mac);
+// The console at url as gameID found it: its MAC (learned when it answered), its new address (found by
+// its MAC), its device's name when it has none (by how it answered), each NULL or "" to leave as it is.
+// Saved only when it changes; false when it couldn't be.
+bool gameid_console_found(const char *url, const char *new_url, const char *mac, const char *device);
 
 // The game with this ID, if the gameDB has it (IDs compared as written).
 bool gameid_game_find(const char *id, gameid_game_t *out);
