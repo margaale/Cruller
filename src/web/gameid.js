@@ -347,10 +347,10 @@
 
   async function saveConsole() {
     const n = q('gdil').hidden ? draft.svs_input : +q('gdi').value, url = consoleUrl(q('gdu').value);
-    // the console's name: an input's, its console's; its MAC kept while its address stays (another address
-    // may be another device: learned again)
+    // the console's name: an input's, its console's; its MAC kept, its address changed too (the same device:
+    // found by it; another one answering there: its own learned instead)
     const c = { name: n > 0 ? inputName(svsInfo(), n) : q('gdn').value.trim(), url, other: draft.other, svs_input: n, enabled: q('gde').checked,
-      mac: url === draft.url ? draft.mac || '' : '', device: q('gdd').value.trim() };
+      mac: draft.mac || '', device: q('gdd').value.trim() };
     if (!c.name) return status('gdm', 'Which console it is: its name', true);
     const bad = urlProblem(c.url);
     if (bad) return status('gdm', bad, true);
