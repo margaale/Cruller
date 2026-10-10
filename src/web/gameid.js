@@ -94,6 +94,27 @@
     return m.length === 1 ? m[0] : 0;
   }
 
+  // What a game added for a console (its kind) starts with: the game its gameID says it runs (the one on
+  // screen first), unless your games have it; and the profile: that gameID's for games not in your games,
+  // else its SVS input's own, else the own of an input with that console (the one on screen first). Nothing
+  // from another console's. cs: the consoles, each {kind, other, n (its SVS input, 0 none), on, on_screen,
+  // game, game_name}; sv: {input (on screen), inputs, files}.
+  function suggestion(kind, cs, sv, games) {
+    const r = { id: '', name: '', profile: '' };
+    if (!kind) return r;
+    const mine = cs.filter((c) => c.kind === kind);
+    const runs = mine.find((c) => c.on_screen && c.game) || mine.find((c) => c.on && c.game);
+    if (runs && !games.some((g) => g.id === runs.game)) Object.assign(r, { id: runs.game, name: runs.game_name || '' });
+    const own = (n) => (n > 0 && sv.files[n] ? 'SVS/' + sv.files[n] : '');
+    const ns = sv.inputs.map((p, i) => (p.device === kind ? i + 1 : 0)).filter(Boolean);
+    const c = runs || mine[0];
+    r.profile = (c && (c.other || own(c.n))) || own(ns.includes(sv.input) ? sv.input : ns[0]);
+    return r;
+  }
+
+  // An ID as each console's gameID reports it: the ID field's example.
+  const ID_LIKE = { ps2: 'SCUS-97481', ps1: 'SLUS-00594', n64: '3E5055B6-2E92DA52-N-45' };
+
   const plain = (p) => p.replace(/\.rt[46]$/i, '');
   const same = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
   const ago = (s) => (s < 5 ? 'just now' : s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago');
@@ -131,7 +152,7 @@
   let power = '';
   let filter = '';
   let tag = '';      // your games shown: those of this console ('' all; '-' those for none)
-  let adding = null; // the game being added: {id, name, profile}
+  let adding = null; // the game being added: {id, name, profile, console, typed: {id, name, profile}: yours, not suggested}
   let live = null;   // Cruller's state, as last read
   let liveFail = false;
   let version;       // the consoles' and games' version, as the state last said it (read again when it changes)
@@ -153,6 +174,18 @@
   }
   const inputName = (sv, n) => (sv.inputs[n - 1] && sv.inputs[n - 1].name) || 'Input ' + n;
   const kindOf = (k) => { const l = liveOf(k); return l ? l.kind : ''; };
+  const onScreen = (sv) => (sv.known ? (live ? live.svs_input : sv.input) : 0); // the SVS's input on screen (0 unknown)
+
+  // The consoles as suggestion() takes them: each one's kind (as its device says it, else its SVS input's
+  // console, else its name's), its SVS input and what it runs.
+  function consoleList(sv) {
+    const names = Object.entries(consoleNames());
+    return consoles.map((c, k) => {
+      const l = liveOf(k) || {}, n = inputOf(c, l.kind || '', sv.inputs), byName = names.find(([, s]) => s === c.name);
+      return { kind: l.kind || (n && sv.inputs[n - 1].device) || (byName ? byName[0] : ''), other: c.other, n,
+        on: !!l.on, on_screen: !!l.on_screen, game: l.game || '', game_name: l.game_name || '' };
+    });
+  }
 
   async function api(path, body) {
     const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
@@ -441,9 +474,10 @@
       '<td class=mono>' + esc(g.id) + '</td>' +
       '<td><button type=button class=gidp data-f=profile>' + esc(plain(g.profile)) + '</button></td>' +
       '<td class=act><button type=button class="ib del" data-a=del aria-label="Remove ' + esc(g.name || g.id) + '" title="Remove it">×</button></td></tr>';
-    const add = adding ? '<tr class=new><td><input id=gidan value="' + esc(adding.name) + '" maxlength=47 placeholder="Name" aria-label="Name"></td>' +
+    const add = adding ? '<tr class=new><td><input id=gidan value="' + esc(adding.name) + '" maxlength=47 placeholder="Name" autocomplete=off aria-label="Name"></td>' +
       '<td>' + consoleSelect('id=gidac', adding.console) + '</td>' +
-      '<td class=mono><input id=gidai value="' + esc(adding.id) + '" maxlength=63 placeholder="Its ID (SCUS-97481)" spellcheck=false aria-label="ID"></td>' +
+      '<td class=mono><input id=gidai value="' + esc(adding.id) + '" maxlength=63 placeholder="' + (ID_LIKE[adding.console] ? 'Its ID (' + ID_LIKE[adding.console] + ')' : 'Its ID, as its gameID says it') +
+      '" spellcheck=false autocomplete=off aria-label="ID"></td>' +
       '<td><button type=button class=gidp id=gidap title="Pick another">' + (adding.profile ? esc(plain(adding.profile)) : '<span class=gidn>Pick its profile…</span>') + '</button>' +
       (adding.profile ? '<button type=button class="ib del" id=gidapx aria-label="Not this profile" title="Not this one">×</button>' : '') + '</td>' +
       '<td class=act><button type=button class=primary id=gidas>Add</button><button type=button id=gidax>Cancel</button></td></tr>' : '';
@@ -478,19 +512,39 @@
     }
   }
 
-  // A game to add (its ID and name from what's on screen or a console), its profile next.
-  // A game to add (its ID and name from what's on screen or a console), its profile next: at first its
-  // console's for games not in your games, else its SVS input's own (n; none given: the input on screen).
+  // A game to add, from a console's card (its game, its console, its gameID's profile for games not in your
+  // games, else its SVS input's own: n), or from scratch: for the console on screen, what suggestion() says
+  // (a console it can't tell: the SVS input on screen's own profile).
   function startAdding(g, n) {
-    const sv = svsInfo(), input = n || (sv.known ? (live ? live.svs_input : sv.input) : 0);
-    const own = input > 0 && sv.files[input] ? 'SVS/' + sv.files[input] : '';
-    adding = { id: g.id || '', name: g.name || '', profile: g.profile || own, console: g.console || '' };
+    const sv = svsInfo();
+    if (!g) {
+      const cs = consoleList(sv), c = cs.find((x) => x.on_screen && x.kind), input = onScreen(sv);
+      const kind = c ? c.kind : input > 0 && sv.inputs[input - 1] ? sv.inputs[input - 1].device : '';
+      g = { ...suggestion(kind, cs, { ...sv, input }, games), console: kind };
+      if (!kind) n = input;
+    }
+    const own = n > 0 && sv.files[n] ? 'SVS/' + sv.files[n] : '';
+    adding = { id: g.id || '', name: g.name || '', profile: g.profile || own, console: g.console || '', typed: {} };
     filter = '';
     tag = '';
     q('gidq').value = '';
     renderGames();
     q('ggam').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     q(adding.id ? (adding.profile ? 'gidas' : 'gidap') : 'gidai').focus();
+  }
+
+  // The game being added is for another console now: what was suggested is that console's instead (an ID,
+  // a name or a profile you typed or picked stays; a suggested one may go, with nothing in its place).
+  function changeConsole(kind) {
+    const sv = svsInfo(), s = suggestion(kind, consoleList(sv), { ...sv, input: onScreen(sv) }, games), t = adding.typed;
+    adding.console = kind;
+    if (!t.id || !adding.id.trim()) {
+      adding.id = s.id;
+      if (!t.name || !adding.name.trim()) adding.name = s.name;
+    }
+    if (!t.profile || !adding.profile) adding.profile = s.profile;
+    renderGames();
+    q('gidac').focus();
   }
 
   // --- the view -------------------------------------------------------------------------------------
@@ -546,14 +600,14 @@
     q('gdsv').onclick = saveConsole;
     q('gdr').onclick = removeConsole;
 
-    q('gidga').onclick = () => startAdding({});
+    q('gidga').onclick = () => startAdding(null);
     q('gidq').oninput = () => { filter = q('gidq').value; renderGames(); };
     q('gidtags').onclick = (ev) => {
       const b = ev.target.closest('button[data-tag]');
       if (b) { tag = b.dataset.tag; renderGames(); }
     };
     q('gidgt').onchange = (ev) => {
-      if (ev.target.id === 'gidac') { adding.console = ev.target.value; return; } // (the game being added)
+      if (ev.target.id === 'gidac') { changeConsole(ev.target.value); return; } // (the game being added)
       const el = ev.target.closest('[data-f]'), tr = ev.target.closest('tr[data-id]');
       if (!el || !tr) return;
       const g = games.find((x) => x.id === tr.dataset.id);
@@ -562,15 +616,15 @@
     };
     q('gidgt').oninput = (ev) => { // the game being added: kept as typed
       if (!adding) return;
-      if (ev.target.id === 'gidan') adding.name = ev.target.value;
-      if (ev.target.id === 'gidai') adding.id = ev.target.value;
+      if (ev.target.id === 'gidan') { adding.name = ev.target.value; adding.typed.name = true; }
+      if (ev.target.id === 'gidai') { adding.id = ev.target.value; adding.typed.id = true; }
     };
     q('gidgt').onclick = async (ev) => {
       const b = ev.target.closest('button');
       if (!b) return;
       if (b.id === 'gidap') {
         const p = await pickProfile(adding.profile);
-        if (p) { adding.profile = p; renderGames(); }
+        if (p) { adding.profile = p; adding.typed.profile = true; renderGames(); }
       } else if (b.id === 'gidapx') {
         adding.profile = '';
         renderGames();
@@ -622,5 +676,5 @@
   window.gidStatus = onStatus;
   window.gidSvs = renderLive; // app.js: the switch as the bridge said it now (the cards may be new)
   window.gidAway = () => away; // app.js: the RT4K's input while it shows another than the SVS's ('' none)
-  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, deviceModel, liveText, inputOf, loadedNow }; // tests/test_gameid_page.js
+  window.gameidInternals = { consoleUrl, shortUrl, urlProblem, profileOk, filterGames, gameTags, readGame, deviceModel, liveText, inputOf, suggestion, loadedNow }; // tests/test_gameid_page.js
 })();

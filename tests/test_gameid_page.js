@@ -101,5 +101,22 @@ check(r.k === 1 && r.why === 'From your games' && !r.more && r.tone === 'ok', 'p
 r = g.loadedNow(state({ consoles: [Object.assign({}, ps2, { on_screen: false }), ps1d], rt4k_input: 'HDMI', on_svs: false }), sv, 'on');
 check(r === null, 'another input, nothing on it');
 
+// A game added for a console: what its gameID runs and its profile, nothing from another console's.
+const svIn = { input: 4, inputs, files: { 1: 'S1_PS1.rt4', 2: 'S2_Genesis.rt4', 4: 'S4_PS2.rt4' } };
+const cs = [
+  { kind: 'ps2', other: '', n: 4, on: true, on_screen: true, game: 'SCUS-97481', game_name: 'God of War II' },
+  { kind: 'n64', other: 'N64/Default.rt4', n: 0, on: true, on_screen: false, game: '3E5055B6-2E92DA52-N-45', game_name: '' },
+  { kind: 'ps1', other: '', n: 0, on: false, on_screen: false, game: '', game_name: '' },
+];
+const sug = (kind, c, have, s) => JSON.stringify(g.suggestion(kind, c || cs, s || svIn, have || []));
+check(sug('ps2') === '{"id":"SCUS-97481","name":"God of War II","profile":"SVS/S4_PS2.rt4"}', 'the one on screen: its game, its input\'s own: ' + sug('ps2'));
+check(sug('ps2', null, [{ id: 'SCUS-97481' }]) === '{"id":"","name":"","profile":"SVS/S4_PS2.rt4"}', 'its game in your games already: not suggested');
+check(sug('n64') === '{"id":"3E5055B6-2E92DA52-N-45","name":"","profile":"N64/Default.rt4"}', 'another console: its game, its gameID\'s profile, none of the PS2\'s: ' + sug('n64'));
+check(sug('ps1') === '{"id":"","name":"","profile":"SVS/S1_PS1.rt4"}', 'off: no game; the input with its console\'s own: ' + sug('ps1'));
+check(sug('megadrive') === '{"id":"","name":"","profile":"SVS/S2_Genesis.rt4"}' && sug('saturn') === '{"id":"","name":"","profile":""}', 'no gameID: its input\'s own, or nothing');
+check(sug('') === '{"id":"","name":"","profile":""}', 'no console: nothing');
+const twoPs1 = { input: 5, inputs: inputs.concat([{ name: 'PS1', device: 'ps1' }]), files: { 1: 'S1_PS1.rt4', 5: 'S5_PS1.rt4' } };
+check(sug('ps1', [], null, twoPs1) === '{"id":"","name":"","profile":"SVS/S5_PS1.rt4"}', 'two inputs with its console: the one on screen\'s');
+
 console.log(failures ? `gameid.js: ${failures} of ${checks} checks failed` : `gameid.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);
