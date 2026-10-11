@@ -10,5 +10,9 @@ typedef pico_sha256_state_t plat_sha256_t;
 
 #define PLAT_STACK(words) (words)
 
+// RAM that startup doesn't clear (kept across resets), and a function that runs from RAM.
+#define PLAT_NOINIT(name)  __uninitialized_ram(name)
+#define PLAT_RAMFUNC(name) __not_in_flash_func(name)
+
 // The firmware index's name for this platform (which image it takes: a .uf2).
 #define PLAT_NAME "rp2"

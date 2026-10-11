@@ -15,7 +15,7 @@
 #include "pico/platform.h"
 #include "pico/time.h"
 
-#include "health.h"
+#include "health_rp2.h"
 #include "json.h"
 
 #define PERIOD_US    250000u

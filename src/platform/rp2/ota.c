@@ -15,6 +15,7 @@
 #include "flash_ops.h"
 #include "platform_reboot.h"
 #include "health.h"
+#include "health_rp2.h"
 
 static struct {
     uint8_t block[512];      // UF2 block being assembled
@@ -206,6 +207,7 @@ void ota_confirm_if_trial(void) {
     const int ret = rom_explicit_buy(rom_workarea, sizeof(rom_workarea));
     rom_unpin(affinity);
     printf("ota: update confirmed (explicit buy %d)\n", ret);
+    health_rearm_watchdog(); // the buy stops it
 }
 
 int ota_boot_partition(void) {

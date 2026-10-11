@@ -1,36 +1,11 @@
 get_filename_component(CRULLER_ROOT ${COMPONENT_DIR}/../../../.. ABSOLUTE)
 set(CORE ${CRULLER_ROOT}/src/core)
+include(${CORE}/core.cmake) # (CRULLER_CORE_SOURCES)
 
 idf_component_register(
     SRCS
-        ${CORE}/buttons.c
-        ${CORE}/cfgfs.c
-        ${CORE}/clients.c
-        ${CORE}/console.c
-        ${CORE}/console_core.c
-        ${CORE}/creds.c
-        ${CORE}/gameid.c
-        ${CORE}/gameid_core.c
-        ${CORE}/gameid_run.c
-        ${CORE}/http.c
-        ${CORE}/json.c
-        ${CORE}/ota_fetch.c
-        ${CORE}/ota_fetch_proto.c
-        ${CORE}/power.c
-        ${CORE}/power_core.c
-        ${CORE}/rfc2217.c
-        ${CORE}/rfc2217_proto.c
-        ${CORE}/rt4k_info.c
-        ${CORE}/rt4k_info_core.c
+        ${CRULLER_CORE_SOURCES}
         ${CORE}/rt4k_stub.c # the RT4K's USB host comes next
-        ${CORE}/rtl1.c
-        ${CORE}/rtl1_core.c
-        ${CORE}/settings.c
-        ${CORE}/svs.c
-        ${CORE}/svs_proto.c
-        ${CORE}/version.c
-        ${CORE}/ws.c
-        ${CORE}/ws_proto.c
         ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
         ${CRULLER_ROOT}/third_party/littlefs/lfs.c
         ${CRULLER_ROOT}/third_party/littlefs/lfs_util.c

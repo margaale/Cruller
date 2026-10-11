@@ -6,10 +6,17 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+// Each board's: sends stdout to the ring (log_ring_init(), then log_ring_write()).
 void log_init(void);
+
+// The ring (log_ring.c), for log_init(): carries on with the ring a reset kept (saying so, and whether
+// the reset was soft: a watchdog's or a restart) or starts it over.
+void log_ring_init(bool soft_reset);
+void log_ring_write(const char *buf, size_t len);
 
 // Copies log text written after *pos into out (up to max bytes) and advances *pos. Returns the
 // number of bytes copied. If *pos is older than what the ring still holds, it skips ahead.

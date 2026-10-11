@@ -228,7 +228,7 @@ void tuh_cdc_ftdi_status_cb(uint8_t idx, uint8_t modem_status, uint8_t line_stat
         if (!trace_stop_at) trace_stop_at = trace_head + 64;
 #endif
         ftdi_stats.overruns++;
-        ftdi_stats.last_overrun_ms = to_ms_since_boot(get_absolute_time());
+        ftdi_stats.last_overrun_ms = plat_ms();
         gap_stats.overrun_us = last_rearm_lat_us; // the re-arm before the data that shows the loss
         if (last_rearm_lat_us > gap_stats.max_overrun_us) gap_stats.max_overrun_us = last_rearm_lat_us;
     }
@@ -370,9 +370,9 @@ bool rt4k_send_command(const char *cmd) {
     char line[CMD_MAX + 4];
     const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     if (n < 0 || n >= (int)sizeof(line)) return false;
-    const uint32_t t0 = to_ms_since_boot(get_absolute_time());
+    const uint32_t t0 = plat_ms();
     const bool locked = rt4k_link_lock(2000); // waits for a running rtl1 transfer
-    const uint32_t waited = to_ms_since_boot(get_absolute_time()) - t0;
+    const uint32_t waited = plat_ms() - t0;
     cmd_stats.last_wait_ms = waited;
     if (waited > cmd_stats.max_wait_ms) cmd_stats.max_wait_ms = waited;
     if (!locked) {
@@ -382,14 +382,14 @@ bool rt4k_send_command(const char *cmd) {
     const bool ok = rt4k_write(line, (size_t)n);
     rt4k_link_unlock();
     cmd_stats.sent++;
-    last_cmd_ms = to_ms_since_boot(get_absolute_time());
+    last_cmd_ms = plat_ms();
     if (ok && !strcmp(cmd, "pwr on")) power_woken();
     return ok;
 }
 
 
 uint32_t rt4k_ms_since_command(void) {
-    return to_ms_since_boot(get_absolute_time()) - last_cmd_ms;
+    return plat_ms() - last_cmd_ms;
 }
 
 void rt4k_debug(char *out, size_t size) {

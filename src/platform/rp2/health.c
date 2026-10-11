@@ -1,11 +1,11 @@
 #include "health.h"
+#include "health_rp2.h"
 
 #include <stdio.h>
 #include <string.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "semphr.h"
 #include "timers.h"
 #include "hardware/adc.h"
 #include "hardware/regs/addressmap.h"
@@ -15,37 +15,14 @@
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
-#include "lwip/icmp.h"
-#include "lwip/inet_chksum.h"
-#include "lwip/netif.h"
-#include "lwip/prot/ip4.h"
-#include "lwip/raw.h"
 
 #include "log.h"
-#include "net.h"
+#include "platform.h"
 
 #define WDT_TIMEOUT_MS    8000
 #define WDT_FEED_MS       1000
 #define WDT_TASK_PRIORITY (tskIDLE_PRIORITY + 2) // with the busy tasks (http, ws): time slicing gives it
                                                  // a turn; at 1 an OTA upload starved it for ~4 s
-
-// The network can die while everything else keeps running (seen with heavy USB host traffic: OTA
-// flash writes, RTL1 bursts): the board is then unreachable but not hung, and asking the CYW43 for
-// its RSSI still worked. What counts is traffic, so the gateway is pinged; once it has answered
-// (some routers ignore pings), going NET_DEAD_MS without a reply stops feeding the watchdog.
-// TODO: make these configurable (settings) once there is a settings store.
-#define PING_PERIOD_MS    2000
-#define NET_DEAD_MS       10000  // ~5 unanswered pings
-#define PING_ID           0xC3u
-
-static volatile uint32_t last_reply_ms; // 0 = the gateway has never answered
-static struct raw_pcb *ping_pcb;
-static SemaphoreHandle_t ping_gate; // held by the ping task while it uses lwIP
-static uint16_t ping_seq;
-
-static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
-}
 
 static volatile uint32_t last_feed_ms;
 volatile uint32_t health_feed_us; // the same, in timer microseconds, for the freeze recorder's ISR
@@ -56,7 +33,7 @@ static volatile bool armed;     // our watchdog is in charge (not during a TBYB 
 // before the watchdog resets the board (the log survives the reset).
 static void starve_check(TimerHandle_t t) {
     (void)t;
-    const uint32_t late = now_ms() - last_feed_ms;
+    const uint32_t late = plat_ms() - last_feed_ms;
     if (!armed || !last_feed_ms || late < 3000) return;
     char line[96];
     snprintf(line, sizeof(line), "\n*** watchdog not fed for %lu ms; core0=%s core1=%s\n", (unsigned long)late,
@@ -67,82 +44,14 @@ static void starve_check(TimerHandle_t t) {
 static void wdt_task(void *param) {
     (void)param;
     for (;;) {
-        const uint32_t last = last_reply_ms;
-        if (last && net_state() != NET_PORTAL && now_ms() - last > NET_DEAD_MS) {
-            printf("health: no reply from the gateway for %u s, letting the watchdog reset\n", NET_DEAD_MS / 1000);
-            vTaskDelete(NULL);
-        }
+        if (health_net_dead()) vTaskDelete(NULL);
         // watchdog_update() reloads the counter with our 8 s: it would postpone a reboot that
         // rom_reboot()/watchdog_reboot() scheduled on the same watchdog, forever.
         if (armed && !rebooting) watchdog_update();
-        last_feed_ms = now_ms();
+        last_feed_ms = plat_ms();
         health_feed_us = timer_hw->timerawl;
         vTaskDelay(pdMS_TO_TICKS(WDT_FEED_MS));
     }
-}
-
-// lwIP (tcpip thread): take our echo replies, pass everything else on.
-static u8_t ping_recv(void *arg, struct raw_pcb *pcb, struct pbuf *p, const ip_addr_t *addr) {
-    (void)arg;
-    (void)pcb;
-    (void)addr;
-    if (p->tot_len >= PBUF_IP_HLEN + sizeof(struct icmp_echo_hdr) && pbuf_remove_header(p, PBUF_IP_HLEN) == 0) {
-        const struct icmp_echo_hdr *echo = p->payload;
-        if (ICMPH_TYPE(echo) == ICMP_ER && echo->id == PING_ID) {
-            last_reply_ms = now_ms() | 1; // never 0
-            pbuf_free(p);
-            return 1;
-        }
-        pbuf_add_header(p, PBUF_IP_HLEN);
-    }
-    return 0;
-}
-
-static void ping_gateway(void) {
-    if (!netif_default || !netif_is_link_up(netif_default) || ip4_addr_isany_val(*netif_ip4_gw(netif_default))) return;
-    struct pbuf *p = pbuf_alloc(PBUF_IP, sizeof(struct icmp_echo_hdr), PBUF_RAM);
-    if (!p) return;
-    struct icmp_echo_hdr *echo = p->payload;
-    ICMPH_TYPE_SET(echo, ICMP_ECHO);
-    ICMPH_CODE_SET(echo, 0);
-    echo->id = PING_ID;
-    echo->seqno = lwip_htons(++ping_seq);
-    echo->chksum = 0;
-    echo->chksum = inet_chksum(echo, sizeof(*echo));
-    ip_addr_t gw;
-    ip_addr_copy_from_ip4(gw, *netif_ip4_gw(netif_default));
-    raw_sendto(ping_pcb, p, &gw);
-    pbuf_free(p);
-}
-
-static void ping_task(void *param) {
-    (void)param;
-    cyw43_arch_lwip_begin();
-    ping_pcb = raw_new(IP_PROTO_ICMP);
-    if (ping_pcb) {
-        raw_recv(ping_pcb, ping_recv, NULL);
-        raw_bind(ping_pcb, IP_ADDR_ANY);
-    }
-    cyw43_arch_lwip_end();
-    if (!ping_pcb) {
-        printf("health: no raw pcb, network check off\n");
-        vTaskDelete(NULL);
-    }
-    for (;;) {
-        xSemaphoreTake(ping_gate, portMAX_DELAY);
-        cyw43_arch_lwip_begin();
-        ping_gateway();
-        cyw43_arch_lwip_end();
-        xSemaphoreGive(ping_gate);
-        vTaskDelay(pdMS_TO_TICKS(PING_PERIOD_MS));
-    }
-}
-
-void health_stop_net_probe(void) {
-    // Keep the gate: the ping task then never touches lwIP/CYW43 again, which matters once
-    // cyw43_arch_deinit() has torn the async context down (it crashed the reboot into an update).
-    if (ping_gate) xSemaphoreTake(ping_gate, pdMS_TO_TICKS(100));
-    last_reply_ms = 0; // and don't count the missing replies against us
 }
 
 void health_start(bool trial) {
@@ -155,9 +64,7 @@ void health_start(bool trial) {
         printf("health: trial boot, the boot ROM's watchdog is in charge until confirmed\n");
         return;
     }
-    // pause_on_debug: a debugger halting the cores doesn't reset the board.
-    watchdog_enable(WDT_TIMEOUT_MS, true);
-    armed = true;
+    health_rearm_watchdog();
     printf("health: watchdog %u ms\n", WDT_TIMEOUT_MS);
 }
 
@@ -166,13 +73,8 @@ void health_stop_feeding(void) {
 }
 
 void health_rearm_watchdog(void) {
-    watchdog_enable(WDT_TIMEOUT_MS, true);
+    watchdog_enable(WDT_TIMEOUT_MS, true); // pause_on_debug: a debugger halting the cores doesn't reset the board
     armed = true;
-}
-
-void health_start_net_probe(void) {
-    ping_gate = xSemaphoreCreateMutex();
-    xTaskCreate(ping_task, "ping", 512, NULL, WDT_TASK_PRIORITY, NULL);
 }
 
 // --- sensors (health.h) --------------------------------------------------------------------------
@@ -264,24 +166,6 @@ size_t health_sensor_samples(uint32_t *seq, health_sample_t *out, size_t max) {
     for (uint32_t k = from; k != newest; k++) out[n++] = samples[k % SAMPLE_RING];
     *seq = newest;
     return n;
-}
-
-// --- self-test ---------------------------------------------------------------------------------
-// Freezes the network the way the real failures look (lwIP/CYW43 lock held, CPU fine) and lets go
-// after `seconds`. With a working check the watchdog resets the board first.
-
-static void wedge_task(void *param) {
-    const uint32_t seconds = (uint32_t)(uintptr_t)param;
-    printf("health: self-test, holding the network lock for %lu s\n", (unsigned long)seconds);
-    cyw43_arch_lwip_begin();
-    vTaskDelay(pdMS_TO_TICKS(seconds * 1000));
-    cyw43_arch_lwip_end();
-    printf("health: self-test released the network lock (watchdog did NOT fire)\n");
-    vTaskDelete(NULL);
-}
-
-void health_wedge_network(uint32_t seconds) {
-    xTaskCreate(wedge_task, "wedge", 256, (void *)(uintptr_t)seconds, tskIDLE_PRIORITY + 2, NULL);
 }
 
 // --- self-test of the fault reports ------------------------------------------------------------
