@@ -20,7 +20,7 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 ![Live screen: the RT4K's menu mirrored live, its remote, and the serial console](docs/images/live-screen.png)
 
 > [!NOTE]
-> Cruller is young: every release so far is an alpha. Automatic game profiles (gameID) are next.
+> Cruller is young: every release so far is an alpha.
 
 ## Features
 
@@ -34,9 +34,13 @@ web page over Wi-Fi, so the scaler can live behind the TV and still be managed f
 - **The SD card, over the network**: browse it, download, upload, make folders, rename and delete;
   in `/profile`, load a profile with a click or open it in the profile editor, the loaded one marked;
   tick several to edit them together.
+- **A profile editor**: the RT4K's profiles edited in the browser, laid out as its menus and each
+  setting shown as its OSD shows it, per input mode and sample rate. Several open at once, edited
+  together with Multi Edit, saved where they are on the SD card or downloaded.
 - **Power state**: on, starting or standby, followed without waking the RT4K.
 - **Each game its own profile (gameID)**: a MemCard PRO2 or PRO, a PS1Digital or an N64Digital says
-  which game runs, and the profile you gave it loads.
+  which game runs, and the profile you gave it loads, for the console on the SVS's input on screen
+  or one straight to the RT4K. Your games are listed by console, added from a console in a click.
 - **Your SVS switch**: with an [SVS Bridge](https://github.com/margaale/svs-bridge), the input on
   screen and the console on each input, each input's profile picked from the RT4K's `/profile/SVS`
   (its `S<n>_….rt4`, which it loads with Auto Load SVS), and the gameID on it.
@@ -57,14 +61,15 @@ flowchart LR
     ha["Home Assistant<br/>or scripts"] -- "/api/v1" --> cruller
     pyserial["pyserial"] <-- "RFC 2217" --> cruller
     bridge["SVS Bridge"] -- "active input" --> cruller
+    gameid["MemCard PRO2, PRO,<br/>PS1Digital, N64Digital"] -- "which game runs" --> cruller
     cruller["Cruller<br/>(Pico 2 W)"] <-- "USB, 2 Mbaud" --> rt4k["RetroTINK 4K"]
 ```
 
-Everything on the left reaches Cruller over your Wi-Fi. The RT4K's USB-C port is an FTDI FT232R
-serial adapter: Cruller is the USB host on the Pico's micro-USB port and talks to it at 2 Mbaud
-with RTS/CTS flow control. Over that line go the RT4K's text console and, since RT4K firmware 1.75,
-its binary transfers (the on-screen menu, files), which Cruller implements as described in
-[docs/RTL1.md](docs/RTL1.md).
+Everything on the left reaches Cruller over your Wi-Fi; Cruller asks the gameID devices which game
+runs, every 2 s. The RT4K's USB-C port is an FTDI FT232R serial adapter: Cruller is the USB host on
+the Pico's micro-USB port and talks to it at 2 Mbaud with RTS/CTS flow control. Over that line go the
+RT4K's text console and, since RT4K firmware 1.75, its binary transfers (the on-screen menu, files),
+which Cruller implements as described in [docs/RTL1.md](docs/RTL1.md).
 
 ## What you need
 
@@ -74,8 +79,8 @@ its binary transfers (the on-screen menu, files), which Cruller implements as de
   USB-A to USB-C cable from the adapter to the RT4K.
 - A 2.4 GHz Wi-Fi network (the Pico 2 W has no 5 GHz radio).
 - Optional: an [SVS](https://scalablevideoswitch.com/) with an
-  [SVS Bridge](https://github.com/margaale/svs-bridge), and
-  [Home Assistant](https://www.home-assistant.io/).
+  [SVS Bridge](https://github.com/margaale/svs-bridge); for gameID, a MemCard PRO2 or PRO, a
+  PS1Digital or an N64Digital on your network; and [Home Assistant](https://www.home-assistant.io/).
 
 The releases also carry an ESP32-S3 build (ESP32-S3-DevKitC-1 N16R8), but that port has no RT4K
 link yet.
@@ -192,16 +197,24 @@ picked from the RT4K's `/profile/SVS` (with "Auto Load SVS" on, the RT4K itself 
 
 **gameID**: a console that reports which game it runs (a MemCard PRO2 or PRO, a PS1Digital, an
 N64Digital) can have each game load its own profile. Under an input, **Add a MemCard or Digital**
-takes its address on your network (a MemCard's IP alone will do). Cruller asks it every 2 s, and
-while that input is on screen its game's profile loads, 3 s after the input's own; a game not in your
-games keeps the input's, or loads another profile you pick for those. A console not on the SVS, or
-any without an SVS, is added the same way. A MemCard PRO2 answers with its own web page on (WebUI v2
-off).
+takes the device's address on your network (a MemCard's IP alone will do) and a name for it, which
+Cruller suggests from its answer ("MemCard PRO2"). Cruller asks it every 2 s, and while that input is
+on screen its game's profile loads, 3 s after the input's own; a game not in your games keeps the
+input's, or loads another profile you pick for those. Its card shows the device by its name, with its
+MAC: Cruller learns it and, when the device's address changes, finds it again on your network by
+itself. A MemCard PRO2 answers with its own web page on (WebUI v2 off).
+
+**Not on the SVS**: a console straight to the RT4K (a PS1Digital or an N64Digital on HDMI, say) is
+added from **A console that isn't on the SVS? Add it**, with its console picked from a list. Its game's
+profile loads while the RT4K shows another input than the SVS's. Without an SVS, every console is added
+there.
 
 **Your games**: each game's ID with its profile, picked from the RT4K's SD card, and the console it's
-for. A game a console runs is added from its card in a click, its console with it; a tag per console
-shows its games alone. A game added starts with what its console suggests: the game its gameID runs
-and that console's profile (its gameID's, else its SVS input's), never another console's.
+for; a tag per console shows its games alone. A game a console runs is added from its card in a click,
+its console with it; **Add a game** starts on the console on screen. Either way the game and the
+profile suggested are the console's own (its gameID's profile for games not in your games, else its
+SVS input's), and picking another console suggests that one's instead. Your consoles come first in
+its list.
 
 The SVS Bridge it's paired with (**Unpair** frees Cruller for another bridge) and the recent switches
 are in the Debug view.
@@ -223,7 +236,8 @@ More in [GAMEID.md](docs/GAMEID.md) and [SVS.md](docs/SVS.md).
   release only sees releases; one running an alpha also sees alphas.
 
 The **Debug** tab has live charts and counters (serial link, command queue, memory, the screen
-mirror, tasks), and the logs.
+mirror, tasks), the logs, the SVS Bridge Cruller is paired with and the recent switches. Pre-releases
+add the developer tools there (raw serial bytes, the USB trace, fault tests); releases leave them out.
 
 ### Home Assistant and scripts
 
@@ -272,8 +286,10 @@ curl -X POST http://cruller.local/api/v1/command -d '{"command": "ver"}'
 
 If a command couldn't be sent (the RT4K isn't connected), `ok` is `false` and the answer is a
 `503`. `GET /api/v1/state` returns the RT4K's power state and Cruller's own, `GET /api/v1/events`
-pushes it over a WebSocket as it changes, and `GET /api/v1/info` says who this Cruller is. The API is versioned: a script written for
-`/api/v1` keeps working as Cruller changes. All of it is in [docs/API.md](docs/API.md).
+pushes it over a WebSocket as it changes, and `GET /api/v1/info` says who this Cruller is.
+`/api/v1/gameid` reads and changes gameID's consoles and your games, and says what each console runs
+and which profile it loaded. The API is versioned: a script written for `/api/v1` keeps working as
+Cruller changes. All of it is in [docs/API.md](docs/API.md).
 
 **Discovery.** Cruller announces itself over mDNS as `_rt4k._tcp` (TXT `id`, `ver`, `api`: the API's
 version, and `name` once named), `_rfc2217._tcp` and `_http._tcp`.
@@ -286,8 +302,9 @@ ports to the internet.
 
 ## Factory reset
 
-In the page, go to **Cruller** → **Factory reset**. Cruller forgets its Wi-Fi network, its name and
-its SVS Bridge, and restarts into the setup network. The installed firmware stays.
+In the page, go to **Cruller** → **Factory reset**. Cruller forgets its Wi-Fi network, its name, its
+SVS Bridge, and gameID's consoles and your games, and restarts into the setup network. The installed
+firmware stays.
 
 If you can't reach the page at all, erase the Pico (hold BOOTSEL while plugging it in, then
 `picotool erase`, or Raspberry Pi's `flash_nuke.uf2` from
@@ -328,7 +345,8 @@ Cruller's patches to that TinyUSB checkout (`src/platform/rp2/patches/tinyusb`),
 edits there when the patches change.
 
 The build goes to `build/rp2`: `cruller.uf2` is the OTA image and `cruller-factory.uf2` installs a
-new board. To install a build on a board on your network:
+new board. The page is embedded gzipped; CI minifies it first (`scripts/minify-web.sh`), a local build
+embeds it as it is. To install a build on a board on your network:
 
 ```bash
 curl --data-binary @build/rp2/cruller.uf2 http://cruller.local/update
@@ -350,28 +368,32 @@ requests keep the tools.
 ### Tests
 
 The pure parts of `src/core` (the RTL1 engine, WebSocket framing, power state, the RFC 2217
-parser, the console's reply windows, the SVS Bridge's reports, the GitHub download's URLs) and the
-page's JavaScript (the firmware updater, the SD card view) are tested on the host, with no Pico:
+parser, the console's reply windows, the SVS Bridge's reports, the GitHub download's URLs, gameID's
+consoles, games and choices, the files they're kept in, JSON) and the page's JavaScript (the firmware
+updater, the SD card view, the profiles, the settings map and the profile editor, the Consoles view)
+are tested on the host, with no Pico:
 
 ```bash
 tests/run.sh
 ```
 
-It needs gcc, and Node.js for the page's tests.
+It needs gcc, and Node.js for the page's tests. CI runs the page's tests on the minified page too.
 
 ### Source layout
 
 ```
 src/core/            The common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS,
-                     settings, firmware downloads), and the interfaces each board implements
+                     gameID, settings and files, firmware downloads), and the interfaces each
+                     board implements
 src/platform/rp2/    The Raspberry Pi Pico 2 W: startup, Wi-Fi and the setup portal, the RT4K's
-                     USB host, flash (A/B slots, settings), watchdog
+                     USB host, flash (A/B slots, settings, littlefs), watchdog
 src/platform/esp32/  The ESP32-S3 port, an ESP-IDF project (no RT4K link yet)
-src/web/             The page, embedded as C arrays at build time (its JavaScript minified in CI)
+src/web/             The page, embedded gzipped as C arrays at build time (minified in CI)
 tests/               Host tests of src/core and the page
 scripts/             build.sh, tls_roots.sh for the Pico's HTTPS roots, minify-web.sh for the
-                     page's JavaScript in the CI's images
-docs/                DESIGN.md, RTL1.md (the RT4K's binary protocol), SVS.md (the SVS Bridge)
+                     page in the CI's images
+docs/                DESIGN.md, API.md (the HTTP API), RTL1.md (the RT4K's binary protocol),
+                     SVS.md (the SVS Bridge), GAMEID.md (gameID)
 ```
 
 The layout matches the [SVS Bridge](https://github.com/margaale/svs-bridge).
@@ -427,6 +449,19 @@ other slot, and the boot ROM starts it on trial: Cruller confirms it once it's u
 gets there, the watchdog sends the board back to the previous slot. That's also why every build
 needs a higher version than the last: the version's minor number carries CI's run number. See
 [docs/DESIGN.md](docs/DESIGN.md#ota-cruller-to-cruller).
+
+</details>
+
+<details>
+<summary><b>gameID: which console, which profile</b></summary>
+
+With an SVS, a console counts while its input is on screen; one not on the SVS, while the RT4K shows
+another input (Cruller reads the RT4K's input with a bare `input`, which doesn't change it). The last
+console whose game changed wins. Its game's profile loads with `prof load`, which the RT4K confirms,
+3 s after the input's own, and never overwrites the SVS's `S1`…`S8`. With the RT4K asleep, it waits
+and loads once it's on. The consoles and your games are files in littlefs (on the Pico, its data
+partition), your games a line each, so up to 1000 never sit in RAM whole. See
+[docs/GAMEID.md](docs/GAMEID.md).
 
 </details>
 
