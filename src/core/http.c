@@ -324,26 +324,41 @@ static const char *state_name(net_state_t s) {
 }
 
 // Debug: GET /debug/tasks: where the ws/mirror tasks are and the link counters; with ?stacks, every
-// task's state too. Only on request: uxTaskGetSystemState() suspends the scheduler on both cores while
-// it scans every stack, for milliseconds, and the rt4k task missed USB packets (FT232R overruns).
+// task's state too (its stack's high-water mark in words on the Pico, bytes on the ESP32); ?json, only
+// the tasks, as JSON ({"tasks":[{"name","state","prio","stack_free"}]}, stack_free in bytes: the Debug
+// tab's). Only on request: uxTaskGetSystemState() suspends the scheduler on both cores while it scans
+// every stack, for milliseconds, and the rt4k task missed USB packets (FT232R overruns).
 static void handle_debug_tasks(int fd, const char *query) {
     char *const out = scratch.debug_tasks.out;
     const size_t size = sizeof(scratch.debug_tasks.out);
-    ws_debug(out, size);
-    size_t o = strlen(out);
-    if (!query || !strstr(query, "stacks")) {
+    const bool json = query && strstr(query, "json");
+    if (!json) ws_debug(out, size);
+    if (!json && (!query || !strstr(query, "stacks"))) {
         respond(fd, 200, "text/plain", out);
         return;
     }
     TaskStatus_t *const tasks = scratch.debug_tasks.tasks;
     const UBaseType_t n = uxTaskGetSystemState(tasks, sizeof(scratch.debug_tasks.tasks) / sizeof(tasks[0]), NULL);
     static const char *states[] = {"running", "ready", "blocked", "suspended", "deleted", "invalid"};
-    for (UBaseType_t i = 0; i < n && o < size - 80; i++) {
+    size_t o = json ? 0 : strlen(out);
+    bool ok = !json || json_put(out, size, &o, "{\"tasks\":[");
+    for (UBaseType_t i = 0; ok && i < n; i++) {
         const unsigned st = tasks[i].eCurrentState <= eInvalid ? (unsigned)tasks[i].eCurrentState : 5u;
-        o += (size_t)snprintf(out + o, size - o, "%-12s %-9s prio %lu stack free %lu\n", tasks[i].pcTaskName,
-            states[st], (unsigned long)tasks[i].uxCurrentPriority, (unsigned long)tasks[i].usStackHighWaterMark);
+        if (json) {
+            ok = json_putf(out, size, &o, "%s{\"name\":", i ? "," : "") && json_put_str(out, size, &o, tasks[i].pcTaskName) &&
+                json_putf(out, size, &o, ",\"state\":\"%s\",\"prio\":%lu,\"stack_free\":%lu}", states[st], (unsigned long)tasks[i].uxCurrentPriority,
+                    (unsigned long)(tasks[i].usStackHighWaterMark * sizeof(StackType_t)));
+        } else {
+            ok = json_putf(out, size, &o, "%-12s %-9s prio %lu stack free %lu\n", tasks[i].pcTaskName, states[st],
+                (unsigned long)tasks[i].uxCurrentPriority, (unsigned long)tasks[i].usStackHighWaterMark);
+        }
     }
-    respond(fd, 200, "text/plain", out);
+    if (json) {
+        if (ok && json_put(out, size, &o, "]}")) respond(fd, 200, "application/json", out);
+        else respond_error(fd, 500, "too many tasks to list");
+    } else {
+        respond(fd, 200, "text/plain", out);
+    }
 }
 
 // GET /debug/memory: clients against their limits, lwIP's pools and heap, the FreeRTOS heap, RAM.

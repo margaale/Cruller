@@ -34,3 +34,8 @@ size_t freeze_dump(char *out, size_t size) {
     const int n = snprintf(out, size, "No freeze recorder on this board. Last reset: %s.\n", reason_name(esp_reset_reason()));
     return n > 0 && (size_t)n < size ? (size_t)n : 0;
 }
+
+size_t freeze_last_json(char *out, size_t size) {
+    const int n = snprintf(out, size, "{\"cores\":[],\"last_reset\":\"%s\"}", reason_name(esp_reset_reason()));
+    return n > 0 && (size_t)n < size ? (size_t)n : 0;
+}

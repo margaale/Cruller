@@ -17,6 +17,7 @@
 #include "rtl1.h"
 #include "clients.h"
 #include "console.h"
+#include "freeze.h"
 #include "net.h"
 #include "ota_fetch.h"
 #include "svs.h"
@@ -207,9 +208,9 @@ static bool push_events(client_t *c) {
 
 static size_t mirror_json(char *out, size_t size);
 
-// Debug tab: one JSON report, pushed instead of polled: {"status","serial","mirror","console","memory"}.
-// Only cheap numbers: the task list (uxTaskGetSystemState) suspends the scheduler and stays on request
-// (/debug/tasks?stacks).
+// Debug tab: one JSON report, pushed instead of polled: {"serial","mirror","console","memory","sensors",
+// "freeze"} (the status comes on its own, MSG_STATUS). Only cheap numbers: the task list
+// (uxTaskGetSystemState) suspends the scheduler and stays on request (/debug/tasks?stacks).
 static bool push_debug(client_t *c) {
     if (!c->debug) return true;
     // Every line from the RT4K, with who it was for: [0x06, 6, "owner\ttext\n"...] (see ws.h).
@@ -230,19 +231,17 @@ static bool push_debug(client_t *c) {
     c->last_debug_ms = t | 1;
     char *out = (char *)tx + 18;
     const size_t size = sizeof(tx) - 18;
-    size_t o = (size_t)snprintf(out, size, "{\"status\":");
-    http_status_json(out + o, size - o);
-    o += strlen(out + o);
-    static const char *const keys[] = {",\"serial\":", ",\"mirror\":", ",\"console\":", ",\"memory\":", ",\"sensors\":"};
+    size_t o = 0;
+    static const char *const keys[] = {"{\"serial\":", ",\"mirror\":", ",\"console\":", ",\"memory\":", ",\"sensors\":", ",\"freeze\":"};
     const uint32_t sensor_seq = c->sensor_seq; // the sensors take their new samples: given back if the round is skipped
-    for (int k = 0; k < 5; k++) {
+    for (int k = 0; k < 6; k++) {
         const size_t kl = strlen(keys[k]);
         if (o + kl + 2 >= size) return true; // doesn't fit: skip this round rather than send half
         memcpy(out + o, keys[k], kl + 1);
         o += kl;
         const size_t n = k == 0 ? rt4k_debug_json(out + o, size - o) : k == 1 ? mirror_json(out + o, size - o)
             : k == 2 ? console_debug_json(out + o, size - o) : k == 3 ? http_debug_memory_json(out + o, size - o)
-            : http_debug_sensors_json(out + o, size - o, &c->sensor_seq);
+            : k == 4 ? http_debug_sensors_json(out + o, size - o, &c->sensor_seq) : freeze_last_json(out + o, size - o);
         if (!n) {
             c->sensor_seq = sensor_seq;
             return true;
