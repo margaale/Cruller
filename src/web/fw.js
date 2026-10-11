@@ -169,10 +169,9 @@
     current = state === 'run' ? id : current;
   }
 
-  // The page's status handler passes each status's "put" (bytes Cruller handed to the RT4K): the
-  // browser's own upload progress only counts what it buffered, all of it within a moment.
+  // Each status's "put" (bytes Cruller handed to the RT4K, onStatus): the browser's own upload progress
+  // only counts what it buffered, all of it within a moment.
   let onPut = null;
-  window.fwPutProgress = (put) => { if (onPut && put) onPut(put); };
 
   function selected() {
     const list = channels[q('fwc').value] || [];
@@ -215,6 +214,7 @@
 
   // Every status: the RT4K's firmware, model and power.
   function onStatus(s) {
+    if (onPut && s.put) onPut(s.put);
     power = s.rt4k_power;
     const was = installed;
     installed = { version: s.rt4k_fw || '', model: s.rt4k_model || '', fresh: !!s.rt4k_fw_fresh };
