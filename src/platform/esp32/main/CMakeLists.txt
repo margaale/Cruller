@@ -15,7 +15,7 @@ idf_component_register(
         cfgfs_part.c
         ota.c
         tls.c
-        net.c
+        net_port.c
         health.c
         freeze.c
         log.c

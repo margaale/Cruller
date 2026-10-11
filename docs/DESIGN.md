@@ -7,7 +7,6 @@ Status: M1 (RT4K link) done, parts of M3 and M4 done; M2 (gameID) started: its c
 ## Goals
 
 - **Over-the-air updates from the first image.** The board sits behind the RT4K and should never need a USB cable after the first install.
-- **Installable by OTA from the DonutShop Pico 2 W firmware** (the arduino-pico port in margaale/DonutShop), keeping the user's Wi-Fi credentials and gameID configuration.
 - **Robust networking.** Use the Pico SDK's own FreeRTOS + lwIP + CYW43 integration, with lwIP core locking. The arduino-pico FreeRTOS layers showed races, a skipped CYW43 mutex and 8–15 s CYW43 bring-ups (see "Lessons from the DonutShop port").
 - **A two-way RT4K link over USB** (the RT4K is an FTDI FT232R, 0403:6001, at 2 Mbaud) and over the HD-15 serial port.
 
@@ -31,10 +30,10 @@ Raspberry Pi Pico 2 W (RP2350, 520 KB RAM, 4 MB flash, CYW43439). The pinout is 
 
 Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and the ESP32-S3-DevKitC-1 N16R8 (`esp32`, ESP-IDF 6.1; in progress: no RT4K link yet, nothing tried on a board).
 
-- `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings, firmware downloads from GitHub, the gateway pings that watch the network) and the interfaces each board implements: `rt4k.h`, `net.h`, `ota.h`, `tls.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. A board brings itself up (its watchdog, its network stack), then `app_run()` (`app.c`) starts the services in order. It uses only FreeRTOS, lwIP and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures). `core.cmake` lists its sources for both boards' builds.
-- `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, CYW43 Wi-Fi and the setup portal, the RT4K's USB host, flash (A/B OTA, `store.h` records, the DonutShop migration), watchdog and freeze recorder.
+- `src/core`: the common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS, settings, firmware downloads from GitHub, the gateway pings that watch the network, Wi-Fi: joining, the setup portal and its wizard) and the interfaces each board implements: `rt4k.h`, `net_port.h` (the radio), `ota.h`, `tls.h`, `store.h`, `health.h`, `freeze.h`, `log.h`, `status_led.h`. A board brings itself up (its watchdog, its network stack), then `app_run()` (`app.c`) starts the services in order. It uses only FreeRTOS, lwIP and `src/platform/platform.h` (time, short locks, SHA-256, board id, reboot, memory figures). `core.cmake` lists its sources for both boards' builds.
+- `src/platform/<target>`: a board's side, with its own build: `src/platform/rp2/CMakeLists.txt` (Pico SDK) and `src/platform/esp32` (an ESP-IDF project; its code in `main/`). `scripts/build.sh <target>` builds into `build/<target>`. `rp2` is the Raspberry Pi Pico 2 W on the Pico SDK: startup, the CYW43 (Wi-Fi under `net_port.h`), the RT4K's USB host, flash (A/B OTA, `store.h` records), watchdog and freeze recorder.
 - `src/web`: the page and `embed.cmake`, which turns it into C arrays at build time, each file gzipped (served with `Content-Encoding: gzip`: about a quarter of its size, in flash and on the air). The CI's images embed it minified first (`scripts/minify-web.sh`: its JavaScript with esbuild, `index.html` with html-minifier-terser); a local build, as it is.
-- `third_party/littlefs`: Cruller's files (`cfgfs.h`: gameID's), and DonutShop's filesystem read once, when migrating (rp2). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
+- `third_party/littlefs`: Cruller's files (`cfgfs.h`: gameID's). `third_party/picow_ap`: the setup portal's DHCP (rp2) and catch-all DNS (both).
 - `src/version.cmake`: the version, for every target.
 
 ## Software stack
@@ -111,15 +110,6 @@ It also knows the profile the RT4K has loaded (`prof get`'s `prof loaded=`), onl
 
 ## Flash layout
 
-DonutShop Pico layout (arduino-pico, `flash=4194304_2097152`):
-
-| Flash offset | Content |
-| --- | --- |
-| `0x000000`–`0x003000` | arduino-pico OTA stage-3 (12 KB) |
-| `0x003000`–`0x1FE000` | DonutShop application |
-| `0x1FF000`–`0x3FF000` | LittleFS: `wifi.json`, `consoles.json`, `gameDB.json`, `settings.json` |
-| `0x3FF000`–`0x400000` | EEPROM emulation |
-
 Cruller layout (`src/platform/rp2/pt.json`). The RP2350 boot ROM reads the partition table and does A/B selection:
 
 | Flash offset | Size | Content |
@@ -131,17 +121,7 @@ Cruller layout (`src/platform/rp2/pt.json`). The RP2350 boot ROM reads the parti
 
 ## First install on a new board
 
-`cruller-factory.uf2` (in every release) is the migration image below as a UF2 of the family "absolute": the partition table and slot A, each block at its own address. Dropped on the RP2350's drive in BOOTSEL mode, it gives the board the partition table, which OTA needs (`cruller.uf2` alone would run, but leave OTA no partition to update), and Cruller in slot A, built without TBYB so a normal boot keeps it. With no Wi-Fi network saved, the first boot opens the setup portal.
-
-## Migration from DonutShop (first install)
-
-DonutShop's `/update` stores the uploaded file as `firmware.bin` in its LittleFS. On reboot, its OTA stage-3 copies itself to RAM and writes the file to flash from `0x000000`. It doesn't check what the image contains; DonutShop only rejects ESP32 images (first byte `0xE9`).
-
-So the migration image is the Cruller flash image from offset 0: the partition table followed by slot A. It must stay below the old LittleFS while being copied out of it. It can be installed through the DonutShop web UI (manual firmware upload), or through DonutShop's GitHub updater (a release with the asset `DonutShop_v<version>_pico2w_update.bin` and a version above 0.6.3). Cruller's releases don't carry it: it's `build/rp2/cruller_migration.bin` from a build.
-
-On its first boot, Cruller finds no data partition and runs the migration: it mounts the old LittleFS read-only, reads the configuration, formats the data partition and writes the converted configuration (credentials first).
-
-Risk windows: while the DonutShop stage-3 overwrites its own first 12 KB (milliseconds, once; losing power there needs BOOTSEL recovery), and between reading the old configuration and writing the new one (losing power loses the configuration, not the board: Cruller falls back to the provisioning portal).
+`cruller-factory.uf2` (in every release) is the flash from offset 0 (`tools/make_factory.py`) as a UF2 of the family "absolute": the partition table and slot A, each block at its own address. Dropped on the RP2350's drive in BOOTSEL mode, it gives the board the partition table, which OTA needs (`cruller.uf2` alone would run, but leave OTA no partition to update), and Cruller in slot A, built without TBYB so a normal boot keeps it. With no Wi-Fi network saved, the first boot opens the setup portal.
 
 ## OTA (Cruller to Cruller)
 
@@ -167,7 +147,7 @@ Small records (`store.h`: the Wi-Fi credentials, the settings, the RT4K's firmwa
 
 ## Milestones
 
-1. **M0, foundation (done 2026-09-25):** CMake project, flash layout with partition table, migration from DonutShop by OTA with the Wi-Fi credentials, station mode with the portal fallback, mDNS, Cruller-to-Cruller OTA with rollback.
+1. **M0, foundation (done 2026-09-25):** CMake project, flash layout with partition table, migration from DonutShop by OTA with the Wi-Fi credentials (dropped 2026-10-11), station mode with the portal fallback, mDNS, Cruller-to-Cruller OTA with rollback.
 2. **M1, RT4K link (done):** USB host FTDI at 2 Mbaud, two-way, hot-plug, web terminal, RTL1 transfers. HD-15 still to do.
 3. **M2, gameID ([GAMEID.md](GAMEID.md)):** the consoles and the gameDB kept, with their API and the page's view; the consoles asked over HTTP and the profiles loaded, with the SVS switch's input (done). Still to do: finding consoles on the network, `.local` names, HTTPS.
 4. **M3, control (mostly done):** remote-control page with the screen mirror, power state, the API (`/api/v1`), RFC 2217. LED patterns still to do.

@@ -1,5 +1,5 @@
 // Cruller: RetroTINK 4K controller firmware for the Raspberry Pi Pico 2 W.
-// M0: Wi-Fi (with DonutShop credential import and a setup portal), web UI, A/B OTA.
+// M0: Wi-Fi (with a setup portal), web UI, A/B OTA.
 // M1: RT4K link over USB (host) and a web terminal.
 
 #include <stdio.h>

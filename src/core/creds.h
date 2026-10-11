@@ -15,8 +15,5 @@ typedef struct {
 bool creds_load(wifi_creds_t *out);   // false when there's no network stored
 bool creds_save(const wifi_creds_t *creds);
 
-// Factory reset: stores "no network" (a valid record with an empty name), so the next boot opens the
-// setup portal instead of importing DonutShop's old Wi-Fi again.
+// Factory reset: stores "no network", so the next boot opens the setup portal.
 bool creds_forget(void);
-// Whether a record was ever written (including a forgotten network).
-bool creds_present(void);

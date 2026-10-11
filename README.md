@@ -392,9 +392,9 @@ It needs gcc, and Node.js for the page's tests. CI runs the page's tests on the 
 
 ```
 src/core/            The common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS,
-                     gameID, settings and files, firmware downloads, the services' startup), and
-                     the interfaces each board implements
-src/platform/rp2/    The Raspberry Pi Pico 2 W: startup, Wi-Fi and the setup portal, the RT4K's
+                     gameID, settings and files, firmware downloads, Wi-Fi and the setup portal,
+                     the services' startup), and the interfaces each board implements
+src/platform/rp2/    The Raspberry Pi Pico 2 W: startup, the CYW43 radio, the RT4K's
                      USB host, flash (A/B slots, settings, littlefs), watchdog
 src/platform/esp32/  The ESP32-S3 port, an ESP-IDF project (no RT4K link yet)
 src/web/             The page, embedded gzipped as C arrays at build time (minified in CI)

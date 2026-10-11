@@ -54,11 +54,10 @@ target_sources(cruller_app INTERFACE
     flash_ops.c
     store_flash.c
     cfgfs_flash.c
-    donutshop.c
     ota.c
     tls.c
     tls_roots.c
-    net.c
+    net_port.c
     health.c
     freeze.c
     log.c
@@ -119,16 +118,19 @@ endfunction()
 cruller_image(cruller)
 target_compile_definitions(cruller PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
 
-# First image, installed by DonutShop's OTA stage-3 with a normal boot: must not be TBYB.
-cruller_image(cruller_migration_app)
+# First image on a new board (the factory image, below), started with a normal boot: must not be TBYB.
+cruller_image(cruller_factory_app)
 
-# --- migration image --------------------------------------------------------------------------
+# --- factory image ----------------------------------------------------------------------------
 
+# A new board over USB: the flash contents from offset 0 (partition table, slot A) as a UF2, to drop on
+# the RP2350 drive in BOOTSEL mode. Family "absolute": each block goes to its own address.
+# cruller.uf2 alone brings no partition table, and without one OTA has no partition to update.
 set(PT_JSON ${CMAKE_CURRENT_SOURCE_DIR}/pt.json)
 set(PT_BIN ${CMAKE_CURRENT_BINARY_DIR}/pt.bin)
-set(MIGRATION_BIN ${CMAKE_CURRENT_BINARY_DIR}/cruller_migration.bin)
-set(PARTITION_A_OFFSET 0x2000)      # pt.json: first partition after the table
-set(DONUTSHOP_FS_OFFSET 0x1FF000)   # the migration image must end below DonutShop's LittleFS
+set(FACTORY_BIN ${CMAKE_CURRENT_BINARY_DIR}/cruller_factory.bin)
+set(PARTITION_A_OFFSET 0x2000)    # pt.json: slot A, after the table
+set(PARTITION_B_OFFSET 0x1D2000)  # pt.json: slot B, where slot A ends
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(
@@ -138,25 +140,18 @@ add_custom_command(
     COMMENT "Partition table"
 )
 add_custom_command(
-    OUTPUT ${MIGRATION_BIN}
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_migration.py
-        ${PT_BIN} ${CMAKE_CURRENT_BINARY_DIR}/cruller_migration_app.bin ${MIGRATION_BIN}
-        ${PARTITION_A_OFFSET} ${DONUTSHOP_FS_OFFSET}
-    DEPENDS ${PT_BIN} cruller_migration_app ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_migration.py
-    COMMENT "DonutShop -> Cruller migration image"
+    OUTPUT ${FACTORY_BIN}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_factory.py
+        ${PT_BIN} ${CMAKE_CURRENT_BINARY_DIR}/cruller_factory_app.bin ${FACTORY_BIN}
+        ${PARTITION_A_OFFSET} ${PARTITION_B_OFFSET}
+    DEPENDS ${PT_BIN} cruller_factory_app ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_factory.py
+    COMMENT "Factory image (partition table + slot A)"
 )
-add_custom_target(cruller_migration ALL DEPENDS ${MIGRATION_BIN})
-
-# --- factory image ----------------------------------------------------------------------------
-
-# A new board over USB: the same flash contents from offset 0 (partition table and slot A) as a UF2,
-# to drop on the RP2350 drive in BOOTSEL mode. Family "absolute": each block goes to its own address.
-# cruller.uf2 alone brings no partition table, and without one OTA has no partition to update.
 set(FACTORY_UF2 ${CMAKE_CURRENT_BINARY_DIR}/cruller-factory.uf2)
 add_custom_command(
     OUTPUT ${FACTORY_UF2}
-    COMMAND picotool uf2 convert ${MIGRATION_BIN} -t bin ${FACTORY_UF2} -o 0x10000000 --family absolute
-    DEPENDS ${MIGRATION_BIN}
+    COMMAND picotool uf2 convert ${FACTORY_BIN} -t bin ${FACTORY_UF2} -o 0x10000000 --family absolute
+    DEPENDS ${FACTORY_BIN}
     COMMENT "Factory UF2 (partition table + slot A)"
 )
 add_custom_target(cruller_factory ALL DEPENDS ${FACTORY_UF2})

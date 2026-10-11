@@ -20,7 +20,7 @@ static void test_mount(void) {
     cfgfs_ram_present(false);
     CHECK(!cfgfs_mount() && cfgfs_read("a", buf, sizeof(buf)) < 0 && !cfgfs_write("a", "x", 1)); // no flash: nothing works
     cfgfs_ram_present(true);
-    cfgfs_ram_fill(0x5a); // whatever was there before (DonutShop's old blocks): formatted
+    cfgfs_ram_fill(0x5a); // whatever was there before (an earlier firmware's blocks): formatted
     CHECK(cfgfs_mount());
     CHECK(cfgfs_read("a", buf, sizeof(buf)) < 0);
     CHECK(cfgfs_write("a", "hello", 5) && cfgfs_read("a", buf, sizeof(buf)) == 5 && !memcmp(buf, "hello", 5));
