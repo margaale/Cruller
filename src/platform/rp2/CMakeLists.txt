@@ -58,7 +58,7 @@ target_sources(cruller_app INTERFACE
     ota.c
     tls.c
     tls_roots.c
-    net.c
+    net_port.c
     health.c
     freeze.c
     log.c
