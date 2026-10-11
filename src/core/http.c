@@ -1573,8 +1573,6 @@ static void handle_settings(request_t *r) {
     plat_reboot();
 }
 
-// POST /restart: reboots into the current image. POST /factory-reset: forgets the Wi-Fi network, the
-// name and the paired SVS Bridge, and reboots into the setup portal.
 // --- gameID: its consoles and its games (docs/API.md, src/core/gameid.h) --------------------------------
 
 static bool gameid_sink(const uint8_t *data, size_t len, void *ctx) {
@@ -1683,6 +1681,8 @@ static void handle_gameid_games_delete(request_t *r) {
     respond(r->fd, 200, "OK", "application/json", found ? "{\"ok\":true,\"found\":true}" : "{\"ok\":true,\"found\":false}");
 }
 
+// POST /restart: reboots into the current image. POST /factory-reset: forgets the Wi-Fi network, the
+// name, the paired SVS Bridge and gameID's consoles and games, and reboots into the setup portal.
 static void handle_restart(request_t *r, bool forget) {
     if (forget && !gameid_wipe()) printf("http: gameID's files not erased\n"); // (no files: nothing kept anyway)
     if (forget && (!creds_forget() || !settings_clear())) {
