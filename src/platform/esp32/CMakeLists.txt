@@ -12,4 +12,7 @@ set(IDF_TARGET esp32s3)
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+# Only main and what it requires (main/CMakeLists.txt), not every ESP-IDF component: less to configure,
+# compile, place (ldgen) and link.
+idf_build_set_property(MINIMAL_BUILD ON)
 project(cruller)
