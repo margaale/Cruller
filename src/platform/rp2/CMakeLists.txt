@@ -3,7 +3,6 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(CRULLER_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
-set(CRULLER_WEB ${CRULLER_ROOT}/src/web)
 
 set(PICO_BOARD pico2_w CACHE STRING "Board type")
 
@@ -14,12 +13,9 @@ project(cruller C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-include(${CRULLER_ROOT}/src/version.cmake)
-set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z or X.Y.Z-label.N)")
+include(${CRULLER_ROOT}/src/version.cmake) # (CRULLER_VERSION, CRULLER_DEBUG)
+include(${CRULLER_ROOT}/src/web/web.cmake)
 set(CRULLER_BUILD 0 CACHE STRING "Build number: CI's run number (github.run_number), 0 for a local build")
-# The developer tools (src/platform/platform.h): the CI builds them into pre-releases and pull requests, not
-# into releases.
-option(CRULLER_DEBUG "The developer tools (src/platform/platform.h): 16 KB of RAM" ON)
 
 pico_sdk_init()
 
@@ -93,35 +89,19 @@ target_sources(cruller_app INTERFACE
     freeze.c
     log.c
     status_led.c
+    rt4k.c # (the native USB port is the RT4K's host; logs go to the in-memory log, /log)
     ${CRULLER_ROOT}/third_party/picow_ap/dhcpserver.c
     ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
 )
 target_include_directories(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core ${CRULLER_ROOT}/src/platform ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CRULLER_ROOT}/third_party/picow_ap)
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb_host ${CRULLER_ROOT}/third_party/picow_ap)
+cruller_web(cruller_app INTERFACE)
+cruller_defs(cruller_app INTERFACE)
 
-# Web assets kept as real files (src/web), embedded gzipped as C arrays (#embed, see src/web/embed.cmake).
-foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js gameid.js:web_gameid_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
-    string(REPLACE ":" ";" asset ${asset})
-    list(GET asset 0 file)
-    list(GET asset 1 name)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/${name}.c)
-    add_custom_command(OUTPUT ${out}
-        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${name}.gz # (the C file's #embed)
-        COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/${file} -DOUT=${out} -DNAME=${name}
-            -P ${CRULLER_WEB}/embed.cmake
-        DEPENDS ${CRULLER_WEB}/${file} ${CRULLER_WEB}/embed.cmake
-        VERBATIM)
-    target_sources(cruller_app INTERFACE ${out})
-endforeach()
 target_compile_definitions(cruller_app INTERFACE
     CYW43_HOST_NAME="cruller"
 )
-# The version for version.c alone: a new one compiles that file again, no other (ccache keeps the rest).
-set_source_files_properties(${CRULLER_ROOT}/src/core/version.c PROPERTIES COMPILE_DEFINITIONS CRULLER_VERSION="${CRULLER_VERSION}")
-if (NOT CRULLER_DEBUG)
-    target_compile_definitions(cruller_app INTERFACE CRULLER_DEBUG=0)
-endif()
 target_link_libraries(cruller_app INTERFACE
     pico_stdlib
     pico_cyw43_arch_lwip_sys_freertos
@@ -138,25 +118,25 @@ target_link_libraries(cruller_app INTERFACE
     hardware_flash
     littlefs
     FreeRTOS-Kernel-Heap4
+    tinyusb_host
 )
 
 # The image's version (CRULLER_BIN_MAJOR/MINOR, above) goes in crt0's metadata block, and only crt0 is
 # built with it: pico_set_binary_version() would define it for every file, and the build number changes
-# with every CI run, so the CI's ccache would find none of them again.
-set_source_files_properties(${PICO_SDK_PATH}/src/rp2_common/pico_crt0/crt0.S PROPERTIES COMPILE_DEFINITIONS
+# with every CI run, so the CI's ccache would find none of them again. crt0 as the SDK's pico_crt0 names it.
+get_target_property(crt0 pico_crt0 INTERFACE_SOURCES)
+if (NOT crt0)
+    message(FATAL_ERROR "pico_crt0 has no sources: the image's version has nowhere to go")
+endif()
+set_source_files_properties(${crt0} PROPERTIES COMPILE_DEFINITIONS
     "PICO_CRT0_VERSION_MAJOR=${CRULLER_BIN_MAJOR};PICO_CRT0_VERSION_MINOR=${CRULLER_BIN_MINOR}")
 
 function(cruller_image TARGET)
     add_executable(${TARGET})
     target_link_libraries(${TARGET} PRIVATE cruller_app)
-    # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
-    target_sources(${TARGET} PRIVATE rt4k.c)
-    target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/usb_host)
-    target_link_libraries(${TARGET} PRIVATE tinyusb_host)
     # The RT4K receive path runs from RAM (see cmake/linker/default_text_excludes.incl).
     pico_add_linker_script_override_path(${TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker
         FILES default_text_excludes.incl)
-    pico_enable_stdio_usb(${TARGET} 0)
     pico_enable_stdio_uart(${TARGET} 0)
     pico_add_extra_outputs(${TARGET})
 endfunction()

@@ -238,11 +238,10 @@
     if (!f || busy) return;
     // One question, before anything: once the files are written and checked, the RT4K installs them by
     // itself. Asleep, it's turned on now, so it boots while the zip downloads; only the writing needs it.
-    const asleep = power === 'standby';
-    if (!(await window.askUser((asleep ? 'Turn the RT4K on and install ' : 'Install ') + f.version + '?',
-      (asleep ? 'It\'s in standby: Cruller turns it on and downloads the firmware meanwhile. ' : '') +
-      'Once the files are on its SD card and it has checked them, the RT4K restarts and flashes for about 40 seconds (LED pink, then blue). Don\'t power it off.',
-      asleep ? 'Turn on and install' : 'Install'))) return;
+    const [title, asleep, button] = power === 'standby' ?
+      ['Turn the RT4K on and install', 'It\'s in standby: Cruller turns it on and downloads the firmware meanwhile. ', 'Turn on and install'] : ['Install', '', 'Install'];
+    if (!(await window.askUser(title + ' ' + f.version + '?', asleep + 'Once the files are on its SD card and it has checked them, the RT4K ' +
+      'restarts and flashes for about 40 seconds (LED pink, then blue). Don\'t power it off.', button))) return;
     if (busy) return;
     busy = true;
     q('fwi').disabled = true;

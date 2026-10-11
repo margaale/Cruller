@@ -155,31 +155,27 @@ size_t net_scan_json(char *out, size_t size) {
 // DNS-SD services (docs/SVS.md): the web page, "_rt4k._tcp" for other boards and Home Assistant to
 // find the RT4K bridge (TXT: id, ver, api: the API's version), and "_rfc2217._tcp" for serial over the
 // network.
-static void txt_add(struct mdns_service *service, const char *item) {
-    mdns_resp_add_service_txtitem(service, item, (u8_t)strlen(item));
+// One TXT item, key=value.
+static void txt_add(struct mdns_service *service, const char *key, const char *value) {
+    char item[8 + SETTINGS_NAME_MAX]; // (the longest: a name, or the board's 32-digit ID)
+    const int n = snprintf(item, sizeof(item), "%s=%s", key, value);
+    if (n > 0) mdns_resp_add_service_txtitem(service, item, (u8_t)(n < (int)sizeof(item) ? n : (int)sizeof(item) - 1));
 }
 
 static void txt_id(struct mdns_service *service) {
-    char id[33], item[8 + sizeof(id)];
+    char id[33];
     plat_board_id(id, sizeof(id));
-    snprintf(item, sizeof(item), "id=%s", id);
-    txt_add(service, item);
+    txt_add(service, "id", id);
 }
 
 static void rt4k_txt(struct mdns_service *service, void *userdata) {
     (void)userdata;
     txt_id(service);
-    char ver[64];
-    snprintf(ver, sizeof(ver), "ver=%s", cruller_version);
-    txt_add(service, ver);
-    txt_add(service, "api=" HTTP_API_VERSION);
+    txt_add(service, "ver", cruller_version);
+    txt_add(service, "api", HTTP_API_VERSION);
     settings_t s;
     settings_get(&s);
-    if (s.name[0]) {
-        char item[8 + SETTINGS_NAME_MAX];
-        snprintf(item, sizeof(item), "name=%s", s.name);
-        txt_add(service, item);
-    }
+    if (s.name[0]) txt_add(service, "name", s.name);
 }
 
 static void rfc2217_txt(struct mdns_service *service, void *userdata) {
