@@ -11,10 +11,10 @@ const window = {};
 const context = vm.createContext({
   window, TextDecoder, Blob, Response, DecompressionStream, Uint8Array, Uint32Array, DataView,
 });
-for (const file of ['sha256.js', 'fw.js']) { // as index.html loads them
+for (const file of ['sha256.js', 'fw.js']) { // (the page loads sha256.js before it hashes)
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', file), 'utf8'), context);
 }
-const fw = window.fwInternals;
+const fw = window.fwInternals, sha256 = window.sha256;
 
 let checks = 0, failures = 0;
 function check(cond, what) {
@@ -25,16 +25,16 @@ const ref = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 async function main() {
   // SHA-256: known vectors, then every length around the padding boundaries against node's.
-  check(fw.sha256(new Uint8Array(0)) === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sha256 empty');
-  check(fw.sha256(Buffer.from('abc')) === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', 'sha256 abc');
+  check(sha256(new Uint8Array(0)) === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sha256 empty');
+  check(sha256(Buffer.from('abc')) === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', 'sha256 abc');
   for (let n = 0; n < 200; n++) {
     const b = crypto.randomBytes(n);
-    check(fw.sha256(new Uint8Array(b)) === ref(b), 'sha256 length ' + n);
+    check(sha256(new Uint8Array(b)) === ref(b), 'sha256 length ' + n);
   }
   const big = crypto.randomBytes(1 << 20);
-  check(fw.sha256(new Uint8Array(big)) === ref(big), 'sha256 1 MiB');
+  check(sha256(new Uint8Array(big)) === ref(big), 'sha256 1 MiB');
   const view = new Uint8Array(big.buffer, big.byteOffset + 3, 1000); // a view at an odd offset
-  check(fw.sha256(view) === ref(Buffer.from(view)), 'sha256 of a subarray');
+  check(sha256(view) === ref(Buffer.from(view)), 'sha256 of a subarray');
 
   // The index: RetroTINK's markdown layout.
   const md = [
@@ -83,7 +83,7 @@ async function main() {
   // A real firmware zip, when given.
   if (process.env.RT4K_ZIP) {
     const real = new Uint8Array(fs.readFileSync(process.env.RT4K_ZIP));
-    if (process.env.RT4K_ZIP_SHA) check(fw.sha256(real) === process.env.RT4K_ZIP_SHA.toLowerCase(), 'real zip: SHA-256');
+    if (process.env.RT4K_ZIP_SHA) check(sha256(real) === process.env.RT4K_ZIP_SHA.toLowerCase(), 'real zip: SHA-256');
     const es = fw.zipEntries(real);
     for (const e of es) {
       const data = await fw.unzipEntry(e);

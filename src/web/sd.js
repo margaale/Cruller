@@ -5,7 +5,9 @@
 // /rt4k/put with their SHA-256 (sha256.js), which the RT4K checks; new folders, renames and deletes
 // are the RT4K's own mkdir, mv and rm (POST /rt4k/ask). A profile in /profile can be loaded (its "prof
 // load") or opened in the editor (#rt4k/editor/<path>), or several ticked and edited together; the one
-// loaded (Cruller's status says it) is marked. Each folder has its own address (#rt4k/sd/<path>), so the browser's back button walks back up.
+// loaded (Cruller's status says it) is marked. Each folder has its own address (#rt4k/sd/<path>), so the
+// browser's back button walks back up. The other views reach the card through the same helpers
+// (window.sdInternals).
 
 (() => {
   'use strict';
@@ -96,7 +98,6 @@
   // Asleep or waking up: the RT4K answers nothing but "pwr on" then, so no listing is tried.
   const asleep = () => power === 'standby' || power === 'starting';
   let busy = false;        // an upload, new folder, rename or delete runs (one at a time)
-  let onPut = null;        // the upload's progress, from each status's "put"
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -112,19 +113,28 @@
     edit: svg('<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/>'),
   };
 
-  // A profile the RT4K can load: a .rt4 or .rt6 under /profile. Its path from there ("SVS/S1_SNES.rt4"),
-  // else null.
+  // A profile: a .rt4 or .rt6 (not macOS's ._ shadow of one); its name without the extension, its extension.
+  const isProfile = (name) => /\.rt[46]$/i.test(name) && !name.startsWith('.');
+  const plain = (name) => name.replace(/\.rt[46]$/i, '');
+  const extOf = (name) => (/\.rt[46]$/i.exec(name) || ['.rt4'])[0];
+
+  // A profile the RT4K can load: one under /profile. Its path from there ("SVS/S1_SNES.rt4"), else null.
   const PROFILE_DIR = 'profile';
-  function profilePath(dir, name) {
-    const d = (dir || '').toLowerCase(); // (FAT: no case)
-    if (!/\.rt[46]$/i.test(name) || !(d === PROFILE_DIR || d.startsWith(PROFILE_DIR + '/'))) return null;
-    return join(dir.slice(PROFILE_DIR.length + 1), name);
-  }
+  const inProfiles = (dir) => { const d = (dir || '').toLowerCase(); return d === PROFILE_DIR || d.startsWith(PROFILE_DIR + '/'); }; // (FAT: no case)
+  const profilePath = (dir, name) => (isProfile(name) && inProfiles(dir) ? join(dir.slice(PROFILE_DIR.length + 1), name) : null);
+
+  // A path too long for Cruller: what to say ('' when it fits).
+  const pathProblem = (path) => (utf8Length(path) > PATH_MAX ? 'The path is too long for Cruller (' + PATH_MAX + ' bytes at most).' : '');
 
   // --- Cruller ----------------------------------------------------------------------------------------
   //
-  // The SD card through Cruller (the editor and gameID use these too, from sdInternals).
+  // The SD card through Cruller (profiles.js, the editor, gameID and the firmware updater use these too, from
+  // sdInternals).
 
+  // fetch's own failure, said plainly.
+  const failure = (e) => (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message);
+
+  // One of the RT4K's console commands, and its reply (the first line starting with expect).
   async function ask(cmd, expect, timeout) {
     const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect) + (timeout ? '&timeout=' + timeout : ''), { method: 'POST', body: cmd });
     const t = (await r.text()).trim();
@@ -138,15 +148,31 @@
     return new Uint8Array(await r.arrayBuffer());
   }
 
-  async function putFile(path, data, sha) {
-    const r = await fetch('/rt4k/put?path=' + encodeURIComponent(path) + '&sha=' + sha, { method: 'POST', body: data });
-    if (!r.ok) throw new Error((await r.text()).trim() || 'HTTP ' + r.status);
+  // Writes a file, with its SHA-256 (sha256.js, loaded the first time), which the RT4K checks. onSent(bytes):
+  // how much Cruller has handed the RT4K, from each status's "put" (the browser's own upload progress only
+  // counts what it buffered, all of it within a moment).
+  let onPut = null;
+  async function putFile(path, data, onSent) {
+    await window.need('/sha256.js');
+    const sha = window.sha256(data);
+    onPut = onSent ? (put) => { if (put.path === path) onSent(put.sent); } : null;
+    try {
+      const r = await fetch('/rt4k/put?path=' + encodeURIComponent(path) + '&sha=' + sha, { method: 'POST', body: data });
+      if (!r.ok) throw new Error((await r.text()).trim() || 'HTTP ' + r.status);
+    } finally {
+      onPut = null;
+    }
   }
 
+  // A folder: its entries (as many as fit), and how many it has. A missing one: an error with status 404.
   async function listing(path) {
     const r = await fetch('/rt4k/ls' + (path ? '?dir=' + encodeURIComponent(path) : ''));
     const body = await r.text();
-    if (!r.ok) throw new Error(r.status === 404 ? 'There is no folder "' + path + '" on the SD card.' : body.trim() || 'HTTP ' + r.status);
+    if (!r.ok) {
+      const e = new Error(r.status === 404 ? 'There is no folder "' + path + '" on the SD card.' : body.trim() || 'HTTP ' + r.status);
+      e.status = r.status;
+      throw e;
+    }
     const list = parseList(body);
     return { list, total: +r.headers.get('X-Total') || list.length };
   }
@@ -157,7 +183,7 @@
   // ... and what's in it: its folders, a button each (data-dir), then its profiles as row(path, entry) draws them.
   async function pickRows(d, row) {
     const { list } = await listing(d);
-    return sortEntries(list, 'name', false).filter((e) => e.dir || /\.rt[46]$/i.test(e.name)).map((e) => (e.dir ?
+    return sortEntries(list, 'name', false).filter((e) => e.dir || isProfile(e.name)).map((e) => (e.dir ?
       '<button type=button data-dir="' + esc(d + '/' + e.name) + '"><span class=ico>' + ICON.dir + '</span>' + esc(e.name) + '</button>' : row(d + '/' + e.name, e)))
       .join('') || '<div class=pe0>No profiles here</div>';
   }
@@ -228,19 +254,25 @@
     ['sdu', 'sdn', 'sdr'].forEach((id) => { q(id).disabled = true; });
   }
 
-  function render() {
-    crumbs();
-    // the profiles ticked: a column of ticks in a profiles' folder, every one here at its head; with any ticked,
-    // a bar to edit them together
-    const can = profilePath(dir, 'x.rt4') !== null, profs = entries.filter((e) => !e.dir && profilePath(dir, e.name));
+  // The profiles ticked: a column of ticks in a profiles' folder, every one here at its head; with any
+  // ticked, a bar to edit them together. rows: the rows' ticks set again too (else they're as clicked).
+  const profilesHere = () => entries.filter((e) => !e.dir && profilePath(dir, e.name));
+  function showPicks(rows) {
+    const profs = profilesHere();
     picked = new Set([...picked].filter((n) => profs.some((e) => e.name === n)));
-    q('sdtbl').classList.toggle('pk', can);
     q('sdpa').checked = profs.length > 0 && picked.size === profs.length;
     q('sdpa').indeterminate = picked.size > 0 && picked.size < profs.length;
     q('sdpa').disabled = !profs.length;
     q('sdsel').hidden = !picked.size;
     q('sdseln').textContent = picked.size === 1 ? '1 profile ticked' : picked.size + ' profiles ticked';
     q('sdsele').textContent = picked.size === 1 ? 'Edit it' : 'Edit them together';
+    if (rows) q('sdt').querySelectorAll('input[data-pick]').forEach((c) => { c.checked = picked.has(c.dataset.pick); });
+  }
+
+  function render() {
+    crumbs();
+    q('sdtbl').classList.toggle('pk', inProfiles(dir));
+    showPicks();
     document.querySelectorAll('#sd th[data-k]').forEach((th) => {
       th.setAttribute('aria-sort', th.dataset.k === sortKey ? (sortDesc ? 'descending' : 'ascending') : 'none');
     });
@@ -270,6 +302,14 @@
     }).join('');
   }
 
+  // Nothing listed: the last listing failed, or the RT4K sleeps (read again once it's on, onStatus).
+  function unlisted() {
+    failed = true;
+    entries = [];
+    total = 0;
+    q('sdt').innerHTML = '';
+  }
+
   // note: [text, bad] to show instead of the folder's summary (how an operation went).
   async function list(d, note) {
     const mine = ++loading;
@@ -277,11 +317,8 @@
     if (moved) picked = new Set();
     dir = d;
     crumbs();
-    if (asleep()) { // read once it's on (onStatus)
-      failed = true;
-      entries = [];
-      total = 0;
-      q('sdt').innerHTML = '';
+    if (asleep()) {
+      unlisted();
       showAsleep();
       if (note) status(...note);
       return;
@@ -299,19 +336,17 @@
       if (moved && q('sd').getBoundingClientRect().top < 0) q('sd').scrollIntoView(); // another folder: from its top
     } catch (e) {
       if (mine !== loading) return;
-      failed = true;
-      entries = [];
-      total = 0;
-      q('sdt').innerHTML = '';
+      unlisted();
       q('sde').hidden = true;
       if (asleep() && !note) return showAsleep(); // it went to sleep meanwhile: that says it all
       // An operation's failure says more than the listing's.
-      status(note && note[1] ? note[0] : e.message === 'Failed to fetch' ? 'Cruller did not answer.' : e.message, true);
+      status(note && note[1] ? note[0] : failure(e), true);
     }
   }
 
-  // Runs one operation (fn resolves how it went), then reads the folder again.
-  async function run(what, fn) {
+  // Runs one operation (fn resolves how it went), then reads the folder again (unless it changed nothing
+  // there: again false).
+  async function run(what, fn, again = true) {
     if (busy) return;
     busy = true;
     render();
@@ -319,20 +354,20 @@
     try {
       note = [await fn()];
     } catch (e) {
-      note = [what + ' failed: ' + (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message), true];
+      note = [what + ' failed: ' + failure(e), true];
     } finally {
-      onPut = null;
       busy = false;
       progress(null);
     }
-    await list(dir, note);
+    if (again) return list(dir, note);
+    status(...note);
+    render();
   }
 
   // A new name for something in this folder: its problem, or ''.
   function problemHere(name, except) {
-    const p = nameProblem(name);
+    const p = nameProblem(name) || pathProblem(join(dir, name));
     if (p) return p;
-    if (utf8Length(join(dir, name)) > PATH_MAX) return 'The path is too long for Cruller (' + PATH_MAX + ' bytes at most).';
     if (entries.some((e) => e !== except && sameName(e.name, name))) return 'There is already something called "' + name + '" here.';
     return '';
   }
@@ -364,12 +399,8 @@
         };
         progress(label + ' · reading…', done, all);
         const data = new Uint8Array(await f.arrayBuffer());
-        await new Promise((r) => setTimeout(r, 0)); // let that show before hashing
-        const sha = window.sha256(data);
         show(0);
-        onPut = (put) => { if (put.path === path) show(put.sent); };
-        await putFile(path, data, sha);
-        onPut = null;
+        await putFile(path, data, show);
         done += f.size;
       }
       return 'Uploaded ' + (files.length === 1 ? files[0].name : files.length + ' files') + ' · ' + size(all) + ' in ' +
@@ -416,7 +447,7 @@
       if (r !== 'prof load ok') throw new Error(r);
       loaded = pp;
       return 'Loaded ' + e.name;
-    });
+    }, false); // (nothing on the card changed)
   }
 
   async function remove(e) {
@@ -460,18 +491,18 @@
       const c = ev.target.closest('input[data-pick]');
       if (!c) return;
       if (c.checked) picked.add(c.dataset.pick); else picked.delete(c.dataset.pick);
-      render();
+      showPicks();
     };
     q('sdpa').onchange = () => {
-      picked = new Set(q('sdpa').checked ? entries.filter((e) => !e.dir && profilePath(dir, e.name)).map((e) => e.name) : []);
-      render();
+      picked = new Set(q('sdpa').checked ? profilesHere().map((e) => e.name) : []);
+      showPicks(true);
     };
-    q('sdselc').onclick = () => { picked = new Set(); render(); };
+    q('sdselc').onclick = () => { picked = new Set(); showPicks(true); };
     // the ticked profiles in the editor, in the folder's order
     q('sdsele').onclick = () => {
       const paths = shown.filter((e) => picked.has(e.name)).map((e) => join(dir, e.name));
       picked = new Set();
-      render();
+      showPicks(true);
       location.hash = '#rt4k/editor';
       window.need('/editor.js').then(() => window.peOpenSet(paths));
     };
@@ -540,6 +571,6 @@
 
   window.sdOpen = open;
   window.sdStatus = onStatus;
-  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when, profilePath, // tests/test_sd.js
-    ask, getFile, putFile, pickCrumbs, pickRows }; // editor.js, gameid.js
+  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when, // tests/test_sd.js, profiles.js
+    isProfile, plain, extOf, profilePath, pathProblem, failure, ask, getFile, putFile, listing, pickCrumbs, pickRows }; // profiles.js, editor.js, gameid.js, fw.js
 })();
