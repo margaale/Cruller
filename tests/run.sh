@@ -13,7 +13,7 @@ mkdir -p build-tests
 "$CC" "${CFLAGS[@]}" src/core/power_core.c tests/test_power.c -o build-tests/test_power
 "$CC" "${CFLAGS[@]}" src/core/rfc2217_proto.c tests/test_rfc2217.c -o build-tests/test_rfc2217
 "$CC" "${CFLAGS[@]}" src/core/console_core.c tests/test_console.c -o build-tests/test_console
-"$CC" "${CFLAGS[@]}" src/core/svs_proto.c tests/test_svs.c -o build-tests/test_svs
+"$CC" "${CFLAGS[@]}" src/core/svs_proto.c src/core/json.c tests/test_svs.c -o build-tests/test_svs
 "$CC" "${CFLAGS[@]}" src/core/ota_fetch_proto.c tests/test_ota_fetch.c -o build-tests/test_ota_fetch
 "$CC" "${CFLAGS[@]}" src/core/buttons.c tests/test_buttons.c -o build-tests/test_buttons
 "$CC" "${CFLAGS[@]}" src/core/rt4k_info_core.c tests/test_rt4k_info.c -o build-tests/test_rt4k_info

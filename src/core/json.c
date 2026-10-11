@@ -1,5 +1,6 @@
 #include "json.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -236,4 +237,41 @@ int json_escape_str(char *out, size_t size, const char *s) {
     if (n >= size) return -1;
     out[n] = 0;
     return (int)n;
+}
+
+// --- writing -------------------------------------------------------------------------------------------
+
+// Back to n0: what was added since doesn't fit.
+static bool undo(char *out, size_t *n, size_t n0) {
+    *n = n0;
+    out[n0] = 0;
+    return false;
+}
+
+bool json_put(char *out, size_t size, size_t *n, const char *s) {
+    const size_t k = strlen(s);
+    if (*n + k >= size) return false;
+    memcpy(out + *n, s, k + 1);
+    *n += k;
+    return true;
+}
+
+bool json_put_str(char *out, size_t size, size_t *n, const char *s) {
+    const size_t n0 = *n;
+    if (!json_put(out, size, n, "\"")) return false;
+    const int k = json_escape_str(out + *n, size - *n, s);
+    if (k < 0) return undo(out, n, n0);
+    *n += (size_t)k;
+    return json_put(out, size, n, "\"") || undo(out, n, n0);
+}
+
+bool json_putf(char *out, size_t size, size_t *n, const char *fmt, ...) {
+    if (*n >= size) return false;
+    va_list ap;
+    va_start(ap, fmt);
+    const int k = vsnprintf(out + *n, size - *n, fmt, ap);
+    va_end(ap);
+    if (k < 0 || (size_t)k >= size - *n) return undo(out, n, *n);
+    *n += (size_t)k;
+    return true;
 }
