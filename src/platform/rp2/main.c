@@ -21,7 +21,6 @@
 #include "ota.h"
 #include "platform.h"
 #include "rtl1.h"
-#include "status_led.h"
 #include "version.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
@@ -81,7 +80,6 @@ static void main_task(void *param) {
     printf("CYW43 up in %lu ms, on core %u\n", (unsigned long)(plat_ms() - t0),
         (unsigned)async_context_core_num(cyw43_arch_async_context()));
     health_start_sensors();
-    status_led_start();
     app_run();
 }
 

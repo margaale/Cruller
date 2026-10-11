@@ -12,6 +12,7 @@
 
 #include "flash_layout.h"
 #include "flash_ops.h"
+#include "lfs_util.h"
 
 typedef struct {
     uint32_t magic;
@@ -28,17 +29,9 @@ static const uint32_t magics[STORE_KEYS] = {
 _Static_assert(sizeof(header_t) + STORE_RECORD_MAX + 4 <= FLASH_SECTOR_SIZE_B, "a record must fit one sector");
 _Static_assert(2u * STORE_KEYS <= STORE_SECTORS, "the records must fit before cfgfs (flash_layout.h)");
 
-static uint32_t crc32_add(uint32_t crc, const void *data, size_t len) {
-    const uint8_t *p = data;
-    while (len--) {
-        crc ^= *p++;
-        for (int i = 0; i < 8; i++) crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1u));
-    }
-    return crc;
-}
-
+// CRC-32 (littlefs's, without its start and end inversions).
 static uint32_t crc32(const void *data, size_t len) {
-    return ~crc32_add(0xffffffffu, data, len);
+    return ~lfs_crc(0xffffffffu, data, len);
 }
 
 static size_t crc_offset(size_t size) {
@@ -98,12 +91,12 @@ bool store_save(store_key_t key, const void *data, size_t size) {
     const uint32_t target = STORE_SECTOR_OFFSET(key, i == 0 ? 1 : 0);
     const header_t h = {magics[key], i < 0 ? 1 : seq + 1};
     static const uint8_t zeros[4];
-    uint32_t crc = crc32_add(0xffffffffu, &h, sizeof(h));
-    crc = crc32_add(crc, data, size);
-    crc = ~crc32_add(crc, zeros, crc_offset(size) - sizeof(h) - size);
-    // Programmed a page at a time, from RAM; the USB host held off once for the lot.
-    static uint8_t pages[STORE_KEYS][FLASH_PAGE_SIZE_B]; // one per record
-    uint8_t *page = pages[key];
+    uint32_t crc = lfs_crc(0xffffffffu, &h, sizeof(h));
+    crc = lfs_crc(crc, data, size);
+    crc = ~lfs_crc(crc, zeros, crc_offset(size) - sizeof(h) - size);
+    // Programmed a page at a time, from RAM; the USB host held off once for the lot (flash_quiet_begin(),
+    // whose lock also keeps another save out of the page meanwhile).
+    static uint8_t page[FLASH_PAGE_SIZE_B];
     const size_t total = crc_offset(size) + sizeof(crc);
     if (!flash_quiet_begin()) return false;
     bool ok = flash_erase_safe(target, FLASH_SECTOR_SIZE_B);
