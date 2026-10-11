@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "svs_proto.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 static svs_msg_t m;
 static const char *err;
@@ -198,8 +193,6 @@ static void test_profiles(void) {
     CHECK(!svs_profile_for(text, 1, out, 8) && !out[0]); // doesn't fit
 }
 
-#define RUN(t) do { current = #t; t(); } while (0)
-
 int main(void) {
     RUN(test_input_only);
     RUN(test_rejects);
@@ -211,6 +204,5 @@ int main(void) {
     RUN(test_escapes);
     RUN(test_json_out);
     RUN(test_profiles);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    return tests_done();
 }

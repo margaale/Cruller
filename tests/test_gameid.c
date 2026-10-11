@@ -4,16 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "cfgfs.h"
 #include "cfgfs_ram.h"
+#include "cfgfs.h"
+#include "check.h"
 #include "gameid.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
-#define RUN(t) do { current = #t; t(); } while (0)
 
 static const char *why;
 static bool game(const char *json, gameid_game_t *g) { return gameid_game_parse(json, strlen(json), g, &why); }
@@ -168,7 +162,6 @@ static void test_full(void) {
         snprintf(g.profile, sizeof(g.profile), "PS1/Some long folder name/Game number %05d.rt4", k);
         snprintf(g.name, sizeof(g.name), "A game with a long-ish name, number %05d", k);
         if (gameid_game_put(&g, &replaced)) stored++;
-        if (k % 250 == 0 && k) printf("  %d games...\n", k);
     }
     printf("  stored %d of %d\n", stored, GAMEID_GAMES_MAX + 1);
     gameid_game_t f;
@@ -314,6 +307,5 @@ int main(void) {
     RUN(test_game_text);
     RUN(test_files);
     RUN(test_full);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    return tests_done();
 }

@@ -5,22 +5,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
+const { load, check, done } = require('./harness');
 
-const window = {};
-const context = vm.createContext({
-  window, TextDecoder, Blob, Response, DecompressionStream, Uint8Array, Uint32Array, DataView,
-});
-for (const file of ['sha256.js', 'fw.js']) { // (the page loads sha256.js before it hashes)
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', file), 'utf8'), context);
-}
+// (The page loads sha256.js before it hashes.)
+const window = load(['sha256.js', 'fw.js'], { TextDecoder, Blob, Response, DecompressionStream, Uint8Array, Uint32Array, DataView });
 const fw = window.fwInternals, sha256 = window.sha256;
-
-let checks = 0, failures = 0;
-function check(cond, what) {
-  checks++;
-  if (!cond) { failures++; console.log('  FAIL ' + what); }
-}
 const ref = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 async function main() {
@@ -92,8 +81,7 @@ async function main() {
     console.log('real zip: ' + es.length + ' files unzipped, ' + es.filter((e) => fw.wanted(e.name, 'RT4K_Pro')).length + ' for an RT4K Pro');
   }
 
-  console.log(failures ? 'fw: ' + failures + ' of ' + checks + ' checks failed' : 'fw: ' + checks + ' checks ok');
-  process.exit(failures ? 1 : 0);
+  done('fw');
 }
 
 main().catch((e) => { console.log('fw: ' + e.stack); process.exit(1); });

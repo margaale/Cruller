@@ -37,13 +37,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: bash tests/run.sh
-      # The page minified, as the images embed it: its tests again, and check_page (each id app.js uses,
-      # in index.html); not check_api, which reads the sources.
+      # The page minified, as the images embed it: its tests again (run.sh --page: all but check_api, which
+      # reads the sources).
       - name: Tests on the minified page
         run: |
           bash scripts/minify-web.sh
-          for t in editor mapper profiles sd fw gameid_page; do node tests/test_$t.js; done
-          node tests/check_page.js
+          bash tests/run.sh --page
 
   # Raspberry Pi RP2 boards: Pico SDK, target src/platform/rp2.
   rp2:

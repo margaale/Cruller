@@ -4,15 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "cfgfs.h"
 #include "cfgfs_ram.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
-#define RUN(t) do { current = #t; t(); } while (0)
+#include "cfgfs.h"
+#include "check.h"
 
 static char buf[8192];
 
@@ -114,6 +108,5 @@ int main(void) {
     RUN(test_lines);
     RUN(test_rewrite);
     RUN(test_power_cut);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    return tests_done();
 }

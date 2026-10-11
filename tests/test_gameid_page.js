@@ -2,19 +2,9 @@
 // Cruller would refuse, profiles, the games' search, a console's answer, its SVS input, what's on screen. Run
 // by tests/run.sh (node 18+).
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const { load, check, done } = require('./harness');
 
-const window = {};
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'gameid.js'), 'utf8'), { window, document: { getElementById: () => null } });
-const g = window.gameidInternals;
-
-let checks = 0, failures = 0;
-function check(cond, what) {
-  checks++;
-  if (!cond) { failures++; console.log('  FAIL ' + what); }
-}
+const g = load('gameid.js', { document: { getElementById: () => null } }).gameidInternals;
 
 // An address as typed: alone, a MemCard PRO's; http:// added; a path kept.
 check(g.consoleUrl('10.10.10.88') === 'http://10.10.10.88/api/currentState', 'an IP alone: the MemCard PRO\'s path');
@@ -126,5 +116,4 @@ ch = g.consoleChoices(all, [], '');
 check(ch.yours.length === 0 && ch.others.join() === 'megadrive,n64,nes,ps1,ps2,saturn', 'none yours: all by name');
 check(g.consoleChoices(all, ['ps2'], 'jaguar').yours.join() === 'jaguar,ps2', 'one it doesn\'t know: kept, with yours');
 
-console.log(failures ? `gameid.js: ${failures} of ${checks} checks failed` : `gameid.js: ${checks} checks ok`);
-process.exit(failures ? 1 : 0);
+done('gameid.js');

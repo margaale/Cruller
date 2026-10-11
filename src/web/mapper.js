@@ -662,5 +662,5 @@
 
   if (typeof document !== 'undefined' && document.getElementById) build();
   window.mapperInternals = { fields, readPlane, parseLine, sections, dialogOf, asNumber, same, reading, diff, union, split, takeAt, hexAt, numeric, compact, keep, settingsOf, // tests/test_mapper.js
-    walk, mapSetting, st, opts: (o) => { optsOverride = o; }, sleepless: () => { sleepMs = 0; } };
+    mapSetting, st, opts: (o) => { optsOverride = o; }, sleepless: () => { sleepMs = 0; } };
 })();

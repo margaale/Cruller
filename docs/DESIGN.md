@@ -160,7 +160,7 @@ Small records (`store.h`: the Wi-Fi credentials, the settings, the RT4K's firmwa
 
 ## Testing
 
-- **On the host** (`tests/run.sh`, gcc and node): the RTL1 engine, WebSocket framing, power state, the RT4K's firmware and model (what's asked, what's kept), RFC 2217 parsing, console reply windows, the GitHub download's URLs and reply heads, the page's JavaScript (syntax), the RT4K firmware updater's logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses, which names it takes).
+- **On the host** (`tests/run.sh`, gcc and node): src/core's pure modules and the page's JavaScript, the README's list ("Tests")'s logic (SHA-256, RetroTINK's index format, zip reading; optionally a real firmware zip), and the SD card view's (listing format, sorting, folder addresses, which names it takes).
 - **On the board behind the RT4K:** OTA only. `/debug/tasks` has the link counters (FT232R overruns, key -> screen times), `/debug/console` the last commands' reply times, and `/debug/freeze` where both cores were before a watchdog reset (kept across it).
 
 ## Open issues
