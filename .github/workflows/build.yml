@@ -66,7 +66,7 @@ jobs:
           submodules: true # littlefs, for cfgfs's tests
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
       - run: bash tests/run.sh
       # The page minified, as the images embed it: its tests again, and check_page (each id app.js uses,
       # in index.html); not check_api, which reads the sources.
@@ -98,7 +98,8 @@ jobs:
         with:
           release: ${{ env.ARM_GCC_RELEASE }}
 
-      - run: sudo apt-get install -y ninja-build ccache
+      - name: ninja, ccache
+        run: bash scripts/ci-tools.sh
 
       # Compiles through ccache: its directory kept between runs, so only what changed is compiled again.
       # Nothing that changes with every run is on the compilers' command lines (src/core/version.c and
@@ -112,7 +113,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
       - name: Minify the page
         run: bash scripts/minify-web.sh
 
@@ -207,11 +208,14 @@ jobs:
         with:
           submodules: true # littlefs (cfgfs)
 
-      - run: sudo apt-get install -y ninja-build ccache
+      - name: ninja, ccache
+        run: bash scripts/ci-tools.sh
 
-      # ESP-IDF and its tools for this chip, installed once and kept between runs: cheaper than pulling
-      # Espressif's image (every chip's tools) each time, which took ~70 s. The same paths every run, as
-      # ccache wants them.
+      # ESP-IDF with what building takes (the Xtensa compiler and its Python environment), installed once
+      # and kept between runs: cheaper than pulling Espressif's image (every chip's tools) each time, which
+      # took ~70 s. Not install.sh's other tools for the chip (its ULP's RISC-V compiler, the largest, gdb,
+      # OpenOCD, clangd): IDF_SKIP_TOOLS_CHECK, below, lets export.sh go without them. The same paths every
+      # run, as ccache wants them.
       - name: ESP-IDF (cached)
         id: idf-cache
         uses: actions/cache@v6
@@ -220,13 +224,21 @@ jobs:
             ${{ env.IDF_PATH }}
             ${{ env.IDF_TOOLS_PATH }}
             !${{ env.IDF_TOOLS_PATH }}/dist
-          key: esp-idf-${{ env.ESP_IDF_VERSION }}-${{ matrix.chip }}-${{ runner.os }}
+          key: esp-idf-${{ env.ESP_IDF_VERSION }}-xtensa-${{ runner.os }}
 
       - name: ESP-IDF (install)
         if: steps.idf-cache.outputs.cache-hit != 'true'
         run: |
           git clone -q --depth 1 -b "$ESP_IDF_VERSION" --recursive --shallow-submodules https://github.com/espressif/esp-idf "$IDF_PATH"
-          "$IDF_PATH/install.sh" ${{ matrix.chip }}
+          python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install xtensa-esp-elf
+          python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install-python-env
+
+      # The ESP32's components (main/idf_component.yml) as dependencies.lock pins them, kept by it.
+      - name: Components
+        uses: actions/cache@v6
+        with:
+          path: src/platform/esp32/managed_components
+          key: esp32-components-${{ hashFiles('src/platform/esp32/dependencies.lock') }}
 
       # It compiles through ccache: its directory kept between runs, so only what changed is compiled again.
       - name: ccache
@@ -238,7 +250,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
       - name: Minify the page
         run: bash scripts/minify-web.sh
 
@@ -246,6 +258,7 @@ jobs:
         env:
           CRULLER_VERSION: ${{ needs.version.outputs.version }}
           CRULLER_DEBUG: ${{ needs.version.outputs.debug }}
+          IDF_SKIP_TOOLS_CHECK: 1 # (ESP-IDF's tools this build doesn't use aren't installed: above)
           # ccache through CMake's launchers instead of ESP-IDF's own (IDF_CCACHE_ENABLE): they reach the
           # bootloader's build too (124 files), which ESP-IDF's doesn't.
           IDF_CCACHE_ENABLE: 0

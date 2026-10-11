@@ -2,3 +2,6 @@ build/
 .vscode/
 build-tests/
 .ccache/
+
+# ESP-IDF's component manager puts the ESP32's components here (dependencies.lock, kept, pins them)
+src/platform/esp32/managed_components/
