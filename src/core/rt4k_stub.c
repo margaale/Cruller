@@ -1,4 +1,4 @@
-// No RT4K link: rp2 bench builds (the USB port is the serial console) and targets without one yet.
+// No RT4K link: the targets without one yet (the ESP32).
 // Everything in rt4k.h, doing nothing: commands aren't sent, queries fail, the terminal stays empty.
 
 #include "rt4k.h"
@@ -96,7 +96,7 @@ void rt4k_get_status(rt4k_status_t *out) {
 }
 
 void rt4k_debug(char *out, size_t size) {
-    snprintf(out, size, "bench build: no RT4K link\n");
+    snprintf(out, size, "no RT4K link on this board yet\n");
 }
 
 size_t rt4k_debug_json(char *out, size_t size) {
@@ -105,5 +105,5 @@ size_t rt4k_debug_json(char *out, size_t size) {
 }
 
 size_t rt4k_trace_dump(char *out, size_t size) {
-    return (size_t)snprintf(out, size, "bench build: no RT4K link\n");
+    return (size_t)snprintf(out, size, "no RT4K link on this board yet\n");
 }
