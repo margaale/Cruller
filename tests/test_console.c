@@ -85,7 +85,6 @@ static void test_expect_waits_for_its_line(void) {
     CHECK(!console_core_poll(now)); // quiet, but its line hasn't come: still open
     now += 4000;
     CHECK(console_core_line("[COM] fwup ok version=1.87.3 token=AB12", now) == 2);
-    CHECK(console_core_got_expected());
     const uint32_t open = run_until_closed(5000);
     CHECK(open >= CON_QUIET_MS && open < CON_QUIET_MS + 20);
 }
@@ -95,7 +94,6 @@ static void test_expect_timeout(void) {
     console_core_begin(2, "fwup", 2000, NULL, now);
     const uint32_t open = run_until_closed(10000);
     CHECK(open >= 2000 && open < 2020);
-    CHECK(!console_core_got_expected());
 }
 
 static void test_next_window_new_owner(void) {
@@ -192,6 +190,33 @@ static void test_reply_coming_until_its_last_line(void) {
     run_until_closed(5000);
 }
 
+// Each command's known last line, as console.c opens its window.
+static void test_final_lines(void) {
+    static const struct {
+        const char *cmd, *done;
+        bool no_reply;
+    } cases[] = {
+        {"remote menu", "Serial Remote:", false},
+        {"ver", "Build tag:", false},
+        {"prof get", "prof loaded=", false}, // the exact command, ahead of "prof <n>"
+        {"prof 3", "prof load ok|prof save ok|prof:|prof err", false},
+        {"ls", "ls end|ls err|ls:", false},
+        {"ls /profile", "ls end|ls err|ls:", false},
+        {"input", "input=", false}, // bare: reads the active input
+        {"input 7", "input", false},
+        {"pwr on", "Power On Requested", false},
+        {"SVS NEW INPUT=2", NULL, true},
+        {"versions", NULL, false}, // exact commands match whole: not "ver"
+        {"prof", NULL, false},     // nor a first word without its argument
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        bool no_reply = !cases[i].no_reply;
+        const char *done = console_core_final_line(cases[i].cmd, &no_reply);
+        CHECK(done ? cases[i].done && !strcmp(done, cases[i].done) : !cases[i].done);
+        CHECK(no_reply == cases[i].no_reply);
+    }
+}
+
 int main(void) {
     RUN(test_reply_coming_until_its_last_line);
     RUN(test_key_closes_on_its_reply);
@@ -208,5 +233,6 @@ int main(void) {
     RUN(test_expect_waits_for_its_line);
     RUN(test_expect_timeout);
     RUN(test_next_window_new_owner);
+    RUN(test_final_lines);
     return tests_done();
 }

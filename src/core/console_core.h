@@ -43,5 +43,7 @@ int console_core_line(const char *line, uint32_t now_ms);
 // True once no window is open (the last one has closed).
 bool console_core_poll(uint32_t now_ms);
 
-// Whether the open (or last) window saw its expected line.
-bool console_core_got_expected(void);
+// The last line of a command's reply, when known (console_core_begin's done_when), so the window closes
+// on it instead of after the quiet wait: measured, that wait was ~50 ms of every command's 60-80 ms.
+// NULL: unknown, the quiet wait decides. *no_reply: never answered (SVS): don't wait at all.
+const char *console_core_final_line(const char *cmd, bool *no_reply);

@@ -377,10 +377,10 @@ requests keep the tools.
 ### Tests
 
 The pure parts of `src/core` (the RTL1 engine, WebSocket framing, power state, the RFC 2217
-parser, the console's reply windows, the SVS Bridge's reports, the GitHub download's URLs, gameID's
-consoles, games and choices, the files they're kept in, JSON) and the page's JavaScript (the firmware
-updater, the SD card view, the profiles, the settings map and the profile editor, the Consoles view)
-are tested on the host, with no Pico:
+parser, the console's reply windows and each command's last line, the log's ring, the SVS Bridge's
+reports, the GitHub download's URLs, gameID's consoles, games and choices, the files they're kept in,
+JSON) and the page's JavaScript (the firmware updater, the SD card view, the profiles, the settings map
+and the profile editor, the Consoles view) are tested on the host, with no Pico:
 
 ```bash
 tests/run.sh
