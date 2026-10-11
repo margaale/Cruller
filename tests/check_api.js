@@ -1,7 +1,7 @@
-// Checks of the routes (src/core/http.c's handle()): every route docs/API.md documents is there with
-// its method, the old names it lists too, every path the page fetches exists, and the doc's version is
-// HTTP_API_VERSION. A route renamed or dropped can't silently break a client. Run by tests/run.sh when
-// node is available.
+// Checks of the routes (src/core/http.c's handle() and its assets[]): every route docs/API.md documents
+// is there with its method, the old names it lists too, every path the page fetches exists, and the
+// doc's version is HTTP_API_VERSION. A route renamed or dropped can't silently break a client. Run by
+// tests/run.sh when node is available.
 
 const fs = require('fs');
 const path = require('path');
@@ -33,6 +33,10 @@ for (const line of table.split('\n')) {
     }
 }
 if (routes.size < 10) fail(`http.c: found only ${routes.size} routes in handle(); has its shape changed?`);
+// The web assets, from their table (GET only): {"/app.js", JS, ...}.
+const assets = http.slice(http.indexOf('} assets[] = {'), http.indexOf('};', http.indexOf('} assets[] = {')));
+for (const [, p] of assets.matchAll(/\{"(\/[^"]*)",/g)) routes.set(p, new Set(['GET']));
+if (!routes.has('/app.js')) fail('http.c: no web assets found in its assets[] table; has its shape changed?');
 
 // docs/API.md: "GET /api/v1/info" with its method; a bare `/api/...` (the old names) with any, except
 // a version's root (`/api/v1`).

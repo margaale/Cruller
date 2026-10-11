@@ -174,8 +174,8 @@ function st(s) {
   $('cl-br').style.flexGrow = rfc;
   $('cl-bf').style.flexGrow = Math.max(0, max - web - ev - rfc);
   text('cl-ips', s.rfc2217_clients ? 'RFC 2217 from ' + s.rfc2217_clients : '');
-  const heap = 192 * 1024;
-  text('m-free', Math.round(s.heap_free / 1024) + ' of 192 KB');
+  const heap = s.heap_size || 192 * 1024; // (a board before heap_size: the Pico 2 W's)
+  text('m-free', Math.round(s.heap_free / 1024) + ' of ' + Math.round(heap / 1024) + ' KB');
   $('m-bar').style.width = Math.round(100 * (1 - s.heap_free / heap)) + '%';
   text('f-ver', s.version);
   text('f-part', 'partition ' + (s.boot_partition ? 'B' : 'A'));

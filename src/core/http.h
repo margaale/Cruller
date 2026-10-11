@@ -1,4 +1,6 @@
-// Minimal HTTP server: status page, firmware upload (OTA) and Wi-Fi setup.
+// The HTTP server: the page and its routes (status, the RT4K's SD card and console, firmware updates,
+// setup), the API (/api/v1, docs/API.md) and the developer routes (/debug/*). One request at a time,
+// SD card transfers on their own task.
 
 #pragma once
 
