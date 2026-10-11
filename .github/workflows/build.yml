@@ -19,7 +19,7 @@ env:
   PICOTOOL_VERSION: "2.3.1"
   TINYUSB_VERSION: "0.21.0"
   FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
-  ARM_GCC_RELEASE: "14.2.Rel1"
+  ARM_GCC_RELEASE: "15.3.Rel2"
   ESP_IDF_VERSION: "v6.1"
   GITVERSION_VERSION: "6.x"
   ESBUILD_VERSION: "0.28.2" # scripts/minify-web.sh, which minifies the page for the images: its JavaScript
@@ -66,7 +66,7 @@ jobs:
           submodules: true # littlefs, for cfgfs's tests
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
       - run: bash tests/run.sh
       # The page minified, as the images embed it: its tests again, and check_page (each id app.js uses,
       # in index.html); not check_api, which reads the sources.
@@ -98,7 +98,8 @@ jobs:
         with:
           release: ${{ env.ARM_GCC_RELEASE }}
 
-      - run: sudo apt-get install -y ninja-build ccache
+      - name: ninja, ccache
+        run: bash scripts/ci-tools.sh
 
       # Compiles through ccache: its directory kept between runs, so only what changed is compiled again.
       # Nothing that changes with every run is on the compilers' command lines (src/core/version.c and
@@ -112,7 +113,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
       - name: Minify the page
         run: bash scripts/minify-web.sh
 
@@ -163,7 +164,6 @@ jobs:
         run: |
           ccache -z
           bash scripts/build.sh rp2 Release
-          ninja -C build/rp2 cruller_bench # built so it keeps building; not published
           ccache -s
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.uf2 installs a new board
@@ -188,7 +188,8 @@ jobs:
           archive: false # the image itself, not a zip: the artifact takes the file's name
           if-no-files-found: error
 
-  # Espressif ESP32 boards: ESP-IDF in Espressif's container, target src/platform/esp32.
+  # Espressif ESP32 boards: ESP-IDF on the runner (installed for the chip, kept between runs), target
+  # src/platform/esp32.
   esp32:
     name: esp32 (${{ matrix.board }})
     needs: version
@@ -199,47 +200,81 @@ jobs:
         include:
           - board: esp32s3_devkitc1_n16r8
             chip: esp32s3
+    env:
+      IDF_PATH: /home/runner/esp/esp-idf
+      IDF_TOOLS_PATH: /home/runner/.espressif
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true # littlefs (cfgfs)
 
-      # ESP-IDF compiles through ccache: keep its directory between runs (inside the workspace, which
-      # the container mounts), so only what changed is compiled again.
+      - name: ninja, ccache
+        run: bash scripts/ci-tools.sh
+
+      # ESP-IDF with what building takes (the Xtensa compiler and its Python environment), installed once
+      # and kept between runs: cheaper than pulling Espressif's image (every chip's tools) each time, which
+      # took ~70 s. Not install.sh's other tools for the chip (its ULP's RISC-V compiler, the largest, gdb,
+      # OpenOCD, clangd): IDF_SKIP_TOOLS_CHECK, below, lets export.sh go without them. The same paths every
+      # run, as ccache wants them.
+      - name: ESP-IDF (cached)
+        id: idf-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.IDF_PATH }}
+            ${{ env.IDF_TOOLS_PATH }}
+            !${{ env.IDF_TOOLS_PATH }}/dist
+          key: esp-idf-${{ env.ESP_IDF_VERSION }}-xtensa-${{ runner.os }}
+
+      - name: ESP-IDF (install)
+        if: steps.idf-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone -q --depth 1 -b "$ESP_IDF_VERSION" --recursive --shallow-submodules https://github.com/espressif/esp-idf "$IDF_PATH"
+          python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install xtensa-esp-elf
+          python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install-python-env
+
+      # The ESP32's components (main/idf_component.yml) as dependencies.lock pins them, kept by it.
+      - name: Components
+        uses: actions/cache@v6
+        with:
+          path: src/platform/esp32/managed_components
+          key: esp32-components-${{ hashFiles('src/platform/esp32/dependencies.lock') }}
+
+      # It compiles through ccache: its directory kept between runs, so only what changed is compiled again.
       - name: ccache
         uses: actions/cache@v6
         with:
           path: .ccache
-          key: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
-          restore-keys: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-
+          key: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-runner-${{ github.sha }}
+          restore-keys: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-runner-
 
-      # On the runner: ESP-IDF's container has no node, and builds the workspace it mounts.
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
       - name: Minify the page
         run: bash scripts/minify-web.sh
 
-      # ESP-IDF's image from Google's mirror of Docker Hub (the same image, by its digest): Docker Hub
-      # limits unauthenticated pulls per address, and the runners share theirs, so its pulls failed.
       - name: Build
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_docker_image: mirror.gcr.io/espressif/idf
-          esp_idf_version: ${{ env.ESP_IDF_VERSION }}
-          target: ${{ matrix.chip }}
+        env:
+          CRULLER_VERSION: ${{ needs.version.outputs.version }}
+          CRULLER_DEBUG: ${{ needs.version.outputs.debug }}
+          IDF_SKIP_TOOLS_CHECK: 1 # (ESP-IDF's tools this build doesn't use aren't installed: above)
           # ccache through CMake's launchers instead of ESP-IDF's own (IDF_CCACHE_ENABLE): they reach the
           # bootloader's build too (124 files), which ESP-IDF's doesn't.
-          # CCACHE_COMPILERCHECK: ccache checks -specs files as it checks the compiler, by date by default,
-          # and ESP-IDF writes its picolibc.specs again in each build: by date, no file was ever found again.
-          extra_docker_args: >-
-            -e CCACHE_DIR=/app/${{ github.repository }}/.ccache -e IDF_CCACHE_ENABLE=0
-            -e CMAKE_C_COMPILER_LAUNCHER=ccache -e CMAKE_CXX_COMPILER_LAUNCHER=ccache
-            -e CMAKE_ASM_COMPILER_LAUNCHER=ccache
-            -e CCACHE_COMPILERCHECK=content -e CCACHE_MAXSIZE=150M
-            -e CRULLER_VERSION=${{ needs.version.outputs.version }}
-            -e CRULLER_DEBUG=${{ needs.version.outputs.debug }}
-          command: ccache -z && bash scripts/build.sh esp32 && ccache -s
+          IDF_CCACHE_ENABLE: 0
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          CMAKE_ASM_COMPILER_LAUNCHER: ccache
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          # ccache checks -specs files as it checks the compiler, by date by default, and ESP-IDF writes its
+          # picolibc.specs again in each build: by date, no file was ever found again.
+          CCACHE_COMPILERCHECK: content
+          CCACHE_MAXSIZE: 150M
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          ccache -z
+          bash scripts/build.sh esp32
+          ccache -s
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.bin installs a new board
       # over USB at 0x0 (bootloader, partition table, OTA data and app in one); cruller.bin is the OTA image.

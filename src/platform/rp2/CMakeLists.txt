@@ -100,13 +100,14 @@ target_include_directories(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core ${CRULLER_ROOT}/src/platform ${CMAKE_CURRENT_SOURCE_DIR}
     ${CRULLER_ROOT}/third_party/picow_ap)
 
-# Web assets kept as real files (src/web), embedded as C arrays (see src/web/embed.cmake).
+# Web assets kept as real files (src/web), embedded gzipped as C arrays (#embed, see src/web/embed.cmake).
 foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js gameid.js:web_gameid_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
     string(REPLACE ":" ";" asset ${asset})
     list(GET asset 0 file)
     list(GET asset 1 name)
     set(out ${CMAKE_CURRENT_BINARY_DIR}/${name}.c)
     add_custom_command(OUTPUT ${out}
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${name}.gz # (the C file's #embed)
         COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/${file} -DOUT=${out} -DNAME=${name}
             -P ${CRULLER_WEB}/embed.cmake
         DEPENDS ${CRULLER_WEB}/${file} ${CRULLER_WEB}/embed.cmake
@@ -148,21 +149,14 @@ set_source_files_properties(${PICO_SDK_PATH}/src/rp2_common/pico_crt0/crt0.S PRO
 function(cruller_image TARGET)
     add_executable(${TARGET})
     target_link_libraries(${TARGET} PRIVATE cruller_app)
-    if ("${TARGET}" MATCHES "_bench$")
-        # Bench board on a PC: USB is a serial console (the log, live) and there is no RT4K link.
-        target_sources(${TARGET} PRIVATE ${CRULLER_ROOT}/src/core/rt4k_stub.c)
-        target_compile_definitions(${TARGET} PRIVATE CRULLER_BENCH=1)
-        pico_enable_stdio_usb(${TARGET} 1)
-    else()
-        # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
-        target_sources(${TARGET} PRIVATE rt4k.c)
-        target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/usb_host)
-        target_link_libraries(${TARGET} PRIVATE tinyusb_host)
-        # The RT4K receive path runs from RAM (see cmake/linker/default_text_excludes.incl).
-        pico_add_linker_script_override_path(${TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker
-            FILES default_text_excludes.incl)
-        pico_enable_stdio_usb(${TARGET} 0)
-    endif()
+    # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
+    target_sources(${TARGET} PRIVATE rt4k.c)
+    target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/usb_host)
+    target_link_libraries(${TARGET} PRIVATE tinyusb_host)
+    # The RT4K receive path runs from RAM (see cmake/linker/default_text_excludes.incl).
+    pico_add_linker_script_override_path(${TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker
+        FILES default_text_excludes.incl)
+    pico_enable_stdio_usb(${TARGET} 0)
     pico_enable_stdio_uart(${TARGET} 0)
     pico_add_extra_outputs(${TARGET})
 endfunction()
@@ -170,11 +164,6 @@ endfunction()
 # OTA image (Cruller -> Cruller): "try before you buy", confirmed once healthy.
 cruller_image(cruller)
 target_compile_definitions(cruller PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
-
-# Same OTA image for a board on the bench (see cruller_image). Not built by default.
-cruller_image(cruller_bench)
-target_compile_definitions(cruller_bench PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
-set_target_properties(cruller_bench PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # First image, installed by DonutShop's OTA stage-3 with a normal boot: must not be TBYB.
 cruller_image(cruller_migration_app)
