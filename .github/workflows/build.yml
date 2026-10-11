@@ -21,7 +21,7 @@ env:
   FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
   ARM_GCC_RELEASE: "15.3.Rel2"
   ESP_IDF_VERSION: "v6.1"
-  GITVERSION_VERSION: "6.8.2" # exact: .github/actions/version keeps it in the cache
+  NODE_VERSION: "24"
   ESBUILD_VERSION: "0.28.2" # scripts/minify-web.sh, which minifies the page for the images: its JavaScript
   HTML_MINIFIER_VERSION: "7.2.0" # ... and its index.html
 
@@ -35,7 +35,7 @@ jobs:
           submodules: true # littlefs, for cfgfs's tests
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
       - run: bash tests/run.sh
       # The page minified, as the images embed it: its tests again, and check_page (each id app.js uses,
       # in index.html); not check_api, which reads the sources.
@@ -49,7 +49,7 @@ jobs:
   rp2:
     name: rp2 (${{ matrix.board }})
     outputs:
-      version: ${{ steps.version.outputs.version }} # (the release jobs')
+      version: ${{ steps.version.outputs.version }} # (the publish job's)
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -60,22 +60,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          submodules: true
           fetch-depth: 0 # GitVersion reads the tags and the history
+      - name: littlefs # (its history not: the checkout would take it all, with fetch-depth 0)
+        run: git submodule update -q --init --depth 1
 
       - id: version
         uses: ./.github/actions/version
-        with:
-          gitversion: ${{ env.GITVERSION_VERSION }}
-
-      - name: Arm GNU toolchain
-        id: arm
-        uses: carlosperate/arm-none-eabi-gcc-action@v1
-        with:
-          release: ${{ env.ARM_GCC_RELEASE }}
-
-      - name: ninja, ccache
-        run: bash scripts/ci-tools.sh
 
       # Compiles through ccache: its directory kept between runs, so only what changed is compiled again.
       # Nothing that changes with every run is on the compilers' command lines (src/core/version.c and
@@ -86,16 +76,24 @@ jobs:
           path: .ccache
           key: ccache-rp2-${{ matrix.board }}-${{ github.sha }}
           restore-keys: ccache-rp2-${{ matrix.board }}-
+      - name: ninja, ccache
+        run: bash scripts/ci-tools.sh
+
+      - name: Arm GNU toolchain
+        id: arm
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_GCC_RELEASE }}
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
       - name: Minify the page
         run: bash scripts/minify-web.sh
 
-      # The Pico SDK (with the submodules the build uses), TinyUSB and FreeRTOS, cloned once for their
-      # versions and kept between runs (the clones took 11-20 s). TinyUSB is kept as build.sh patched it: an
-      # unchanged series is skipped, a new one applied again on a clean checkout (scripts/build.sh).
+      # The Pico SDK (with the submodules the build uses: no Bluetooth), TinyUSB and FreeRTOS, cloned once
+      # for their versions and kept between runs (the clones took 11-20 s). TinyUSB is kept as build.sh
+      # patched it: an unchanged series is skipped, a new one applied again on a clean checkout.
       - name: Pico SDK, TinyUSB, FreeRTOS (cached)
         id: sdk-cache
         uses: actions/cache@v6
@@ -104,14 +102,14 @@ jobs:
             .tools/pico-sdk
             .tools/tinyusb
             .tools/FreeRTOS-Kernel
-          key: pico-sdk-${{ env.PICO_SDK_VERSION }}-tinyusb-${{ env.TINYUSB_VERSION }}-freertos-${{ env.FREERTOS_KERNEL_REF }}
+          key: pico-sdk-${{ env.PICO_SDK_VERSION }}-cyw43-lwip-mbedtls-tinyusb-${{ env.TINYUSB_VERSION }}-freertos-${{ env.FREERTOS_KERNEL_REF }}
 
       - name: Pico SDK, TinyUSB, FreeRTOS (clone)
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p "$TOOLS"
           git clone -q --depth 1 -b "$PICO_SDK_VERSION" https://github.com/raspberrypi/pico-sdk "$TOOLS/pico-sdk"
-          git -C "$TOOLS/pico-sdk" submodule update -q --init --depth 1 lib/cyw43-driver lib/lwip lib/mbedtls lib/btstack
+          git -C "$TOOLS/pico-sdk" submodule update -q --init --depth 1 lib/cyw43-driver lib/lwip lib/mbedtls
           git clone -q --depth 1 -b "$TINYUSB_VERSION" https://github.com/hathach/tinyusb "$TOOLS/tinyusb"
           git init -q "$TOOLS/FreeRTOS-Kernel"
           git -C "$TOOLS/FreeRTOS-Kernel" fetch -q --depth 1 https://github.com/raspberrypi/FreeRTOS-Kernel "$FREERTOS_KERNEL_REF"
@@ -145,16 +143,9 @@ jobs:
           PICO_TOOLCHAIN_PATH: ${{ steps.arm.outputs.path }}
           PICOTOOL_DIR: ${{ env.TOOLS }}/picotool-install/lib/cmake/picotool
           PIOASM_DIR: ${{ env.TOOLS }}/pioasm # not there: the SDK builds pioasm itself
-          CMAKE_C_COMPILER_LAUNCHER: ccache
-          CMAKE_CXX_COMPILER_LAUNCHER: ccache
-          CMAKE_ASM_COMPILER_LAUNCHER: ccache
-          CCACHE_DIR: ${{ github.workspace }}/.ccache
-          CCACHE_COMPILERCHECK: content # the compiler is downloaded again in each run: its contents, not its date
-          CCACHE_MAXSIZE: 150M
         run: |
-          ccache -z
           bash scripts/build.sh rp2 Release
-          ccache -s
+          bash scripts/ci-tools.sh done
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.uf2 installs a new board
       # (BOOTSEL, then drop it on the drive); cruller.uf2 is the OTA image the Cruller tab looks for.
@@ -186,46 +177,55 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - board: esp32s3_devkitc1_n16r8
-            chip: esp32s3
+        board: [esp32s3_devkitc1_n16r8]
     env:
       IDF_PATH: /home/runner/esp/esp-idf
       IDF_TOOLS_PATH: /home/runner/.espressif
     steps:
       - uses: actions/checkout@v7
         with:
-          submodules: true # littlefs (cfgfs)
           fetch-depth: 0 # GitVersion reads the tags and the history
+      - name: littlefs # (cfgfs; its history not: the checkout would take it all, with fetch-depth 0)
+        run: git submodule update -q --init --depth 1
 
       - id: version
         uses: ./.github/actions/version
-        with:
-          gitversion: ${{ env.GITVERSION_VERSION }}
 
+      # It compiles through ccache: its directory kept between runs, so only what changed is compiled again.
+      - name: ccache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-esp32-${{ matrix.board }}-${{ env.ESP_IDF_VERSION }}-${{ github.sha }}
+          restore-keys: ccache-esp32-${{ matrix.board }}-${{ env.ESP_IDF_VERSION }}-
       - name: ninja, ccache
         run: bash scripts/ci-tools.sh
 
       # ESP-IDF with what building takes (the Xtensa compiler and its Python environment), installed once
       # and kept between runs: cheaper than pulling Espressif's image (every chip's tools) each time, which
       # took ~70 s. Not install.sh's other tools for the chip (its ULP's RISC-V compiler, the largest, gdb,
-      # OpenOCD, clangd): IDF_SKIP_TOOLS_CHECK, below, lets export.sh go without them. The same paths every
-      # run, as ccache wants them.
+      # OpenOCD, clangd): IDF_SKIP_TOOLS_CHECK, below, lets export.sh go without them. Nor its git history,
+      # examples and docs: version.txt gives its version instead, as in Espressif's release zips. The same
+      # paths every run, as ccache wants them.
       - name: ESP-IDF (cached)
         id: idf-cache
         uses: actions/cache@v6
         with:
           path: |
             ${{ env.IDF_PATH }}
+            !${{ env.IDF_PATH }}/.git
+            !${{ env.IDF_PATH }}/examples
+            !${{ env.IDF_PATH }}/docs
             ${{ env.IDF_TOOLS_PATH }}
             !${{ env.IDF_TOOLS_PATH }}/dist
-          key: esp-idf-${{ env.ESP_IDF_VERSION }}-xtensa-${{ runner.os }}
+          key: esp-idf-${{ env.ESP_IDF_VERSION }}-esp32s3-xtensa-${{ runner.os }}
 
       - name: ESP-IDF (install)
         if: steps.idf-cache.outputs.cache-hit != 'true'
         run: |
           git clone -q --depth 1 -b "$ESP_IDF_VERSION" --recursive --shallow-submodules https://github.com/espressif/esp-idf "$IDF_PATH"
-          python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install xtensa-esp-elf
+          echo "$ESP_IDF_VERSION" > "$IDF_PATH/version.txt"
+          python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install --targets=esp32s3 xtensa-esp-elf
           python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install-python-env
 
       # The ESP32's components (main/idf_component.yml) as dependencies.lock pins them, kept by it.
@@ -235,17 +235,9 @@ jobs:
           path: src/platform/esp32/managed_components
           key: esp32-components-${{ hashFiles('src/platform/esp32/dependencies.lock') }}
 
-      # It compiles through ccache: its directory kept between runs, so only what changed is compiled again.
-      - name: ccache
-        uses: actions/cache@v6
-        with:
-          path: .ccache
-          key: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-runner-${{ github.sha }}
-          restore-keys: ccache-esp32-${{ matrix.chip }}-${{ env.ESP_IDF_VERSION }}-runner-
-
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
       - name: Minify the page
         run: bash scripts/minify-web.sh
 
@@ -254,22 +246,10 @@ jobs:
           CRULLER_VERSION: ${{ steps.version.outputs.version }}
           CRULLER_DEBUG: ${{ steps.version.outputs.debug }}
           IDF_SKIP_TOOLS_CHECK: 1 # (ESP-IDF's tools this build doesn't use aren't installed: above)
-          # ccache through CMake's launchers instead of ESP-IDF's own (IDF_CCACHE_ENABLE): they reach the
-          # bootloader's build too (124 files), which ESP-IDF's doesn't.
-          IDF_CCACHE_ENABLE: 0
-          CMAKE_C_COMPILER_LAUNCHER: ccache
-          CMAKE_CXX_COMPILER_LAUNCHER: ccache
-          CMAKE_ASM_COMPILER_LAUNCHER: ccache
-          CCACHE_DIR: ${{ github.workspace }}/.ccache
-          # ccache checks -specs files as it checks the compiler, by date by default, and ESP-IDF writes its
-          # picolibc.specs again in each build: by date, no file was ever found again.
-          CCACHE_COMPILERCHECK: content
-          CCACHE_MAXSIZE: 150M
         run: |
           . "$IDF_PATH/export.sh" > /dev/null
-          ccache -z
           bash scripts/build.sh esp32
-          ccache -s
+          bash scripts/ci-tools.sh done
 
       # Named as released: cruller-<version>-<board>-<file>. cruller-factory.bin installs a new board
       # over USB at 0x0 (bootloader, partition table, OTA data and app in one); cruller.bin is the OTA image.
@@ -293,9 +273,11 @@ jobs:
           archive: false # the image itself, not a zip: the artifact takes the file's name
           if-no-files-found: error
 
-  # Every push to master: tag vX.Y.Z and a GitHub release with every board's images.
-  release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+  # Every push to master: tag vX.Y.Z and a GitHub release with every board's images; to develop, a
+  # pre-release vX.Y.Z-alpha.N, to try on a board (the Cruller tab offers alphas only to a board already on
+  # one).
+  publish:
+    if: github.event_name == 'push'
     needs: [tests, rp2, esp32]
     runs-on: ubuntu-24.04
     permissions:
@@ -313,30 +295,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Cruller ${{ needs.rp2.outputs.version }}
           generate_release_notes: true
-          files: release/*
-          fail_on_unmatched_files: true
-
-  # Every push to develop: a pre-release vX.Y.Z-alpha.N with every board's images, to try on a board
-  # (the Cruller tab offers alphas only to a board already on one).
-  prerelease:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [tests, rp2, esp32]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: cruller-*
-          path: release
-          merge-multiple: true
-      - run: ls -l release
-      - uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ needs.rp2.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          name: Cruller ${{ needs.rp2.outputs.version }}
-          generate_release_notes: true
-          prerelease: true
+          prerelease: ${{ github.ref != 'refs/heads/master' }}
           files: release/*
           fail_on_unmatched_files: true

@@ -51,11 +51,8 @@ idf_component_register(
         lwip mbedtls nvs_flash vfs
 )
 
-# The version for version.c alone: a new one compiles that file again, no other (ccache keeps the rest).
-set_source_files_properties(${CORE}/version.c PROPERTIES COMPILE_DEFINITIONS CRULLER_VERSION="${CRULLER_VERSION}")
-if (NOT CRULLER_DEBUG)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE CRULLER_DEBUG=0)
-endif()
+cruller_defs(${COMPONENT_LIB} PRIVATE)
+cruller_web(${COMPONENT_LIB} PRIVATE)
 # littlefs (cfgfs.h) as on rp2: static buffers, quiet.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
 
@@ -63,18 +60,3 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE LFS_NO_MALLOC LFS_NO_DEBUG L
 # puts them under freertos/.
 idf_component_get_property(freertos_dir freertos COMPONENT_DIR)
 target_include_directories(${COMPONENT_LIB} PRIVATE ${freertos_dir}/FreeRTOS-Kernel/include/freertos)
-
-# The web page, embedded gzipped as C arrays (#embed; the same as rp2, see src/web/embed.cmake).
-foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js gameid.js:web_gameid_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
-    string(REPLACE ":" ";" asset ${asset})
-    list(GET asset 0 file)
-    list(GET asset 1 name)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/${name}.c)
-    add_custom_command(OUTPUT ${out}
-        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${name}.gz # (the C file's #embed)
-        COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_ROOT}/src/web/${file} -DOUT=${out} -DNAME=${name}
-            -P ${CRULLER_ROOT}/src/web/embed.cmake
-        DEPENDS ${CRULLER_ROOT}/src/web/${file} ${CRULLER_ROOT}/src/web/embed.cmake
-        VERBATIM)
-    target_sources(${COMPONENT_LIB} PRIVATE ${out})
-endforeach()

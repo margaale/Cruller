@@ -95,8 +95,10 @@ void rt4k_get_status(rt4k_status_t *out) {
     memset(out, 0, sizeof(*out));
 }
 
+static const char NO_LINK[] = "no RT4K link on this board yet\n";
+
 void rt4k_debug(char *out, size_t size) {
-    snprintf(out, size, "no RT4K link on this board yet\n");
+    snprintf(out, size, "%s", NO_LINK);
 }
 
 size_t rt4k_debug_json(char *out, size_t size) {
@@ -105,5 +107,5 @@ size_t rt4k_debug_json(char *out, size_t size) {
 }
 
 size_t rt4k_trace_dump(char *out, size_t size) {
-    return (size_t)snprintf(out, size, "no RT4K link on this board yet\n");
+    return (size_t)snprintf(out, size, "%s", NO_LINK);
 }

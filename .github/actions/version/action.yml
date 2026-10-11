@@ -6,7 +6,7 @@ description: GitVersion's X.Y.Z and label (GitVersion.yml) made into this run's 
 inputs:
   gitversion:
     description: GitVersion's version, exact (found in the cache, no NuGet query)
-    required: true
+    default: "6.8.2"
 outputs:
   # master: X.Y.Z, a release; develop: X.Y.Z-alpha.N; pull requests: X.Y.Z-pr.N, where N is this run's
   # number. The run number grows with every run in the repository, so the newest build is the newest

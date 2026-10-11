@@ -12,11 +12,12 @@ case "${1:-}" in rp2|esp32) target=$1; shift ;; esac
 build_type="${1:-Release}"
 src="src/platform/$target"
 out="build/$target"
+# Cruller's own settings, the same for both targets.
+defs=(${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} -DCRULLER_DEBUG="${CRULLER_DEBUG:-1}")
 
 if [ "$target" = esp32 ]; then
     # Optimization comes from sdkconfig.defaults, not a build type.
-    idf.py -C "$src" -B "$out" ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} \
-        -DCRULLER_DEBUG="${CRULLER_DEBUG:-1}" reconfigure
+    idf.py -C "$src" -B "$out" "${defs[@]}" reconfigure
     ninja -C "$out" -k 0 # every error at once, not just the first
     # A new board over USB: bootloader, partition table, OTA data and app in one file, at 0x0.
     idf.py -C "$src" -B "$out" merge-bin -o "$PWD/$out/cruller-factory.bin"
@@ -49,9 +50,8 @@ PIOASM_DIR="${PIOASM_DIR:-$TOOLS_ROOT/tools/sdk-tools/pioasm}"
 
 cmake -S "$src" -B "$out" -G Ninja \
     -DCMAKE_BUILD_TYPE="$build_type" \
-    ${CRULLER_VERSION:+-DCRULLER_VERSION="$CRULLER_VERSION"} \
+    "${defs[@]}" \
     ${CRULLER_BUILD:+-DCRULLER_BUILD="$CRULLER_BUILD"} \
-    -DCRULLER_DEBUG="${CRULLER_DEBUG:-1}" \
     ${PICO_BOARD:+-DPICO_BOARD="$PICO_BOARD"} \
     -Dpicotool_DIR="$PICOTOOL_DIR" \
     -Dpioasm_DIR="$PIOASM_DIR"
