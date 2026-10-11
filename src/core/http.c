@@ -404,7 +404,7 @@ void http_debug_memory(char *out, size_t size) {
     size_t o = 0;
     out[0] = 0;
 #define ADD(...) o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__)
-    const int ws_n = ws_clients(NULL), rfc_n = rfc2217_count(NULL);
+    const int ws_n = ws_clients(), rfc_n = rfc2217_count();
     ADD("clients                 %d of %d, shared (see clients.h)\n", clients_used(), CLIENTS_MAX);
     ADD("  web pages (WebSocket)   %d (when full, a new one replaces the quietest page)\n", ws_n);
     ADD("  API events (WebSocket)  %d of %d at most (a new one replaces the quietest)\n", ws_event_clients(),
@@ -511,7 +511,7 @@ size_t http_debug_memory_json(char *out, size_t size) {
     size_t o = 0;
 #define ADD(...) o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__)
     ADD("{\"clients\":{\"used\":%d,\"max\":%d,\"web\":%d,\"events\":%d,\"rfc2217\":%d,\"http_waiting\":%d},\"pools\":[",
-        clients_used(), CLIENTS_MAX, ws_clients(NULL), ws_event_clients(), rfc2217_count(NULL), HTTP_BACKLOG);
+        clients_used(), CLIENTS_MAX, ws_clients(), ws_event_clients(), rfc2217_count(), HTTP_BACKLOG);
     for (size_t i = 0; i < sizeof(pools) / sizeof(pools[0]); i++) {
         const struct stats_mem m = pool_stats(pools[i].id);
         ADD("%s{\"name\":\"%s\",\"used\":%u,\"peak\":%u,\"size\":%u,\"failed\":%lu}", i ? "," : "", pools[i].name,
@@ -630,7 +630,7 @@ void http_status_json(char *body, size_t size) {
             net_ip(), net_rssi(), ota_boot_partition(), ota_last_boot_type(), (unsigned)mem.heap_free, (unsigned)mem.heap_size,
             rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud, rt4k_flow_control() ? "true" : "false",
             (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
-            rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(NULL), ws_event_clients(), rfc2217_count(NULL),
+            rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(), ws_event_clients(), rfc2217_count(),
             CLIENTS_MAX, rfc2217_ips, (unsigned long)gameid_state_seq());
     if (!base) {
         snprintf(body, size, "{}");
@@ -1075,7 +1075,7 @@ static void handle_rt4k_ask(request_t *r, const char *query) {
     uint32_t timeout_ms = form_field(query, "timeout", tmo, sizeof(tmo)) ? (uint32_t)strtoul(tmo, NULL, 10) : 3000;
     if (timeout_ms > 20000) timeout_ms = 20000;
     char line[200];
-    if (rt4k_query(cmd, expect, line, sizeof(line), timeout_ms)) {
+    if (console_query(cmd, expect, line, sizeof(line), timeout_ms)) {
         strncat(line, "\n", sizeof(line) - strlen(line) - 1);
         respond(r->fd, 200, "text/plain", line);
     } else {
@@ -1580,7 +1580,7 @@ static void handle_debug_baud(int fd, const char *query) {
     rtl1_pause(5000); // no mirror transfer in the middle
     if (!rate) {
         snprintf(msg, sizeof(msg), "need ?rate=N\n");
-    } else if (!rt4k_query(cmd, "baud", reply, sizeof(reply), 2500)) {
+    } else if (!console_query(cmd, "baud", reply, sizeof(reply), 2500)) {
         snprintf(msg, sizeof(msg), "%s: no reply\n", cmd);
     } else if (strncmp(reply, "baud switching to", 17)) {
         snprintf(msg, sizeof(msg), "%s: refused: %s\n", cmd, reply); // bad baud / busy: nothing changed
@@ -1589,7 +1589,7 @@ static void handle_debug_baud(int fd, const char *query) {
     } else {
         vTaskDelay(pdMS_TO_TICKS(50));
         char confirm[96];
-        if (rt4k_query("baud ok", "baud", confirm, sizeof(confirm), 2500) && strstr(confirm, "confirmed")) {
+        if (console_query("baud ok", "baud", confirm, sizeof(confirm), 2500) && strstr(confirm, "confirmed")) {
             snprintf(msg, sizeof(msg), "now at %lu baud: %s / %s\n", (unsigned long)rate, reply, confirm);
         } else {
             rt4k_set_baud(old);

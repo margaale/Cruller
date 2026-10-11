@@ -45,8 +45,8 @@ bool ws_has_room(bool events);
 // and times key -> screen (in ws_debug).
 void ws_key_sent(void);
 
-// Connected clients (open pages), and the most allowed in *max.
-int ws_clients(int *max);
+// Connected clients (open pages).
+int ws_clients(void);
 
 // Connected /api/v1/events clients.
 int ws_event_clients(void);
@@ -54,6 +54,6 @@ int ws_event_clients(void);
 // Debug: zero the key -> screen and poll error counters (for a measurement run).
 void ws_debug_reset(void);
 
-// Debug: one line on where the ws and mirror tasks are.
+// Debug: where the ws and mirror tasks are, and the mirror's counters, as text (GET /debug/tasks).
 #include <stddef.h>
 void ws_debug(char *out, size_t size);

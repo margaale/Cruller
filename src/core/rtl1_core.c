@@ -49,10 +49,15 @@ static struct {
     uint8_t payload[RTL1_MAX_PAYLOAD];
 } e;
 
+// CRC-16/CCITT (polynomial 0x1021) a nibble at a time: every byte of a transfer goes through it on the
+// rt4k task, whose delays cost FT232R overruns, and two lookups cost far less than eight shifts.
+static const uint16_t crc_nibble[16] = {
+    0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7, 0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad, 0xe1ce, 0xf1ef,
+};
+
 static uint16_t crc16(uint16_t crc, uint8_t b) {
-    crc ^= (uint16_t)b << 8;
-    for (int i = 0; i < 8; i++) crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021) : (uint16_t)(crc << 1);
-    return crc;
+    crc = (uint16_t)((crc << 4) ^ crc_nibble[(crc >> 12) ^ (b >> 4)]);
+    return (uint16_t)((crc << 4) ^ crc_nibble[(crc >> 12) ^ (b & 0x0f)]);
 }
 
 size_t rtl1_encode_frame(uint8_t *out, uint16_t nonce, uint8_t type, uint8_t seq, const uint8_t *payload, uint16_t len) {
@@ -64,7 +69,7 @@ size_t rtl1_encode_frame(uint8_t *out, uint16_t nonce, uint8_t type, uint8_t seq
     out[5] = (uint8_t)(len >> 8);
     out[6] = type;
     out[7] = seq;
-    if (len) memcpy(out + 8, payload, len);
+    if (len && payload != out + 8) memcpy(out + 8, payload, len);
     uint16_t crc = 0xffff;
     for (size_t i = 2; i < 8u + len; i++) crc = crc16(crc, out[i]);
     out[8 + len] = (uint8_t)crc;
@@ -410,8 +415,8 @@ void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *inf
     e.phase = RTL1_PH_READY;
 }
 
-void rtl1_core_begin_put(const char *cmd, rtl1_info_t *info, uint32_t ready_timeout_ms, uint32_t now_ms) {
-    rtl1_core_begin(cmd, NULL, 0, info, true, ready_timeout_ms, now_ms);
+void rtl1_core_begin_put(const char *cmd, rtl1_info_t *info, uint32_t now_ms) {
+    rtl1_core_begin(cmd, NULL, 0, info, true, 0, now_ms);
     e.put = true;
     memset(&e.replies, 0, sizeof(e.replies));
     e.st = 0;

@@ -8,6 +8,7 @@
 #include "queue.h"
 #include "semphr.h"
 
+#include "json.h"
 #include "platform.h"
 #include "power.h"
 #include "rt4k.h"
@@ -44,13 +45,9 @@ static uint32_t head;               // lines ever routed
 static char line[LINE_MAX_LEN];     // being assembled (rt4k task only)
 static size_t line_len;
 
-static uint32_t now_ms(void) {
-    return plat_ms();
-}
-
 static void route(const char *text) {
     plat_lock_enter(&lock);
-    const int owner = console_core_line(text, now_ms());
+    const int owner = console_core_line(text, plat_ms());
     entry_t *e = &history[head & (HISTORY - 1)];
     e->owner = owner;
     snprintf(e->text, sizeof(e->text), "%s", text);
@@ -144,7 +141,7 @@ bool console_run(int owner, const char *cmd, void (*on_line)(const char *line, v
     // Commands queued before ours go first: allow for them. The flag decides; the notification only
     // wakes us up early. Read often: "ls" sends a line every ~0.7 ms, and the history keeps only
     // HISTORY lines (~45 ms of them).
-    for (const uint32_t t0 = now_ms(); now_ms() - t0 < (QUEUE_DEPTH + 1) * CON_MAX_MS;) {
+    for (const uint32_t t0 = plat_ms(); plat_ms() - t0 < (QUEUE_DEPTH + 1) * CON_MAX_MS;) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
         const bool done = *flag != 0;
         while (console_read_line(&seq, &o, text, sizeof(text))) {
@@ -165,10 +162,10 @@ bool console_query(const char *cmd, const char *expect, char *out, size_t size, 
     bool found = false;
     if (enqueue(CON_QUERY, cmd, expect, timeout_ms)) {
         // The queue may hold other commands first: allow for them on top of our own timeout.
-        const uint32_t t0 = now_ms();
+        const uint32_t t0 = plat_ms();
         char text[LINE_MAX_LEN];
         int owner;
-        while (!found && now_ms() - t0 < timeout_ms + QUEUE_DEPTH * CON_NO_REPLY_MS) {
+        while (!found && plat_ms() - t0 < timeout_ms + QUEUE_DEPTH * CON_NO_REPLY_MS) {
             if (!console_read_line(&seq, &owner, text, sizeof(text))) {
                 vTaskDelay(pdMS_TO_TICKS(20));
                 continue;
@@ -205,21 +202,15 @@ size_t console_debug(char *out, size_t size) {
 }
 
 size_t console_debug_json(char *out, size_t size) {
-    size_t o = (size_t)snprintf(out, size, "[");
+    size_t o = 0;
+    bool ok = json_put(out, size, &o, "[");
     const uint32_t n = cmd_log_n < CMD_LOG ? cmd_log_n : CMD_LOG;
-    for (uint32_t k = cmd_log_n - n; k != cmd_log_n && o < size; k++) {
+    for (uint32_t k = cmd_log_n - n; ok && k != cmd_log_n; k++) {
         const uint32_t i = k & (CMD_LOG - 1);
-        char cmd[sizeof(cmd_log[i].cmd)];
-        size_t c = 0;
-        for (const char *p = cmd_log[i].cmd; *p && c < sizeof(cmd) - 1; p++) {
-            cmd[c++] = *p == '"' || *p == '\\' || (unsigned char)*p < 0x20 ? '?' : *p; // no escapes needed
-        }
-        cmd[c] = 0;
-        o += (size_t)snprintf(out + o, size - o, "%s{\"cmd\":\"%s\",\"owner\":%d,\"reply_ms\":%d,\"window_ms\":%u}",
-            k == cmd_log_n - n ? "" : ",", cmd, cmd_log[i].owner, cmd_log[i].reply_ms, cmd_log[i].window_ms);
+        ok = json_put(out, size, &o, k == cmd_log_n - n ? "{\"cmd\":" : ",{\"cmd\":") && json_put_str(out, size, &o, cmd_log[i].cmd) &&
+            json_putf(out, size, &o, ",\"owner\":%d,\"reply_ms\":%d,\"window_ms\":%u}", cmd_log[i].owner, cmd_log[i].reply_ms, cmd_log[i].window_ms);
     }
-    if (o < size) o += (size_t)snprintf(out + o, size - o, "]");
-    return o < size ? o : 0;
+    return ok && json_put(out, size, &o, "]") ? o : 0;
 }
 
 // The last line of each command's reply, when known (console_core_begin's done_when), so the window
@@ -262,20 +253,20 @@ static void console_task(void *param) {
     static request_t req;
     for (;;) {
         xQueueReceive(queue, &req, portMAX_DELAY);
-        const uint32_t t0 = now_ms();
+        const uint32_t t0 = plat_ms();
         const bool sent = rt4k_send_command(req.cmd); // false: no RT4K, or the link stayed busy
         bool no_reply = false;
         const char *done_when = final_line(req.cmd, &no_reply);
         if (sent && !no_reply) {
             ulTaskNotifyTake(pdTRUE, 0); // wake-ups from lines of an earlier window
             plat_lock_enter(&lock);
-            console_core_begin(req.owner, req.expect, req.timeout_ms, done_when, now_ms());
+            console_core_begin(req.owner, req.expect, req.timeout_ms, done_when, plat_ms());
             plat_lock_exit(&lock);
             if (!strncmp(req.cmd, "remote ", 7)) ws_key_sent(); // any sender: the mirror refreshes and times it
             for (;;) {
                 ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10)); // route() wakes us on each reply line
                 plat_lock_enter(&lock);
-                const bool over = console_core_poll(now_ms());
+                const bool over = console_core_poll(plat_ms());
                 plat_lock_exit(&lock);
                 if (over) break;
             }
@@ -283,7 +274,7 @@ static void console_task(void *param) {
             snprintf(cmd_log[i].cmd, sizeof(cmd_log[i].cmd), "%.*s", (int)sizeof(cmd_log[i].cmd) - 1, req.cmd); // its start
             cmd_log[i].owner = (int8_t)req.owner;
             cmd_log[i].reply_ms = (int16_t)console_core_first_reply_ms();
-            cmd_log[i].window_ms = (uint16_t)(now_ms() - t0);
+            cmd_log[i].window_ms = (uint16_t)(plat_ms() - t0);
         }
         if (req.notify) {
             *req.status = sent ? 1 : -1;

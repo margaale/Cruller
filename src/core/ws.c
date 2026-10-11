@@ -115,10 +115,6 @@ static volatile rtl1_result_t last_result[2] = {RTL1_OK, RTL1_OK};
 static char last_detail[2][96];
 static uint32_t poll_last_ms[2], poll_max_ms[2], poll_errors[2][5]; // debug: per plane, errors by result
 
-static uint32_t now_ms(void) {
-    return plat_ms();
-}
-
 // --- sending (ws task) -------------------------------------------------------------------------
 
 static bool send_all(int fd, const uint8_t *p, size_t len) {
@@ -157,7 +153,7 @@ static bool push_log_status(client_t *c) {
         if (!n) break;
         if (!send_tx(c, WS_OP_BINARY, 1 + n)) return false;
     }
-    const uint32_t t = now_ms();
+    const uint32_t t = plat_ms();
     const int power = (int)power_state();
     char p[4];
     uint32_t sent, size;
@@ -197,7 +193,7 @@ static bool push_events(client_t *c) {
         if (!send_tx(c, WS_OP_TEXT, (size_t)n)) return false;
     }
     if (!(c->types & WS_EVENT_STATE)) return true;
-    const uint32_t t = now_ms(), seen = events_now();
+    const uint32_t t = plat_ms(), seen = events_now();
     if (c->last_status_ms && t - c->last_status_ms < EVENTS_EVERY_MS && seen == c->events_seen) return true;
     c->last_status_ms = t | 1;
     c->events_seen = seen;
@@ -228,7 +224,7 @@ static bool push_debug(client_t *c) {
         tx[17] = 6;
         if (!send_tx(c, WS_OP_BINARY, 2 + o)) return false;
     }
-    const uint32_t t = now_ms();
+    const uint32_t t = plat_ms();
     if (c->last_debug_ms && t - c->last_debug_ms < DEBUG_EVERY_MS) return true;
     c->last_debug_ms = t | 1;
     char *out = (char *)tx + 18;
@@ -317,7 +313,7 @@ static bool on_frame(client_t *c, const ws_frame_t *f) {
             if (n) {
                 for (size_t i = 0; i < n; i++) if (cmd[i] == '\r' || cmd[i] == '\n') cmd[i] = ' ';
                 ws_where = "rt4k_command";
-                rt4k_command(cmd); // keys: console.c calls ws_key_sent() once it's out
+                console_send(CON_PAGE, cmd); // keys: console.c calls ws_key_sent() once it's out
             }
             return true;
         }
@@ -365,7 +361,7 @@ static bool on_readable(client_t *c) {
     const int n = recv(c->fd, c->rx + c->rx_len, RX_MAX - c->rx_len, 0);
     if (n <= 0) return false;
     c->rx_len += (size_t)n;
-    c->last_rx_ms = now_ms();
+    c->last_rx_ms = plat_ms();
     for (;;) {
         ws_frame_t f;
         const long used = ws_parse(c->rx, c->rx_len, RX_MAX - 14, &f);
@@ -410,7 +406,7 @@ static void add_client(int fd, bool events, uint32_t types) {
     }
     memset(slot, 0, sizeof(*slot));
     slot->fd = fd;
-    slot->last_rx_ms = slot->last_ping_ms = now_ms();
+    slot->last_rx_ms = slot->last_ping_ms = plat_ms();
     slot->events = events;
     slot->types = types;
     slot->hidden = events; // no screen to mirror for it
@@ -422,7 +418,7 @@ static void add_client(int fd, bool events, uint32_t types) {
 
 // Pings now and then; drops clients that stopped answering.
 static bool keepalive(client_t *c) {
-    const uint32_t t = now_ms();
+    const uint32_t t = plat_ms();
     if (t - c->last_rx_ms > SILENT_DROP_MS) {
         printf("ws: client silent for %lu s\n", (unsigned long)((t - c->last_rx_ms) / 1000));
         return false;
@@ -485,11 +481,11 @@ static bool offline(rtl1_result_t r) {
 static rtl1_result_t poll_plane(int p, uint8_t *buf) {
     static rtl1_info_t info;
     mirror_where = p ? "osd2" : "osd";
-    const uint32_t t0 = now_ms();
+    const uint32_t t0 = plat_ms();
     const rtl1_result_t r = rtl1_transfer(p ? "osd2" : "osd", buf, 4096, &info, true, POLL_READY_TIMEOUT_MS);
     if (r == RTL1_OK || r == RTL1_ERR_DEVICE || r == RTL1_ERR_PROTOCOL) power_alive(); // it answered
     else if (r == RTL1_ERR_TIMEOUT) power_silent();
-    poll_last_ms[p] = now_ms() - t0;
+    poll_last_ms[p] = plat_ms() - t0;
     if (poll_last_ms[p] > poll_max_ms[p]) poll_max_ms[p] = poll_last_ms[p];
     if (r != RTL1_OK && (unsigned)r < 5) poll_errors[p][r]++;
     mirror_where = "compare";
@@ -512,7 +508,7 @@ static rtl1_result_t poll_plane(int p, uint8_t *buf) {
         pl->version++;
         const uint32_t k = key_pending_ms;
         if (k && pl->version > 1) { // a key was waiting for its effect: this is it
-            const uint32_t lat = now_ms() - k;
+            const uint32_t lat = plat_ms() - k;
             key_lat.last = lat;
             if (lat > key_lat.max) key_lat.max = lat;
             key_lat.total += lat;
@@ -524,8 +520,7 @@ static rtl1_result_t poll_plane(int p, uint8_t *buf) {
     return r;
 }
 
-int ws_clients(int *max) {
-    if (max) *max = MAX_CLIENTS;
+int ws_clients(void) {
     return client_count - event_count;
 }
 
@@ -540,7 +535,7 @@ void ws_debug_reset(void) {
 }
 
 void ws_key_sent(void) {
-    const uint32_t t = now_ms();
+    const uint32_t t = plat_ms();
     last_key_ms = t;
     key_pending_ms = t | 1;
     if (mirror_task_h) xTaskNotifyGive(mirror_task_h); // refresh the OSD soon
@@ -556,7 +551,7 @@ static void mirror_task(void *param) {
             continue;
         }
         // A key whose effect didn't show (end of a menu...) mustn't be matched to a later change.
-        if (key_pending_ms && now_ms() - key_pending_ms > ACTIVE_WINDOW_MS) key_pending_ms = 0;
+        if (key_pending_ms && plat_ms() - key_pending_ms > ACTIVE_WINDOW_MS) key_pending_ms = 0;
         const power_state_t pw = power_state();
         if (pw == PWR_STANDBY || pw == PWR_BOOTING) {
             mirror_where = "rt4k asleep"; // nothing to show; power.c notices when it's back
@@ -577,7 +572,7 @@ static void mirror_task(void *param) {
         }
         if (!offline(r)) r = poll_plane(0, buf);
         // The menu is in the main plane: while keys are being pressed, poll only that one.
-        const bool navigating = now_ms() - last_key_ms < ACTIVE_WINDOW_MS;
+        const bool navigating = plat_ms() - last_key_ms < ACTIVE_WINDOW_MS;
         if (!offline(r) && !navigating) r = poll_plane(1, buf);
         // Back off only when the RT4K doesn't answer; a refusal or a bad frame is retried soon.
         const uint32_t wait = offline(r) ? OFFLINE_BACKOFF_MS : navigating ? POLL_ACTIVE_MS : POLL_IDLE_MS;

@@ -190,6 +190,10 @@ static void test_crc_matches_rt4k_frames(void) {
     rtl1_encode_frame(f, 0xdb65, 2, 2, osd2_digest, 32);
     CHECK(f[40] == 0xaa && f[41] == 0xb5);
     CHECK(f[0] == 0xa5 && f[1] == 0x5a && f[2] == 0x65 && f[3] == 0xdb && f[4] == 0x20 && f[5] == 0x00);
+    // The payload already in place (an upload reads it straight into the frame): the same frame.
+    uint8_t g[42];
+    memcpy(g + 8, osd2_digest, 32);
+    CHECK(rtl1_encode_frame(g, 0xdb65, 2, 2, g + 8, 32) == 42 && !memcmp(f, g, 42));
 }
 
 // --- tests: successful transfers -----------------------------------------------------------------
@@ -775,7 +779,7 @@ static void test_line_in_progress_when_transfer_starts(void) {
 #define PUT_NONCE 0x6630
 
 static void begin_put_ready(void) {
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put ready nonce=0x6630\n");
     deliver(0);
 }
@@ -812,7 +816,7 @@ static void test_put_acks_then_done(void) {
 
 static void test_put_byte_by_byte(void) {
     reset();
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put ready nonce=0x6630\n");
     put_frame(PUT_NONCE, 4, 0, NULL, 0);
     put_frame(PUT_NONCE, 4, 1, NULL, 0);
@@ -827,7 +831,7 @@ static void test_put_byte_by_byte(void) {
 
 static void test_put_usage_refused(void) {
     reset();
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put: usage 'put <size> <sha256hex> <path>'\n");
     deliver(0);
     CHECK(rtl1_core_phase() == RTL1_PH_IDLE);
@@ -837,7 +841,7 @@ static void test_put_usage_refused(void) {
 
 static void test_put_err_refused(void) {
     reset();
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put err: no space\n");
     deliver(0);
     CHECK(rtl1_core_result() == RTL1_ERR_DEVICE);
