@@ -37,7 +37,6 @@ static struct raw_pcb *ping_pcb;
 static SemaphoreHandle_t ping_gate;
 static uint16_t ping_seq;
 
-static volatile uint32_t last_feed_ms;
 volatile uint32_t health_feed_us;
 static volatile bool rebooting;
 
@@ -51,7 +50,6 @@ static void wdt_task(void *param) {
             for (;;) vTaskDelay(portMAX_DELAY); // subscribed and never fed again
         }
         if (!rebooting) esp_task_wdt_reset();
-        last_feed_ms = plat_ms();
         health_feed_us = plat_us();
         vTaskDelay(pdMS_TO_TICKS(WDT_FEED_MS));
     }
@@ -67,10 +65,6 @@ void health_rearm_watchdog(void) {
 
 void health_stop_feeding(void) {
     rebooting = true;
-}
-
-uint32_t health_last_feed_ms(void) {
-    return last_feed_ms;
 }
 
 // lwIP (tcpip thread): take our echo replies, pass everything else on.

@@ -247,10 +247,6 @@ void tuh_cdc_rx_cb(uint8_t idx) {
 
 // --- task --------------------------------------------------------------------------------------
 
-void rt4k_text_push(const uint8_t *data, size_t len) {
-    console_feed(data, len); // routes each line: see console.h
-}
-
 void rt4k_term_push(const uint8_t *data, size_t len) {
     critical_section_enter_blocking(&rx_lock);
     for (size_t i = 0; i < len; i++) rx_ring[(rx_head + i) & (RX_RING_SIZE - 1)] = (char)data[i];
@@ -370,10 +366,6 @@ bool rt4k_connected(void) {
     return status.mounted;
 }
 
-bool rt4k_command(const char *cmd) {
-    return console_send(CON_PAGE, cmd);
-}
-
 bool rt4k_send_command(const char *cmd) {
     char line[CMD_MAX + 4];
     const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
@@ -395,16 +387,6 @@ bool rt4k_send_command(const char *cmd) {
     return ok;
 }
 
-bool rt4k_query(const char *cmd, const char *expect, char *out, size_t size, uint32_t timeout_ms) {
-    return console_query(cmd, expect, out, size, timeout_ms);
-}
-
-uint32_t rt4k_rx_head(void) {
-    critical_section_enter_blocking(&rx_lock);
-    const uint32_t head = rx_head;
-    critical_section_exit(&rx_lock);
-    return head;
-}
 
 uint32_t rt4k_ms_since_command(void) {
     return to_ms_since_boot(get_absolute_time()) - last_cmd_ms;

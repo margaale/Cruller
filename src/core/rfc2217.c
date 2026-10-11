@@ -40,10 +40,6 @@ typedef struct {
 
 static client_t clients[MAX_CLIENTS];
 
-static uint32_t now_ms(void) {
-    return plat_ms();
-}
-
 static bool send_all(int fd, const uint8_t *p, size_t len) {
     while (len) {
         const int n = send(fd, p, len, 0);
@@ -73,7 +69,7 @@ static void from_client(client_t *c, const uint8_t *data, size_t len) {
         c->line[c->line_len++] = data[i];
         if (data[i] == '\n' || c->line_len == sizeof(c->line) - 1) flush_line(c); // room for the NUL
     }
-    c->line_last_ms = now_ms();
+    c->line_last_ms = plat_ms();
 }
 
 static void drop_client(client_t *c, const char *why) {
@@ -118,7 +114,7 @@ static void add_client(int fd, const struct sockaddr_in *peer, uint8_t *buf, siz
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
     c->fd = fd;
-    c->since_ms = now_ms();
+    c->since_ms = plat_ms();
     inet_ntoa_r(peer->sin_addr, c->ip, sizeof(c->ip));
     rfc2217_init(&c->proto);
     c->seq = console_head(); // from now on, not what came before
@@ -147,13 +143,16 @@ static void rfc2217_task(void *param) {
         FD_ZERO(&rd);
         FD_SET(server, &rd);
         int maxfd = server;
+        bool any = false;
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i].fd < 0) continue;
             FD_SET(clients[i].fd, &rd);
             if (clients[i].fd > maxfd) maxfd = clients[i].fd;
+            any = true;
         }
+        // With clients, every TICK_MS (the RT4K's lines, the modem lines); with none, nothing to do till one comes.
         struct timeval tv = {.tv_sec = 0, .tv_usec = TICK_MS * 1000};
-        const int ready = select(maxfd + 1, &rd, NULL, NULL, &tv);
+        const int ready = select(maxfd + 1, &rd, NULL, NULL, any ? &tv : NULL);
 
         if (ready > 0 && FD_ISSET(server, &rd)) {
             struct sockaddr_in peer;
@@ -180,7 +179,7 @@ static void rfc2217_task(void *param) {
                 }
                 if (io.data_len) from_client(c, data, io.data_len);
             }
-            if (c->line_len && now_ms() - c->line_last_ms >= LINE_IDLE_MS) flush_line(c);
+            if (c->line_len && plat_ms() - c->line_last_ms >= LINE_IDLE_MS) flush_line(c);
 
             // The modem state (CTS, DSR...), announced at connect and on every change.
             if (modem != c->modem_sent) {
@@ -213,8 +212,7 @@ static void rfc2217_task(void *param) {
     }
 }
 
-int rfc2217_count(int *max) {
-    if (max) *max = MAX_CLIENTS;
+int rfc2217_count(void) {
     int n = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) n += clients[i].fd >= 0;
     return n;
