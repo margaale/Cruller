@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "platform.h"
+#include "ring.h"
 
 #define LOG_SIZE  8192u        // power of two
 #define LOG_MAGIC 0x43524c47u  // "CRLG"
@@ -21,8 +22,7 @@ static log_state_t PLAT_NOINIT(st);
 static plat_lock_t lock;
 
 static inline void put(const char *buf, size_t len) {
-    for (size_t i = 0; i < len; i++) st.ring[(st.head + i) & (LOG_SIZE - 1)] = buf[i];
-    st.head += (uint32_t)len;
+    ring_put(st.ring, LOG_SIZE, &st.head, buf, len);
     st.check = LOG_MAGIC ^ st.head;
 }
 
@@ -55,13 +55,7 @@ void PLAT_RAMFUNC(log_write_raw)(const char *s) {
 
 size_t log_read(uint32_t *pos, char *out, size_t max) {
     plat_lock_enter(&lock);
-    uint32_t from = *pos;
-    // Overwritten, or ahead of us (a client from before a reset): restart at the oldest byte held.
-    if (from > st.head || st.head - from > LOG_SIZE) from = st.head > LOG_SIZE ? st.head - LOG_SIZE : 0;
-    size_t n = st.head - from;
-    if (n > max) n = max;
-    for (size_t i = 0; i < n; i++) out[i] = st.ring[(from + i) & (LOG_SIZE - 1)];
-    *pos = from + (uint32_t)n;
+    const size_t n = ring_read(st.ring, LOG_SIZE, st.head, pos, out, max);
     plat_lock_exit(&lock);
     return n;
 }

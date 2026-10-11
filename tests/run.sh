@@ -51,6 +51,7 @@ build test_ota_fetch src/core/ota_fetch_proto.c
 build test_buttons src/core/buttons.c
 build test_rt4k_info src/core/rt4k_info_core.c
 build test_json src/core/json.c
+build test_ring
 # littlefs as the boards build it (its own warnings aside), under cfgfs over a flash of RAM
 LFS=(-DLFS_NO_MALLOC -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR -I third_party/littlefs)
 "$CC" -std=c11 -O1 -g "${LFS[@]}" -c third_party/littlefs/lfs.c -o build-tests/lfs.o &

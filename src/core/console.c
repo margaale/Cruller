@@ -11,6 +11,7 @@
 #include "json.h"
 #include "platform.h"
 #include "power.h"
+#include "ring.h"
 #include "rt4k.h"
 #include "rt4k_info.h"
 #include "ws.h"
@@ -51,11 +52,6 @@ static volatile uint32_t last_cmd_ms;
 static char line[LINE_MAX_LEN];     // being assembled (rt4k task only)
 static size_t line_len;
 
-static void term_put(const char *s, size_t n) {
-    for (size_t i = 0; i < n; i++) term[(term_head + i) & (TERM_SIZE - 1)] = s[i];
-    term_head += (uint32_t)n;
-}
-
 static void route(const char *text) {
     plat_lock_enter(&lock);
     const int owner = console_core_line(text, plat_ms());
@@ -64,8 +60,8 @@ static void route(const char *text) {
     snprintf(e->text, sizeof(e->text), "%s", text);
     head++;
     if (owner != CON_POWER && owner != CON_QUERY && owner != CON_FILES) { // the web terminal: all but Cruller's own
-        term_put(text, strlen(text));
-        term_put("\n", 1);
+        ring_put(term, TERM_SIZE, &term_head, text, strlen(text));
+        ring_put(term, TERM_SIZE, &term_head, "\n", 1);
     }
     plat_lock_exit(&lock);
     if (owner != CON_BROADCAST && console_task_h) xTaskNotifyGive(console_task_h); // may close its window
@@ -75,13 +71,7 @@ static void route(const char *text) {
 
 size_t console_term_read(uint32_t *pos, char *out, size_t max) {
     plat_lock_enter(&lock);
-    uint32_t from = *pos;
-    // Overwritten, or ahead of us (a reader from before a reset): restart at the oldest byte held.
-    if (from > term_head || term_head - from > TERM_SIZE) from = term_head > TERM_SIZE ? term_head - TERM_SIZE : 0;
-    size_t n = term_head - from;
-    if (n > max) n = max;
-    for (size_t i = 0; i < n; i++) out[i] = term[(from + i) & (TERM_SIZE - 1)];
-    *pos = from + (uint32_t)n;
+    const size_t n = ring_read(term, TERM_SIZE, term_head, pos, out, max);
     plat_lock_exit(&lock);
     return n;
 }
@@ -237,41 +227,6 @@ size_t console_debug_json(char *out, size_t size) {
     return ok && json_put(out, size, &o, "]") ? o : 0;
 }
 
-// The last line of each command's reply, when known (console_core_begin's done_when), so the window
-// closes on it instead of after the quiet wait: measured, that wait was ~50 ms of every command's
-// 60-80 ms. NULL: unknown, the quiet wait decides. *no_reply: never answered (SVS): don't wait at all.
-static const char *final_line(const char *cmd, bool *no_reply) {
-    static const struct {
-        const char *prefix; // ending in ' ': the command's first word(s); else the exact command
-        const char *done;
-    } table[] = {
-        {"remote ", "Serial Remote:"},
-        {"ver", "Build tag:"},
-        {"model", "model="},
-        {"banner", "banner="},
-        {"prof get", "prof loaded="},
-        {"prof ", "prof load ok|prof save ok|prof:|prof err"},
-        {"ls", "ls end|ls err|ls:"},
-        {"ls ", "ls end|ls err|ls:"},
-        {"stat ", "stat t=|stat err|stat:"},
-        {"mkdir ", "mkdir ok|mkdir err|mkdir:"},
-        {"rm ", "rm ok|rm err|rm:"},
-        {"mv ", "mv ok|mv err|mv:"},
-        {"pwr on", "Power On Requested"}, // "Bad Command: pwr on" when it's already on
-        {"input", "input="}, // (bare: reads the active input)
-        {"input ", "input"},
-        {"output ", "output"},
-        {"fwup ", "fwup"},
-    };
-    *no_reply = !strncmp(cmd, "SVS ", 4);
-    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
-        const char *p = table[i].prefix;
-        const size_t n = strlen(p);
-        if (p[n - 1] == ' ' ? !strncmp(cmd, p, n) : !strcmp(cmd, p)) return table[i].done;
-    }
-    return NULL;
-}
-
 // The way the RT4K reads a line, "\r<cmd>\r\n", once no rtl1 transfer holds the link. False when it
 // didn't go out: no RT4K, the link stayed busy, the queue to it was full.
 static bool send_command(const char *cmd) {
@@ -310,7 +265,7 @@ static void console_task(void *param) {
         const uint32_t t0 = plat_ms();
         const bool sent = send_command(req.cmd);
         bool no_reply = false;
-        const char *done_when = final_line(req.cmd, &no_reply);
+        const char *done_when = console_core_final_line(req.cmd, &no_reply);
         if (sent && !no_reply) {
             ulTaskNotifyTake(pdTRUE, 0); // wake-ups from lines of an earlier window
             plat_lock_enter(&lock);

@@ -86,6 +86,34 @@ bool console_core_poll(uint32_t now_ms) {
     return over;
 }
 
-bool console_core_got_expected(void) {
-    return w.got_expect;
+const char *console_core_final_line(const char *cmd, bool *no_reply) {
+    static const struct {
+        const char *prefix; // ending in ' ': the command's first word(s); else the exact command
+        const char *done;
+    } table[] = {
+        {"remote ", "Serial Remote:"},
+        {"ver", "Build tag:"},
+        {"model", "model="},
+        {"banner", "banner="},
+        {"prof get", "prof loaded="},
+        {"prof ", "prof load ok|prof save ok|prof:|prof err"},
+        {"ls", "ls end|ls err|ls:"},
+        {"ls ", "ls end|ls err|ls:"},
+        {"stat ", "stat t=|stat err|stat:"},
+        {"mkdir ", "mkdir ok|mkdir err|mkdir:"},
+        {"rm ", "rm ok|rm err|rm:"},
+        {"mv ", "mv ok|mv err|mv:"},
+        {"pwr on", "Power On Requested"}, // "Bad Command: pwr on" when it's already on
+        {"input", "input="}, // (bare: reads the active input)
+        {"input ", "input"},
+        {"output ", "output"},
+        {"fwup ", "fwup"},
+    };
+    *no_reply = !strncmp(cmd, "SVS ", 4);
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+        const char *p = table[i].prefix;
+        const size_t n = strlen(p);
+        if (p[n - 1] == ' ' ? !strncmp(cmd, p, n) : !strcmp(cmd, p)) return table[i].done;
+    }
+    return NULL;
 }
