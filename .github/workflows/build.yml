@@ -93,7 +93,21 @@ jobs:
       - name: Minify the page
         run: bash scripts/minify-web.sh
 
-      - name: Pico SDK, TinyUSB, FreeRTOS
+      # The Pico SDK (with the submodules the build uses), TinyUSB and FreeRTOS, cloned once for their
+      # versions and kept between runs (the clones took 11-20 s). TinyUSB is kept as build.sh patched it: an
+      # unchanged series is skipped, a new one applied again on a clean checkout (scripts/build.sh).
+      - name: Pico SDK, TinyUSB, FreeRTOS (cached)
+        id: sdk-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            .tools/pico-sdk
+            .tools/tinyusb
+            .tools/FreeRTOS-Kernel
+          key: pico-sdk-${{ env.PICO_SDK_VERSION }}-tinyusb-${{ env.TINYUSB_VERSION }}-freertos-${{ env.FREERTOS_KERNEL_REF }}
+
+      - name: Pico SDK, TinyUSB, FreeRTOS (clone)
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p "$TOOLS"
           git clone -q --depth 1 -b "$PICO_SDK_VERSION" https://github.com/raspberrypi/pico-sdk "$TOOLS/pico-sdk"
