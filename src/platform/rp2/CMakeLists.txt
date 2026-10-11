@@ -61,7 +61,6 @@ target_sources(cruller_app INTERFACE
     health.c
     freeze.c
     log.c
-    status_led.c
     rt4k.c # (the native USB port is the RT4K's host; logs go to the in-memory log, /log)
     ${CRULLER_ROOT}/third_party/picow_ap/dhcpserver.c
     ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
@@ -72,9 +71,6 @@ target_include_directories(cruller_app INTERFACE
 cruller_web(cruller_app INTERFACE)
 cruller_defs(cruller_app INTERFACE)
 
-target_compile_definitions(cruller_app INTERFACE
-    CYW43_HOST_NAME="cruller"
-)
 target_link_libraries(cruller_app INTERFACE
     pico_stdlib
     pico_cyw43_arch_lwip_sys_freertos

@@ -18,6 +18,7 @@
 
 #include "log.h"
 #include "platform.h"
+#include "status_led.h"
 
 #define WDT_TIMEOUT_MS    8000
 #define WDT_FEED_MS       1000
@@ -77,9 +78,10 @@ void health_rearm_watchdog(void) {
     armed = true;
 }
 
-// --- sensors (health.h) --------------------------------------------------------------------------
+// --- sensors (health.h), and the status LED -----------------------------------------------------
 // VSYS/3 is on GPIO29 (ADC3), which is also the CYW43's SPI clock: it's read with the CYW43's lock
 // held, and the driver takes the pin back at its next transfer (as pico-examples' power_status does).
+// The LED is on the CYW43 too: lit here, with the lock held anyway, between the two.
 
 #define SENSOR_PERIOD_MS 100
 #define SUPPLY_BURST     256 // reads per sample, ~2 µs each: ~0.5 ms holding the CYW43
@@ -101,9 +103,15 @@ static void sensors_task(void *param) {
     (void)param;
     adc_init();
     adc_set_temp_sensor_enabled(true);
+    int led_now = -1;
     for (uint32_t n = 0;; n++) {
         cyw43_thread_enter();
         const bool vbus = cyw43_arch_gpio_get(CYW43_WL_GPIO_VBUS_PIN); // also wakes it: its clock line goes quiet
+        const bool led = status_led_lit(status_led_mode(), plat_ms());
+        if (led != led_now) { // (each write is a bus transaction)
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led);
+            led_now = led;
+        }
         adc_gpio_init(PICO_VSYS_PIN);
         adc_select_input(PICO_VSYS_PIN - ADC_BASE_PIN);
         for (int i = 0; i < 3; i++) (void)adc_read(); // the first reads after switching come out low

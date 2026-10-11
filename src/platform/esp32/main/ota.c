@@ -75,16 +75,22 @@ void ota_reboot_into_update(void) {
     esp_restart();
 }
 
+// Read once (the status asks for it every few seconds): it only changes when confirmed, below.
+static int8_t trial = -1; // -1: not read yet
+
 bool ota_is_trial_boot(void) {
-    esp_ota_img_states_t st;
-    return esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK &&
-        st == ESP_OTA_IMG_PENDING_VERIFY;
+    if (trial < 0) {
+        esp_ota_img_states_t st;
+        trial = esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;
+    }
+    return trial;
 }
 
 void ota_confirm_if_trial(void) {
     if (!ota_is_trial_boot()) return;
     const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
     printf("ota: update confirmed (%s)\n", esp_err_to_name(err));
+    if (err == ESP_OK) trial = 0;
 }
 
 int ota_boot_partition(void) {

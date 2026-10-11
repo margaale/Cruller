@@ -64,7 +64,7 @@ Cruller runs on more than one board: the Pico 2 W (`rp2`, the one in use) and th
 | power | 2 | any | RT4K power state probes; asks its firmware and model when it comes on, and keeps them |
 | gameid | 2 | any | asks gameID's consoles which game they run (every 2 s) and loads the profile for the one on screen ([GAMEID.md](GAMEID.md)) |
 | wdt, ping | 2 | any | watchdog feeder; gateway pings (no traffic for 10 s: let the watchdog reset) |
-| led | 1 | any | status LED |
+| sensors | 1 | any | the Pico 2 W's supply and temperature (Debug tab, Home Assistant), and its status LED (on the CYW43; the ESP32 has an led task) |
 | tcpip_thread | 1 | any | lwIP (SDK) |
 
 The RT4K receive path (TinyUSB, CDC, the RTL1 engine, the FreeRTOS kernel) runs from RAM: from flash it went cold in the XIP cache while Wi-Fi code ran on core 0, and the FT232R overflowed (`src/platform/rp2/cmake/linker/default_text_excludes.incl`).

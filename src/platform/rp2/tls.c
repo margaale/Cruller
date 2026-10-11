@@ -29,17 +29,6 @@ struct tls {
     mbedtls_x509_crt roots;
 };
 
-static void *heap_calloc(size_t n, size_t size) {
-    if (size && n > SIZE_MAX / size) return NULL;
-    void *p = pvPortMalloc(n * size);
-    if (p) memset(p, 0, n * size);
-    return p;
-}
-
-static void heap_free(void *p) {
-    if (p) vPortFree(p);
-}
-
 static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
     const int n = send(((tls_t *)ctx)->fd, buf, len, 0);
     return n > 0 ? n : MBEDTLS_ERR_NET_SEND_FAILED;
@@ -73,8 +62,8 @@ static bool open_socket(tls_t *t, const char *host, uint16_t port, uint32_t time
 }
 
 tls_t *tls_connect(const char *host, uint16_t port, uint32_t timeout_ms, char *err, size_t err_size) {
-    mbedtls_platform_set_calloc_free(heap_calloc, heap_free);
-    tls_t *t = heap_calloc(1, sizeof(*t));
+    mbedtls_platform_set_calloc_free(pvPortCalloc, vPortFree);
+    tls_t *t = pvPortCalloc(1, sizeof(*t));
     if (!t) {
         snprintf(err, err_size, "not enough memory for TLS");
         return NULL;
@@ -97,14 +86,12 @@ tls_t *tls_connect(const char *host, uint16_t port, uint32_t timeout_ms, char *e
     if (!open_socket(t, host, port, timeout_ms, err, err_size)) goto fail;
     r = mbedtls_ctr_drbg_seed(&t->drbg, mbedtls_entropy_func, &t->entropy, personal, sizeof(personal) - 1);
     if (!r) r = mbedtls_ssl_config_defaults(&t->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
-    if (r) {
-        snprintf(err, err_size, "TLS setup failed (-0x%04x)", (unsigned)-r);
-        goto fail;
+    if (!r) {
+        mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+        mbedtls_ssl_conf_ca_chain(&t->conf, &t->roots, NULL);
+        mbedtls_ssl_conf_rng(&t->conf, mbedtls_ctr_drbg_random, &t->drbg);
+        r = mbedtls_ssl_setup(&t->ssl, &t->conf);
     }
-    mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&t->conf, &t->roots, NULL);
-    mbedtls_ssl_conf_rng(&t->conf, mbedtls_ctr_drbg_random, &t->drbg);
-    r = mbedtls_ssl_setup(&t->ssl, &t->conf);
     if (!r) r = mbedtls_ssl_set_hostname(&t->ssl, host);
     if (r) {
         snprintf(err, err_size, "TLS setup failed (-0x%04x)", (unsigned)-r);
@@ -160,5 +147,5 @@ void tls_close(tls_t *t) {
     mbedtls_ctr_drbg_free(&t->drbg);
     mbedtls_entropy_free(&t->entropy);
     mbedtls_x509_crt_free(&t->roots);
-    heap_free(t);
+    vPortFree(t);
 }
