@@ -55,7 +55,7 @@ void rtl1_core_begin(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *inf
 // the RT4K's replies with rtl1_core_put_state(). The transfer ends with the RT4K's closing line:
 // "put done" (RTL1_OK) or any other "put..." line (RTL1_ERR_DEVICE, the line in info->detail).
 // Always quiet. There is no timeout while sending: the caller has its own.
-void rtl1_core_begin_put(const char *cmd, rtl1_info_t *info, uint32_t ready_timeout_ms, uint32_t now_ms);
+void rtl1_core_begin_put(const char *cmd, rtl1_info_t *info, uint32_t now_ms);
 void rtl1_core_put_state(rtl1_put_state_t *out);
 
 // Bytes from the RT4K. Text goes to hooks->text a whole line at a time; a transfer's bytes, from its
@@ -74,5 +74,6 @@ void rtl1_core_end(void);
 rtl1_phase_t rtl1_core_phase(void);
 rtl1_result_t rtl1_core_result(void);
 
-// Frame encoding, for ABORT and for tests.
+// A frame encoded into out (10 + len bytes): an upload's data frames (their payload may be in place at out
+// + 8 already), ABORT, and the tests'.
 size_t rtl1_encode_frame(uint8_t *out, uint16_t nonce, uint8_t type, uint8_t seq, const uint8_t *payload, uint16_t len);

@@ -36,13 +36,13 @@ void rtl1_set_gap(uint32_t fixed_ms, uint32_t after_reply_ms) {
 
 static void wait_after_command(void) {
     if (gap_fixed_ms) {
-        const uint32_t since = rt4k_ms_since_command();
+        const uint32_t since = console_ms_since_command();
         if (since < gap_fixed_ms) vTaskDelay(pdMS_TO_TICKS(gap_fixed_ms - since));
         return;
     }
-    while (rt4k_ms_since_command() < AFTER_COMMAND_MS && console_reply_pending()) vTaskDelay(pdMS_TO_TICKS(2));
-    while (rt4k_ms_since_command() < REPLY_MAX_MS && console_reply_coming()) vTaskDelay(pdMS_TO_TICKS(2));
-    if (gap_after_reply_ms && rt4k_ms_since_command() < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(gap_after_reply_ms));
+    while (console_ms_since_command() < AFTER_COMMAND_MS && console_reply_pending()) vTaskDelay(pdMS_TO_TICKS(2));
+    while (console_ms_since_command() < REPLY_MAX_MS && console_reply_coming()) vTaskDelay(pdMS_TO_TICKS(2));
+    if (gap_after_reply_ms && console_ms_since_command() < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(gap_after_reply_ms));
 }
 
 static volatile uint32_t paused_until_ms; // debug: no transfers while raw bytes go out (POST /debug/raw)
@@ -67,10 +67,6 @@ bool rtl1_put_progress(char *path, size_t path_size, uint32_t *sent, uint32_t *s
     return put_now.active;
 }
 
-static uint32_t now_ms(void) {
-    return plat_ms();
-}
-
 static bool hw_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
     plat_sha256_t sha;
     if (!plat_sha256_start(&sha)) return false;
@@ -85,7 +81,7 @@ static void finished(void) {
 
 static const rtl1_hooks_t hooks = {
     .write = rt4k_write,
-    .text = rt4k_text_push,
+    .text = console_feed,
     .sha256 = hw_sha256,
     .finished = finished,
     .abort_on_error = false, // over USB the RT4K streams without waiting: an ABORT arrives after the
@@ -106,7 +102,7 @@ size_t rtl1_last_failure(const uint8_t **data) {
 #endif
 
 void rtl1_pause(uint32_t ms) {
-    paused_until_ms = now_ms() + ms;
+    paused_until_ms = plat_ms() + ms;
 }
 
 void rtl1_init(void) {
@@ -125,45 +121,76 @@ void rtl1_feed(const uint8_t *data, size_t len) {
         capture_len += n;
     }
 #endif
-    rtl1_core_feed(data, len, now_ms());
+    rtl1_core_feed(data, len, plat_ms());
     xSemaphoreGive(feed_lock);
+}
+
+#define PUT_WRITE_TIMEOUT_MS  10000  // room in the TX queue (CTS may hold it while the RT4K writes)
+
+// Bytes to the RT4K, as room in the TX queue comes (smaller than a frame); false after
+// PUT_WRITE_TIMEOUT_MS without it.
+static bool write_all(const uint8_t *data, size_t len) {
+    const uint32_t t0 = plat_ms();
+    size_t sent = 0;
+    while (sent < len) {
+        const size_t n = len - sent < 512 ? len - sent : 512;
+        if (rt4k_write(data + sent, n)) sent += n;
+        else if (plat_ms() - t0 > PUT_WRITE_TIMEOUT_MS) return false;
+        else vTaskDelay(1);
+    }
+    return true;
+}
+
+// The link for one transfer: the RT4K there and not paused, no other transfer, the link taken, the gap
+// after the last console command waited out. False, info->detail saying why, otherwise.
+static bool acquire(rtl1_info_t *info) {
+    memset(info, 0, sizeof(*info));
+    const char *why = NULL;
+    if (!rt4k_connected()) why = "RT4K not connected";
+    else if ((int32_t)(paused_until_ms - plat_ms()) > 0) why = "paused (raw access)";
+    else if (xSemaphoreTake(xfer_lock, pdMS_TO_TICKS(LINK_TIMEOUT_MS)) != pdTRUE) why = "another transfer is running";
+    else if (!rt4k_link_lock(LINK_TIMEOUT_MS)) {
+        xSemaphoreGive(xfer_lock);
+        why = "link busy";
+    }
+    if (why) {
+        snprintf(info->detail, sizeof(info->detail), "%s", why);
+        return false;
+    }
+    wait_after_command();
+    return true;
+}
+
+// The transfer forgotten (the core drains what's left of it), the link given back.
+static void release(void) {
+    xSemaphoreTake(feed_lock, portMAX_DELAY);
+    rtl1_core_end();
+    xSemaphoreGive(feed_lock);
+    rt4k_link_unlock();
+    xSemaphoreGive(xfer_lock);
+}
+
+// The transfer's command, as the RT4K reads a line: "\r<cmd>\r\n".
+static bool send_command(const char *cmd) {
+    char line[RTL1_PATH_MAX + 104];
+    const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
+    return n > 0 && n < (int)sizeof(line) && write_all((const uint8_t *)line, (size_t)n);
 }
 
 rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info_t *info, bool quiet,
     uint32_t ready_timeout_ms) {
-    memset(info, 0, sizeof(*info));
-    if (!rt4k_connected()) {
-        snprintf(info->detail, sizeof(info->detail), "RT4K not connected");
-        return RTL1_ERR_NO_LINK;
-    }
-    if ((int32_t)(paused_until_ms - now_ms()) > 0) {
-        snprintf(info->detail, sizeof(info->detail), "paused (raw access)");
-        return RTL1_ERR_NO_LINK;
-    }
-    if (xSemaphoreTake(xfer_lock, pdMS_TO_TICKS(LINK_TIMEOUT_MS)) != pdTRUE) {
-        snprintf(info->detail, sizeof(info->detail), "another transfer is running");
-        return RTL1_ERR_NO_LINK;
-    }
-    if (!rt4k_link_lock(LINK_TIMEOUT_MS)) {
-        xSemaphoreGive(xfer_lock);
-        snprintf(info->detail, sizeof(info->detail), "link busy");
-        return RTL1_ERR_NO_LINK;
-    }
-    wait_after_command();
-
+    if (!acquire(info)) return RTL1_ERR_NO_LINK;
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     xSemaphoreTake(done_sem, 0); // stale
-    rtl1_core_begin(cmd, out, max, info, quiet, ready_timeout_ms, now_ms());
+    rtl1_core_begin(cmd, out, max, info, quiet, ready_timeout_ms, plat_ms());
 #if CRULLER_DEBUG
     capture_len = 0;
     capturing = true;
 #endif
     xSemaphoreGive(feed_lock);
 
-    char line[RTL1_PATH_MAX + 48];
-    const int len = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     rtl1_result_t result;
-    if (len <= 0 || len >= (int)sizeof(line) || !rt4k_write(line, (size_t)len)) {
+    if (!send_command(cmd)) {
         snprintf(info->detail, sizeof(info->detail), "could not queue the command");
         result = RTL1_ERR_NO_LINK;
     } else {
@@ -171,7 +198,7 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
         for (;;) {
             const bool signalled = xSemaphoreTake(done_sem, pdMS_TO_TICKS(50)) == pdTRUE;
             xSemaphoreTake(feed_lock, portMAX_DELAY);
-            const bool over = rtl1_core_poll(now_ms());
+            const bool over = rtl1_core_poll(plat_ms());
             xSemaphoreGive(feed_lock);
             if (signalled || over) break;
         }
@@ -186,12 +213,7 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
         xSemaphoreGive(feed_lock);
 #endif
     }
-
-    xSemaphoreTake(feed_lock, portMAX_DELAY);
-    rtl1_core_end();
-    xSemaphoreGive(feed_lock);
-    rt4k_link_unlock();
-    xSemaphoreGive(xfer_lock);
+    release();
     return result;
 }
 
@@ -203,19 +225,6 @@ rtl1_result_t rtl1_transfer(const char *cmd, uint8_t *out, size_t max, rtl1_info
 #define PUT_ACK_TIMEOUT_MS    1000
 #define PUT_ATTEMPTS          4      // sends of one frame before giving up
 #define PUT_DONE_TIMEOUT_MS   15000  // after the last frame (the RT4K checks the whole file's SHA-256)
-#define PUT_WRITE_TIMEOUT_MS  10000  // room in the TX queue (CTS may hold it while the RT4K writes)
-
-static bool write_all(const uint8_t *data, size_t len) {
-    const uint32_t t0 = now_ms();
-    size_t sent = 0;
-    while (sent < len) {
-        const size_t n = len - sent < 512 ? len - sent : 512; // the TX queue is smaller than a frame
-        if (rt4k_write(data + sent, n)) sent += n;
-        else if (now_ms() - t0 > PUT_WRITE_TIMEOUT_MS) return false;
-        else vTaskDelay(1);
-    }
-    return true;
-}
 
 static rtl1_phase_t put_state(rtl1_put_state_t *s) {
     xSemaphoreTake(feed_lock, portMAX_DELAY);
@@ -235,7 +244,7 @@ static bool send_acked(const uint8_t *frame, size_t len, uint8_t seq, rtl1_info_
             snprintf(info->detail, sizeof(info->detail), "could not queue frame %u", seq);
             return false;
         }
-        for (const uint32_t t0 = now_ms(); now_ms() - t0 < PUT_ACK_TIMEOUT_MS; vTaskDelay(1)) {
+        for (const uint32_t t0 = plat_ms(); plat_ms() - t0 < PUT_ACK_TIMEOUT_MS; vTaskDelay(1)) {
             if (put_state(&now) != RTL1_PH_SEND) return false;
             if (now.acks != before.acks && now.last_ack == seq) return true;
             if (now.naks != before.naks) break; // refused: send it again
@@ -263,22 +272,7 @@ static bool send_streamed(const uint8_t *frame, size_t len, uint8_t seq, uint32_
 
 rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, rtl1_read_fn read, void *ctx,
     rtl1_info_t *info) {
-    memset(info, 0, sizeof(*info));
-    if (!rt4k_connected()) {
-        snprintf(info->detail, sizeof(info->detail), "RT4K not connected");
-        return RTL1_ERR_NO_LINK;
-    }
-    if (xSemaphoreTake(xfer_lock, pdMS_TO_TICKS(LINK_TIMEOUT_MS)) != pdTRUE) {
-        snprintf(info->detail, sizeof(info->detail), "another transfer is running");
-        return RTL1_ERR_NO_LINK;
-    }
-    if (!rt4k_link_lock(LINK_TIMEOUT_MS)) {
-        xSemaphoreGive(xfer_lock);
-        snprintf(info->detail, sizeof(info->detail), "link busy");
-        return RTL1_ERR_NO_LINK;
-    }
-    wait_after_command();
-
+    if (!acquire(info)) return RTL1_ERR_NO_LINK;
     // Stream when RTS/CTS is on (always, see rt4k.c) and the RT4K asserts CTS; otherwise acknowledged.
     const bool acked = !rt4k_flow_control() || !(rt4k_modem_status() & 0x10);
     snprintf(put_now.path, sizeof(put_now.path), "%s", path);
@@ -289,20 +283,18 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
     snprintf(cmd, sizeof(cmd), "put%s %lu %s %s", acked ? " -a" : "", (unsigned long)size, sha256_hex, path);
     xSemaphoreTake(feed_lock, portMAX_DELAY);
     xSemaphoreTake(done_sem, 0); // stale
-    rtl1_core_begin_put(cmd, info, 0, now_ms());
+    rtl1_core_begin_put(cmd, info, plat_ms());
     xSemaphoreGive(feed_lock);
 
-    char line[RTL1_PATH_MAX + 104];
-    const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
     rtl1_result_t result = RTL1_ERR_NO_LINK;
-    bool ok = n > 0 && n < (int)sizeof(line) && write_all((const uint8_t *)line, (size_t)n);
+    bool ok = send_command(cmd);
     if (!ok) snprintf(info->detail, sizeof(info->detail), "could not queue the command");
 
     // The ready line (or a refusal).
     rtl1_put_state_t st;
     while (ok) {
         xSemaphoreTake(feed_lock, portMAX_DELAY);
-        const bool over = rtl1_core_poll(now_ms());
+        const bool over = rtl1_core_poll(plat_ms());
         const rtl1_phase_t ph = rtl1_core_phase();
         xSemaphoreGive(feed_lock);
         if (ph == RTL1_PH_SEND) break;
@@ -310,7 +302,7 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
         else xSemaphoreTake(done_sem, pdMS_TO_TICKS(20));
     }
 
-    static uint8_t chunk[RTL1_MAX_PAYLOAD], frame[RTL1_MAX_PAYLOAD + 10];
+    static uint8_t frame[RTL1_MAX_PAYLOAD + 10]; // (each frame's data read straight into it: rtl1_encode_frame takes it in place)
     uint32_t sent = 0;
     uint8_t seq = 0;
     uint32_t read_ms = 0, send_ms = 0, check_ms = 0; // where the time goes (reported on success)
@@ -318,23 +310,23 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
     while (ok && sent < size) {
         const size_t want = size - sent < RTL1_MAX_PAYLOAD ? size - sent : RTL1_MAX_PAYLOAD;
         size_t got = 0;
-        const uint32_t tr = now_ms();
+        const uint32_t tr = plat_ms();
         while (got < want) {
-            const size_t r = read(ctx, chunk + got, want - got);
+            const size_t r = read(ctx, frame + 8 + got, want - got);
             if (!r) break;
             got += r;
         }
-        read_ms += now_ms() - tr;
+        read_ms += plat_ms() - tr;
         if (got < want) {
             snprintf(info->detail, sizeof(info->detail), "the upload stopped after %lu of %lu bytes",
                 (unsigned long)(sent + got), (unsigned long)size);
             ok = false;
             break;
         }
-        const size_t len = rtl1_encode_frame(frame, st.nonce, 3, seq, chunk, (uint16_t)got);
-        const uint32_t ts = now_ms();
+        const size_t len = rtl1_encode_frame(frame, st.nonce, 3, seq, frame + 8, (uint16_t)got);
+        const uint32_t ts = plat_ms();
         ok = acked ? send_acked(frame, len, seq, info) : send_streamed(frame, len, seq, st.naks, info);
-        send_ms += now_ms() - ts;
+        send_ms += plat_ms() - ts;
         sent += (uint32_t)got;
         put_now.sent = sent;
         seq++; // one byte on the wire: wraps after 256 frames
@@ -345,11 +337,11 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
         if (acked) send_acked(frame, len, seq, info);
         else send_streamed(frame, len, seq, st.naks, info);
         // Then "put done" (or why not), once the RT4K has checked the file.
-        const uint32_t t0 = now_ms();
-        while (put_state(&st) == RTL1_PH_SEND && now_ms() - t0 < PUT_DONE_TIMEOUT_MS) {
+        const uint32_t t0 = plat_ms();
+        while (put_state(&st) == RTL1_PH_SEND && plat_ms() - t0 < PUT_DONE_TIMEOUT_MS) {
             xSemaphoreTake(done_sem, pdMS_TO_TICKS(50));
         }
-        check_ms = now_ms() - t0;
+        check_ms = plat_ms() - t0;
     }
 
     xSemaphoreTake(feed_lock, portMAX_DELAY);
@@ -372,11 +364,7 @@ rtl1_result_t rtl1_put(const char *path, uint32_t size, const char *sha256_hex, 
         result = RTL1_ERR_TIMEOUT;
     } // else still READY: the command never went out (RTL1_ERR_NO_LINK)
 
-    xSemaphoreTake(feed_lock, portMAX_DELAY);
-    rtl1_core_end();
-    xSemaphoreGive(feed_lock);
     put_now.active = false;
-    rt4k_link_unlock();
-    xSemaphoreGive(xfer_lock);
+    release();
     return result;
 }

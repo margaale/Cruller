@@ -8,8 +8,10 @@
 #include "queue.h"
 #include "semphr.h"
 
+#include "json.h"
 #include "platform.h"
 #include "power.h"
+#include "ring.h"
 #include "rt4k.h"
 #include "rt4k_info.h"
 #include "ws.h"
@@ -20,6 +22,8 @@
 #define CMD_MAX               336  // "mv <path>|<path>" with two of rtl1.h's longest paths
 #define LINE_MAX_LEN          CON_LINE_MAX
 #define HISTORY              64   // routed lines kept for console_read_line (power of two)
+#define TERM_SIZE            8192u // the web terminal's text kept (power of two)
+#define LINK_WAIT_MS         2000 // for an rtl1 transfer holding the link
 
 typedef struct {
     int owner;
@@ -38,31 +42,38 @@ typedef struct {
 static QueueHandle_t queue;
 static TaskHandle_t console_task_h;
 static SemaphoreHandle_t query_lock;
-static plat_lock_t lock;     // console_core and the history
+static plat_lock_t lock;     // console_core, the history and the terminal's text
 static entry_t history[HISTORY];
 static uint32_t head;               // lines ever routed
+static char term[TERM_SIZE];        // the web terminal's share of the lines (console_term_read)
+static uint32_t term_head;          // bytes ever written there
+static console_cmd_stats_t cmd_stats;
+static volatile uint32_t last_cmd_ms;
 static char line[LINE_MAX_LEN];     // being assembled (rt4k task only)
 static size_t line_len;
 
-static uint32_t now_ms(void) {
-    return plat_ms();
-}
-
 static void route(const char *text) {
     plat_lock_enter(&lock);
-    const int owner = console_core_line(text, now_ms());
+    const int owner = console_core_line(text, plat_ms());
     entry_t *e = &history[head & (HISTORY - 1)];
     e->owner = owner;
     snprintf(e->text, sizeof(e->text), "%s", text);
     head++;
+    if (owner != CON_POWER && owner != CON_QUERY && owner != CON_FILES) { // the web terminal: all but Cruller's own
+        ring_put(term, TERM_SIZE, &term_head, text, strlen(text));
+        ring_put(term, TERM_SIZE, &term_head, "\n", 1);
+    }
     plat_lock_exit(&lock);
     if (owner != CON_BROADCAST && console_task_h) xTaskNotifyGive(console_task_h); // may close its window
     power_feed_line(text);
     rt4k_info_line(text);
-    if (owner != CON_POWER && owner != CON_QUERY && owner != CON_FILES) { // the web terminal: all but Cruller's own
-        rt4k_term_push((const uint8_t *)text, strlen(text));
-        rt4k_term_push((const uint8_t *)"\n", 1);
-    }
+}
+
+size_t console_term_read(uint32_t *pos, char *out, size_t max) {
+    plat_lock_enter(&lock);
+    const size_t n = ring_read(term, TERM_SIZE, term_head, pos, out, max);
+    plat_lock_exit(&lock);
+    return n;
 }
 
 void console_feed(const uint8_t *data, size_t len) {
@@ -144,7 +155,7 @@ bool console_run(int owner, const char *cmd, void (*on_line)(const char *line, v
     // Commands queued before ours go first: allow for them. The flag decides; the notification only
     // wakes us up early. Read often: "ls" sends a line every ~0.7 ms, and the history keeps only
     // HISTORY lines (~45 ms of them).
-    for (const uint32_t t0 = now_ms(); now_ms() - t0 < (QUEUE_DEPTH + 1) * CON_MAX_MS;) {
+    for (const uint32_t t0 = plat_ms(); plat_ms() - t0 < (QUEUE_DEPTH + 1) * CON_MAX_MS;) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
         const bool done = *flag != 0;
         while (console_read_line(&seq, &o, text, sizeof(text))) {
@@ -165,10 +176,10 @@ bool console_query(const char *cmd, const char *expect, char *out, size_t size, 
     bool found = false;
     if (enqueue(CON_QUERY, cmd, expect, timeout_ms)) {
         // The queue may hold other commands first: allow for them on top of our own timeout.
-        const uint32_t t0 = now_ms();
+        const uint32_t t0 = plat_ms();
         char text[LINE_MAX_LEN];
         int owner;
-        while (!found && now_ms() - t0 < timeout_ms + QUEUE_DEPTH * CON_NO_REPLY_MS) {
+        while (!found && plat_ms() - t0 < timeout_ms + QUEUE_DEPTH * CON_NO_REPLY_MS) {
             if (!console_read_line(&seq, &owner, text, sizeof(text))) {
                 vTaskDelay(pdMS_TO_TICKS(20));
                 continue;
@@ -205,56 +216,45 @@ size_t console_debug(char *out, size_t size) {
 }
 
 size_t console_debug_json(char *out, size_t size) {
-    size_t o = (size_t)snprintf(out, size, "[");
+    size_t o = 0;
+    bool ok = json_put(out, size, &o, "[");
     const uint32_t n = cmd_log_n < CMD_LOG ? cmd_log_n : CMD_LOG;
-    for (uint32_t k = cmd_log_n - n; k != cmd_log_n && o < size; k++) {
+    for (uint32_t k = cmd_log_n - n; ok && k != cmd_log_n; k++) {
         const uint32_t i = k & (CMD_LOG - 1);
-        char cmd[sizeof(cmd_log[i].cmd)];
-        size_t c = 0;
-        for (const char *p = cmd_log[i].cmd; *p && c < sizeof(cmd) - 1; p++) {
-            cmd[c++] = *p == '"' || *p == '\\' || (unsigned char)*p < 0x20 ? '?' : *p; // no escapes needed
-        }
-        cmd[c] = 0;
-        o += (size_t)snprintf(out + o, size - o, "%s{\"cmd\":\"%s\",\"owner\":%d,\"reply_ms\":%d,\"window_ms\":%u}",
-            k == cmd_log_n - n ? "" : ",", cmd, cmd_log[i].owner, cmd_log[i].reply_ms, cmd_log[i].window_ms);
+        ok = json_put(out, size, &o, k == cmd_log_n - n ? "{\"cmd\":" : ",{\"cmd\":") && json_put_str(out, size, &o, cmd_log[i].cmd) &&
+            json_putf(out, size, &o, ",\"owner\":%d,\"reply_ms\":%d,\"window_ms\":%u}", cmd_log[i].owner, cmd_log[i].reply_ms, cmd_log[i].window_ms);
     }
-    if (o < size) o += (size_t)snprintf(out + o, size - o, "]");
-    return o < size ? o : 0;
+    return ok && json_put(out, size, &o, "]") ? o : 0;
 }
 
-// The last line of each command's reply, when known (console_core_begin's done_when), so the window
-// closes on it instead of after the quiet wait: measured, that wait was ~50 ms of every command's
-// 60-80 ms. NULL: unknown, the quiet wait decides. *no_reply: never answered (SVS): don't wait at all.
-static const char *final_line(const char *cmd, bool *no_reply) {
-    static const struct {
-        const char *prefix; // ending in ' ': the command's first word(s); else the exact command
-        const char *done;
-    } table[] = {
-        {"remote ", "Serial Remote:"},
-        {"ver", "Build tag:"},
-        {"model", "model="},
-        {"banner", "banner="},
-        {"prof get", "prof loaded="},
-        {"prof ", "prof load ok|prof save ok|prof:|prof err"},
-        {"ls", "ls end|ls err|ls:"},
-        {"ls ", "ls end|ls err|ls:"},
-        {"stat ", "stat t=|stat err|stat:"},
-        {"mkdir ", "mkdir ok|mkdir err|mkdir:"},
-        {"rm ", "rm ok|rm err|rm:"},
-        {"mv ", "mv ok|mv err|mv:"},
-        {"pwr on", "Power On Requested"}, // "Bad Command: pwr on" when it's already on
-        {"input", "input="}, // (bare: reads the active input)
-        {"input ", "input"},
-        {"output ", "output"},
-        {"fwup ", "fwup"},
-    };
-    *no_reply = !strncmp(cmd, "SVS ", 4);
-    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
-        const char *p = table[i].prefix;
-        const size_t n = strlen(p);
-        if (p[n - 1] == ' ' ? !strncmp(cmd, p, n) : !strcmp(cmd, p)) return table[i].done;
+// The way the RT4K reads a line, "\r<cmd>\r\n", once no rtl1 transfer holds the link. False when it
+// didn't go out: no RT4K, the link stayed busy, the queue to it was full.
+static bool send_command(const char *cmd) {
+    char text[CMD_MAX + 4];
+    const int n = snprintf(text, sizeof(text), "\r%s\r\n", cmd);
+    if (n < 0 || n >= (int)sizeof(text)) return false;
+    const uint32_t t0 = plat_ms();
+    const bool locked = rt4k_link_lock(LINK_WAIT_MS);
+    cmd_stats.last_wait_ms = plat_ms() - t0;
+    if (cmd_stats.last_wait_ms > cmd_stats.max_wait_ms) cmd_stats.max_wait_ms = cmd_stats.last_wait_ms;
+    const bool ok = locked && rt4k_write(text, (size_t)n);
+    if (locked) rt4k_link_unlock();
+    if (!ok) {
+        cmd_stats.dropped++;
+        return false;
     }
-    return NULL;
+    cmd_stats.sent++;
+    last_cmd_ms = plat_ms();
+    if (!strcmp(cmd, "pwr on")) power_woken();
+    return true;
+}
+
+uint32_t console_ms_since_command(void) {
+    return plat_ms() - last_cmd_ms;
+}
+
+void console_cmd_stats(console_cmd_stats_t *out) {
+    *out = cmd_stats;
 }
 
 static void console_task(void *param) {
@@ -262,20 +262,20 @@ static void console_task(void *param) {
     static request_t req;
     for (;;) {
         xQueueReceive(queue, &req, portMAX_DELAY);
-        const uint32_t t0 = now_ms();
-        const bool sent = rt4k_send_command(req.cmd); // false: no RT4K, or the link stayed busy
+        const uint32_t t0 = plat_ms();
+        const bool sent = send_command(req.cmd);
         bool no_reply = false;
-        const char *done_when = final_line(req.cmd, &no_reply);
+        const char *done_when = console_core_final_line(req.cmd, &no_reply);
         if (sent && !no_reply) {
             ulTaskNotifyTake(pdTRUE, 0); // wake-ups from lines of an earlier window
             plat_lock_enter(&lock);
-            console_core_begin(req.owner, req.expect, req.timeout_ms, done_when, now_ms());
+            console_core_begin(req.owner, req.expect, req.timeout_ms, done_when, plat_ms());
             plat_lock_exit(&lock);
             if (!strncmp(req.cmd, "remote ", 7)) ws_key_sent(); // any sender: the mirror refreshes and times it
             for (;;) {
                 ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10)); // route() wakes us on each reply line
                 plat_lock_enter(&lock);
-                const bool over = console_core_poll(now_ms());
+                const bool over = console_core_poll(plat_ms());
                 plat_lock_exit(&lock);
                 if (over) break;
             }
@@ -283,7 +283,7 @@ static void console_task(void *param) {
             snprintf(cmd_log[i].cmd, sizeof(cmd_log[i].cmd), "%.*s", (int)sizeof(cmd_log[i].cmd) - 1, req.cmd); // its start
             cmd_log[i].owner = (int8_t)req.owner;
             cmd_log[i].reply_ms = (int16_t)console_core_first_reply_ms();
-            cmd_log[i].window_ms = (uint16_t)(now_ms() - t0);
+            cmd_log[i].window_ms = (uint16_t)(plat_ms() - t0);
         }
         if (req.notify) {
             *req.status = sent ? 1 : -1;

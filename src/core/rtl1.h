@@ -64,5 +64,6 @@ size_t rtl1_last_failure(const uint8_t **data);
 void rtl1_pause(uint32_t ms);
 
 // Debug: how long a transfer waits after a console command. fixed_ms > 0: that long after it went
-// out; 0: until the RT4K has answered it, plus after_reply_ms (both capped at 100 ms).
+// out; 0: until the RT4K has answered it (or 100 ms with no answer, 1 s while its reply goes on), plus
+// after_reply_ms.
 void rtl1_set_gap(uint32_t fixed_ms, uint32_t after_reply_ms);

@@ -10,7 +10,6 @@
 #include "esp_timer.h"
 
 uint32_t plat_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
-uint32_t plat_us(void) { return (uint32_t)esp_timer_get_time(); }
 
 void plat_lock_init(plat_lock_t *lock) { portMUX_INITIALIZE(lock); }
 void plat_lock_enter(plat_lock_t *lock) { portENTER_CRITICAL(lock); }

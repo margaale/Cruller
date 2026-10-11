@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "json.h"
+
 // --- a small JSON reader: enough for the report, nested arrays and objects included ------------------
 
 #define DEPTH_MAX 8
@@ -214,40 +216,21 @@ bool svs_parse(const char *json, svs_msg_t *out, const char **error) {
 
 // --- writing --------------------------------------------------------------------------------------
 
-void svs_json_escape(char *out, size_t size, const char *in) {
-    size_t n = 0;
-    if (!size) return;
-    for (; *in && n + 7 < size; in++) {
-        if (*in == '"' || *in == '\\') { out[n++] = '\\'; out[n++] = *in; }
-        else if ((unsigned char)*in < 0x20) n += (size_t)snprintf(out + n, size - n, "\\u%04x", *in);
-        else out[n++] = *in;
-    }
-    out[n] = 0;
-}
-
 #define ADD(...) do { o += (size_t)snprintf(out + o, o < size ? size - o : 0, __VA_ARGS__); } while (0)
 
-static size_t port_json(const svs_port_t *port, char *out, size_t size) {
-    size_t o = 0;
-    char name[2 * SVS_NAME_MAX + 8];
-    svs_json_escape(name, sizeof(name), port->name);
-    // (kind and device are letters and digits: nothing to escape)
-    ADD("{\"kind\":\"%s\",\"name\":\"%s\",\"device\":\"%s\"}", port->kind, name, port->device);
-    return o;
+// (kind and device are letters and digits: nothing to escape)
+static bool port_json(const svs_port_t *port, char *out, size_t size, size_t *n) {
+    return json_putf(out, size, n, "{\"kind\":\"%s\",\"name\":", port->kind) && json_put_str(out, size, n, port->name) &&
+        json_putf(out, size, n, ",\"device\":\"%s\"}", port->device);
 }
 
 size_t svs_switch_json(const svs_switch_t *sw, char *out, size_t size) {
-    size_t o = 0;
-    ADD("{\"inputs\":[");
-    for (int i = 0; i < sw->inputs_n; i++) {
-        if (i) ADD(",");
-        if (o < size) o += port_json(&sw->inputs[i], out + o, size - o);
-    }
-    ADD("],\"output\":");
-    if (!sw->has_output) ADD("null");
-    else if (o < size) o += port_json(&sw->output, out + o, size - o);
-    ADD("}");
-    return o < size ? o : 0;
+    size_t n = 0;
+    bool ok = json_put(out, size, &n, "{\"inputs\":[");
+    for (int i = 0; ok && i < sw->inputs_n; i++) ok = (!i || json_put(out, size, &n, ",")) && port_json(&sw->inputs[i], out, size, &n);
+    ok = ok && json_put(out, size, &n, "],\"output\":") &&
+        (sw->has_output ? port_json(&sw->output, out, size, &n) : json_put(out, size, &n, "null")) && json_put(out, size, &n, "}");
+    return ok ? n : 0;
 }
 
 // --- each input's profile ----------------------------------------------------------------------------
@@ -317,17 +300,30 @@ size_t svs_profiles_json(const char *text, char *out, size_t size) {
     size_t o = 0;
     const char *p = text, *line, *name;
     size_t len, name_len;
-    int n;
-    ADD("{");
-    for (bool first = true; next_line(&p, &line, &len);) {
-        if (!profile_line(line, len, &n, &name, &name_len)) continue;
-        char raw[SVS_PROFILE_MAX + 1], esc[2 * SVS_PROFILE_MAX + 8];
+    int input;
+    bool ok = json_put(out, size, &o, "{");
+    for (bool first = true; ok && next_line(&p, &line, &len);) {
+        if (!profile_line(line, len, &input, &name, &name_len)) continue;
+        char raw[SVS_PROFILE_MAX + 1];
         memcpy(raw, name, name_len);
         raw[name_len] = 0;
-        svs_json_escape(esc, sizeof(esc), raw);
-        ADD("%s\"%d\":\"%s\"", first ? "" : ",", n, esc);
+        ok = json_putf(out, size, &o, "%s\"%d\":", first ? "" : ",", input) && json_put_str(out, size, &o, raw);
         first = false;
     }
-    ADD("}");
-    return o < size ? o : 0;
+    return ok && json_put(out, size, &o, "}") ? o : 0;
+}
+
+bool svs_profile_for(const char *text, int input, char *out, size_t size) {
+    const char *p = text, *line, *name;
+    size_t len, name_len;
+    int n;
+    out[0] = 0;
+    while (next_line(&p, &line, &len)) {
+        if (!profile_line(line, len, &n, &name, &name_len) || n != input) continue;
+        if (name_len >= size) return false;
+        memcpy(out, name, name_len);
+        out[name_len] = 0;
+        return true;
+    }
+    return false;
 }

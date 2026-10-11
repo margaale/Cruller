@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "rt4k_info_core.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 static uint32_t now;
 
@@ -31,9 +26,23 @@ static void answer_model(void) {
     rt4k_info_core_line("[COM] model=4 RT4K_Pro");
 }
 
-static void test_nothing_known(void) {
+// It comes on, is asked both and answers (the poll after the model asks nothing more of them).
+static void answer_both(void) {
+    poll(true);
+    answer_ver();
+    poll(true);
+    answer_model();
+    poll(true);
+}
+
+// From the start, with what store.h kept (NULL: nothing).
+static void reset(const rt4k_info_t *saved) {
     now = 0;
-    rt4k_info_core_init(NULL);
+    rt4k_info_core_init(saved);
+}
+
+static void test_nothing_known(void) {
+    reset(NULL);
     rt4k_info_t i;
     CHECK(!rt4k_info_core_get(&i));
     CHECK(!i.version[0] && !i.model[0]);
@@ -42,8 +51,7 @@ static void test_nothing_known(void) {
 }
 
 static void test_asks_when_it_comes_on(void) {
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     poll(false);
     CHECK(asks(poll(true), "ver"));
     CHECK(!poll(true)); // one question at a time
@@ -59,8 +67,7 @@ static void test_asks_when_it_comes_on(void) {
 
 static void test_the_power_probe_counts(void) {
     // The probe that noticed it's on was "ver": only the model is left to ask.
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     poll(false);
     answer_ver();
     CHECK(asks(poll(true), "model"));
@@ -68,8 +75,7 @@ static void test_the_power_probe_counts(void) {
 
 static void test_anyone_asking_counts(void) {
     // The page or Home Assistant asked; the replies count while it's on already.
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     CHECK(asks(poll(true), "ver"));
     answer_ver();
     answer_model();
@@ -83,8 +89,7 @@ static void test_anyone_asking_counts(void) {
 
 // On, version and model said: what's asked next.
 static void on_and_known(void) {
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     poll(true);
     answer_ver();
     poll(true);
@@ -167,8 +172,7 @@ static void test_profile_long_path(void) {
 }
 
 static void test_one_write_for_both(void) {
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     rt4k_info_t k;
     poll(true);
     answer_ver();
@@ -184,50 +188,31 @@ static void test_one_write_for_both(void) {
 
 static void test_same_again_writes_nothing(void) {
     // A restart with the same firmware: what was kept is what it says.
-    now = 0;
-    rt4k_info_t saved = {"1.89.0", "RT4K_Pro"};
-    rt4k_info_core_init(&saved);
+    const rt4k_info_t saved = {"1.89.0", "RT4K_Pro"};
+    reset(&saved);
     rt4k_info_t k;
-    poll(true);
-    answer_ver();
-    poll(true);
-    answer_model();
-    poll(true);
+    answer_both();
     CHECK(!rt4k_info_core_take_changed(&k));
     // Off and on again: still nothing.
     poll(false);
-    poll(true);
-    answer_ver();
-    poll(true);
-    answer_model();
-    poll(true);
+    answer_both();
     CHECK(!rt4k_info_core_take_changed(&k));
 }
 
 static void test_new_firmware_is_kept(void) {
-    now = 0;
-    rt4k_info_t saved = {"1.87.3", "RT4K_Pro"};
-    rt4k_info_core_init(&saved);
+    const rt4k_info_t saved = {"1.87.3", "RT4K_Pro"};
+    reset(&saved);
     rt4k_info_t i, k;
     CHECK(!rt4k_info_core_get(&i));         // remembered, not fresh
     CHECK(!strcmp(i.version, "1.87.3"));
-    poll(true);
-    answer_ver();
-    poll(true);
-    answer_model();
-    poll(true);
+    answer_both();
     CHECK(rt4k_info_core_take_changed(&k));
     CHECK(!strcmp(k.version, "1.89.0"));
 }
 
 static void test_standby_makes_it_stale(void) {
-    now = 0;
-    rt4k_info_core_init(NULL);
-    poll(true);
-    answer_ver();
-    poll(true);
-    answer_model();
-    poll(true);
+    reset(NULL);
+    answer_both();
     rt4k_info_t i;
     CHECK(rt4k_info_core_get(&i));
     const uint32_t seq = rt4k_info_core_seq();
@@ -240,8 +225,7 @@ static void test_standby_makes_it_stale(void) {
 
 static void test_gives_up(void) {
     // A model reply it can't read (another firmware) is asked a few times, then left alone.
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     poll(true);
     answer_ver();
     int models = 0;
@@ -256,8 +240,7 @@ static void test_gives_up(void) {
 }
 
 static void test_retries_after_a_while(void) {
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     CHECK(asks(poll(true), "ver"));
     int quiet = 0;
     while (!poll(true)) quiet++;
@@ -265,8 +248,7 @@ static void test_retries_after_a_while(void) {
 }
 
 static void test_other_lines(void) {
-    now = 0;
-    rt4k_info_core_init(NULL);
+    reset(NULL);
     rt4k_info_core_line("FW Version: 9.9.9");                  // not a command reply
     rt4k_info_core_line("[COM] Serial Remote: pwr");
     rt4k_info_core_line("[COM] banner=model=x");                // "model=" not at the start
@@ -292,32 +274,22 @@ static void test_saved_garbage(void) {
 }
 
 int main(void) {
-    static const struct {
-        const char *name;
-        void (*fn)(void);
-    } tests[] = {
-        {"nothing_known", test_nothing_known},
-        {"asks_when_it_comes_on", test_asks_when_it_comes_on},
-        {"the_power_probe_counts", test_the_power_probe_counts},
-        {"anyone_asking_counts", test_anyone_asking_counts},
-        {"one_write_for_both", test_one_write_for_both},
-        {"same_again_writes_nothing", test_same_again_writes_nothing},
-        {"new_firmware_is_kept", test_new_firmware_is_kept},
-        {"standby_makes_it_stale", test_standby_makes_it_stale},
-        {"gives_up", test_gives_up},
-        {"retries_after_a_while", test_retries_after_a_while},
-        {"other_lines", test_other_lines},
-        {"saved_garbage", test_saved_garbage},
-        {"profile_read", test_profile_read},
-        {"profile_every_10_s", test_profile_every_10_s},
-        {"profile_soon", test_profile_soon},
-        {"profile_unknown_asleep", test_profile_unknown_asleep},
-        {"profile_long_path", test_profile_long_path},
-    };
-    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
-        current = tests[i].name;
-        tests[i].fn();
-    }
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    RUN(test_nothing_known);
+    RUN(test_asks_when_it_comes_on);
+    RUN(test_the_power_probe_counts);
+    RUN(test_anyone_asking_counts);
+    RUN(test_one_write_for_both);
+    RUN(test_same_again_writes_nothing);
+    RUN(test_new_firmware_is_kept);
+    RUN(test_standby_makes_it_stale);
+    RUN(test_gives_up);
+    RUN(test_retries_after_a_while);
+    RUN(test_other_lines);
+    RUN(test_saved_garbage);
+    RUN(test_profile_read);
+    RUN(test_profile_every_10_s);
+    RUN(test_profile_soon);
+    RUN(test_profile_unknown_asleep);
+    RUN(test_profile_long_path);
+    return tests_done();
 }

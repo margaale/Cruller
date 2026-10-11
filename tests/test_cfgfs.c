@@ -4,15 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "cfgfs.h"
 #include "cfgfs_ram.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
-#define RUN(t) do { current = #t; t(); } while (0)
+#include "cfgfs.h"
+#include "check.h"
 
 static char buf[8192];
 
@@ -20,7 +14,7 @@ static void test_mount(void) {
     cfgfs_ram_present(false);
     CHECK(!cfgfs_mount() && cfgfs_read("a", buf, sizeof(buf)) < 0 && !cfgfs_write("a", "x", 1)); // no flash: nothing works
     cfgfs_ram_present(true);
-    cfgfs_ram_fill(0x5a); // whatever was there before (DonutShop's old blocks): formatted
+    cfgfs_ram_fill(0x5a); // whatever was there before (an earlier firmware's blocks): formatted
     CHECK(cfgfs_mount());
     CHECK(cfgfs_read("a", buf, sizeof(buf)) < 0);
     CHECK(cfgfs_write("a", "hello", 5) && cfgfs_read("a", buf, sizeof(buf)) == 5 && !memcmp(buf, "hello", 5));
@@ -114,6 +108,5 @@ int main(void) {
     RUN(test_lines);
     RUN(test_rewrite);
     RUN(test_power_cut);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    return tests_done();
 }

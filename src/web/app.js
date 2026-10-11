@@ -9,8 +9,10 @@ const $ = (id) => document.getElementById(id);
 
 // --- formatting -------------------------------------------------------------------------------------
 
+const mb = (n) => (n / 1048576).toFixed(2); // (no unit: "1.20 of 2.40 MB")
+
 function bytes(n) {
-  if (n >= 1048576) return (n / 1048576).toFixed(2) + ' MB';
+  if (n >= 1048576) return mb(n) + ' MB';
   if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
   return n + ' B';
 }
@@ -21,6 +23,8 @@ function duration(s) {
   if (h) return h + ' h ' + m + ' min';
   return m + ' min ' + (s % 60) + ' s';
 }
+
+const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);
 
 const text = (id, t) => { const e = $(id); if (e) e.textContent = t; };
 
@@ -36,7 +40,7 @@ function askUser(title, body, ok, danger) {
   $('ask-no').focus();
   return new Promise((resolve) => d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true }));
 }
-window.askUser = askUser; // fw.js, sd.js
+window.askUser = askUser; // fw.js, sd.js, editor.js, gameid.js
 
 // The same, asking for a line of text: resolves it on OK, null on Cancel. select: how much of value
 // starts selected (a file's name without its extension), all of it by default.
@@ -51,7 +55,7 @@ function askText(title, body, value, ok, select) {
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('ask').close('yes'); } };
   return answer.then((yes) => { input.hidden = true; return yes ? input.value : null; });
 }
-window.askText = askText; // sd.js
+window.askText = askText; // sd.js, editor.js
 
 // --- tabs -------------------------------------------------------------------------------------------
 
@@ -76,16 +80,31 @@ function route() {
   navOpen(false);
   $('chip-rt4k').hidden = tab !== 'rt4k';
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
-  if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
+  if (tab === 'rt4k' && view === 'firmware') need('/fw.js').then(() => window.fwOpen());
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
-  if (tab === 'rt4k' && view === 'editor' && window.peOpen) window.peOpen(rest); // rest: a profile's path under /profile (editor.js)
+  if (tab === 'rt4k' && view === 'editor') need('/editor.js').then(() => window.peOpen(rest)); // rest: a profile's path under /profile
   if (tab === 'rt4k' && view === 'live') fit();
   if (tab === 'consoles' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
   if (tab === 'consoles' && window.gidOpen) window.gidOpen(); // gameID's consoles and the games, read again
-  tellVisibility();
-  tellDebug();
-  if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); }
+  tellShown();
+  if (tab === 'cruller') updFirst();
+  if (tab === 'debug') { drawCharts(); need('/mapper.js'); }
 }
+
+// The scripts most visits don't need, loaded the first time they're needed: the profile editor, the settings
+// map (Debug), the RT4K firmware updater, SHA-256 (for writing to the SD card). One that keeps state from the
+// status learns it from the last one as it comes. (One that didn't load is tried again the next time.)
+const scripts = {}, STATUS_HOOK = { '/editor.js': 'peStatus', '/fw.js': 'fwStatus' };
+function need(src) {
+  return scripts[src] || (scripts[src] = new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => { const hook = window[STATUS_HOOK[src]]; if (hook && S.version) hook(S); resolve(); };
+    s.onerror = () => { delete scripts[src]; s.remove(); };
+    document.head.appendChild(s);
+  }));
+}
+window.need = need; // sd.js (SHA-256; its profiles, to edit together), fw.js
 addEventListener('hashchange', route);
 
 // On a phone the sidebar slides in from the menu button, over the page: a tap outside it, a section or
@@ -118,9 +137,8 @@ function st(s) {
   S = s;
   statusAt = Date.now();
   showPower(s.rt4k_power);
-  if (window.fwPutProgress) window.fwPutProgress(s.put); // the firmware updater's progress bar (fw.js)
   if (window.sdStatus) window.sdStatus(s); // the SD card view reads the folder again once the RT4K is on
-  if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power
+  if (window.fwStatus) window.fwStatus(s); // the firmware updater: the RT4K's version and model, its power, the upload
   if (window.profStatus) window.profStatus(s); // the SVS folder read again once the RT4K is on
   if (window.peStatus) window.peStatus(s); // the editor: the RT4K's power and firmware
   if (window.gidStatus) window.gidStatus(s); // gameID: the RT4K's power (its SD card read for a profile)
@@ -144,6 +162,7 @@ function st(s) {
   text('w-rssi', s.rssi ? s.rssi + ' dBm' : '');
   text('w-ip', s.ip || '–');
   text('w-state', s.net);
+  text('w-host', (s.hostname || 'cruller') + '.local');
   const web = s.web_clients || 0, ev = s.event_clients || 0, rfc = s.rfc2217_count || 0, max = s.clients_max || 8;
   text('cl-n', web + ev + rfc);
   text('cl-max', 'of ' + max + ', shared');
@@ -155,8 +174,8 @@ function st(s) {
   $('cl-br').style.flexGrow = rfc;
   $('cl-bf').style.flexGrow = Math.max(0, max - web - ev - rfc);
   text('cl-ips', s.rfc2217_clients ? 'RFC 2217 from ' + s.rfc2217_clients : '');
-  const heap = 192 * 1024;
-  text('m-free', Math.round(s.heap_free / 1024) + ' of 192 KB');
+  const heap = s.heap_size || 192 * 1024; // (a board before heap_size: the Pico 2 W's)
+  text('m-free', Math.round(s.heap_free / 1024) + ' of ' + Math.round(heap / 1024) + ' KB');
   $('m-bar').style.width = Math.round(100 * (1 - s.heap_free / heap)) + '%';
   text('f-ver', s.version);
   text('f-part', 'partition ' + (s.boot_partition ? 'B' : 'A'));
@@ -164,7 +183,7 @@ function st(s) {
   if (document.activeElement !== $('f-name')) $('f-name').value = s.name || '';
   text('f-host', 'Reached at ' + (s.hostname || 'cruller') + '.local' + (s.name ? '' : ' · give it a name to tell it apart'));
   showSvs(s.svs);
-  if (s.platform && !upd.loaded) updLoad();
+  updFirst();
   // A build without the developer tools (CRULLER_DEBUG=0) doesn't have their routes: no buttons for them.
   for (const e of document.querySelectorAll('[data-dev]')) e.hidden = s.dev_tools === false;
   if (s.update && upd.onProgress) upd.onProgress(s.update);
@@ -227,27 +246,18 @@ const { CONSOLES, PAD } = (() => {
   // The PlayStation pads, as the real ones: each side a big round wing (the d-pad's, the buttons'), the
   // middle lower between them, a ledge on top of each wing with L1/R1 coming out of it, the grips going
   // down nearly straight, the d-pad as four arrows in a round well and △ ○ × □ on dark buttons.
-  // by: where the middle's bottom edge meets the grips (lower with the sticks).
-  const PS_L = 13.5, PS_R = 46.5, PS_Y = 17, PS_W = 9.8; // the wings' centres and radius
-  // wl, wr: the wings' centres (the wells' too), the grips staying where they are.
+  const PS_WL = 12.8, PS_WR = 47.2, PS_Y = 17, PS_W = 9.8; // the wings' (and their wells') centres, and radius
   // Each grip: its outer side straight down from the wing's side, leaning out PS_SPLAY degrees; a round
   // tip (PS_TIP_R, its centre at PS_TIP_Y) tangent to it; its inner side the line tangent to both the
   // tip and the wing's circle, so the grip comes off the wing. The middle is straight between the wings,
   // on top, and at the bottom between where the grips touch them.
   const PS_SPLAY = 4, PS_TIP_R = 4.2, PS_TIP_Y = 35.7;
   const PS_WELL = 8.5; // the d-pad's and the buttons' wells
-  const PS_WL = 12.8, PS_WR = 47.2; // the wings' (and wells') centres on all three pads
   const PS_MID_BOTTOM = 25; // the middle's bottom edge (the grips' inner sides, on their tangents, cut it)
-  // Where the line from (ax, ay) touches the circle (cx, cy, rho), on the side turn picks (+1, -1).
-  const tangent = (ax, ay, cx, cy, rho, turn) => {
-    const dx = ax - cx, dy = ay - cy, d = Math.hypot(dx, dy), t = turn * Math.acos(rho / d);
-    const ux = dx / d, uy = dy / d;
-    return [cx + rho * (ux * Math.cos(t) - uy * Math.sin(t)), cy + rho * (ux * Math.sin(t) + uy * Math.cos(t))];
-  };
-  // housing: the right stick housing (x, y, r) to take into the bottom edge (the left one mirrors it);
-  // low: the bottom edge between the housings (by when not given).
-  const psBody = (by, wl = PS_L, wr = PS_R, housing = null, low = null) => {
-    const r = PS_W, y = PS_Y, dx = Math.sqrt(r * r - (y - 10.2) ** 2), f = (n) => +n.toFixed(2), m = (x) => f(60 - x);
+  // The body's outline. housing: the right stick housing (x, y, r) to take into the bottom edge (the left
+  // one mirrors it), low: the bottom edge between the housings.
+  const psBody = (housing, low) => {
+    const wl = PS_WL, wr = PS_WR, r = PS_W, y = PS_Y, dx = Math.sqrt(r * r - (y - 10.2) ** 2), f = (n) => +n.toFixed(2), m = (x) => f(60 - x);
     // The right grip; the left one is its mirror (wl = 60 - wr).
     const sp = PS_SPLAY * Math.PI / 180, rho = PS_TIP_R, ax = wr + r;
     const ly = PS_TIP_Y - rho * Math.sin(sp), lx = ax + Math.tan(sp) * (ly - y); // the outer side meets the tip
@@ -261,7 +271,7 @@ const { CONSOLES, PAD } = (() => {
     // The middle's bottom edge, lower than where the tangent touches the wing: the grip's side starts where it cuts it.
     const cut = (PS_MID_BOTTOM - bw) / (iy - bw);
     const sx = bx + (ix - bx) * Math.max(0, cut);
-    by = Math.max(f(bw), PS_MID_BOTTOM);
+    const by = Math.max(f(bw), PS_MID_BOTTOM);
     let bottom = `L${f(sx)} ${by}L${m(sx)} ${by}L${m(ix)} ${f(iy)}`;
     if (housing) {
       // Where the grip's inner side leaves the housing (from inside it at the bottom edge), and where the
@@ -269,17 +279,14 @@ const { CONSOLES, PAD } = (() => {
       const [hx, hy, hr] = housing, ux = ix - sx, uy = iy - by, ox = sx - hx, oy = by - hy;
       const qa = ux * ux + uy * uy, qb = 2 * (ux * ox + uy * oy), qc = ox * ox + oy * oy - hr * hr;
       const t = (-qb + Math.sqrt(qb * qb - 4 * qa * qc)) / (2 * qa);
-      const yl = low == null ? by : low;
-      const px = sx + t * ux, py = by + t * uy, cx = hx - Math.sqrt(hr * hr - (yl - hy) ** 2);
-      bottom = `L${f(px)} ${f(py)}A${hr} ${hr} 0 0 1 ${f(cx)} ${yl}L${m(cx)} ${yl}A${hr} ${hr} 0 0 1 ${m(px)} ${f(py)}L${m(ix)} ${f(iy)}`;
+      const px = sx + t * ux, py = by + t * uy, cx = hx - Math.sqrt(hr * hr - (low - hy) ** 2);
+      bottom = `L${f(px)} ${f(py)}A${hr} ${hr} 0 0 1 ${f(cx)} ${low}L${m(cx)} ${low}A${hr} ${hr} 0 0 1 ${m(px)} ${f(py)}L${m(ix)} ${f(iy)}`;
     }
     return `M${f(wl + dx)} 10.2L${f(wr - dx)} 10.2A${r} ${r} 0 0 1 ${f(ax)} ${y}` +
       `L${f(lx)} ${f(ly)}A${rho} ${rho} 0 0 1 ${f(ix)} ${f(iy)}${bottom}` +
       `A${rho} ${rho} 0 0 1 ${m(lx)} ${f(ly)}L${f(wl - r)} ${y}A${r} ${r} 0 0 1 ${f(wl + dx)} 10.2Z`;
   };
 
-  // L1/R1, then the ledges they come out of (drawn before the body: the wings cover their lower part).
-  // On top of each wing, straight.
   // An arc around (cx, cy), from angle a0 to a1 (degrees: 0 right, -90 up), clockwise.
   const arcPath = (cx, cy, r, a0, a1) => {
     const p = (deg) => [cx + r * Math.cos(deg * Math.PI / 180), cy + r * Math.sin(deg * Math.PI / 180)];
@@ -287,34 +294,33 @@ const { CONSOLES, PAD } = (() => {
     return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
   };
   // On top of each wing: the ledge (outlined), its sides straight up and its top a gentle arc around
-  // (x, PS_SH_Y) reaching 4.6; on it L1/R1, a band along a wider arc reaching 2.5. The wing covers their
-  // lower parts.
+  // (x, PS_SH_Y) reaching 4.6; on it L1/R1, a band along a wider arc reaching 2.5. Drawn before the body:
+  // the wing covers their lower parts.
   const PS_SH_Y = 23.1, PS_LEDGE_HW = 5.8;
-  const psShoulders = (button, fill, line, wl = PS_L, wr = PS_R) => [wl, wr].map((x) => {
+  const psShoulders = (button, fill, line) => [PS_WL, PS_WR].map((x) => {
     const R = PS_SH_Y - 4.6, hw = PS_LEDGE_HW, ys = PS_SH_Y - Math.sqrt(R * R - hw * hw), yb = PS_Y - 5;
     const ledge = `M${x - hw} ${yb}V${ys.toFixed(2)}A${R} ${R} 0 0 1 ${x + hw} ${ys.toFixed(2)}V${yb}Z`;
     return `<path d="${arcPath(x, PS_SH_Y, 19.5, -103, -77)}" fill="none" stroke="${button}" stroke-width="2.2" stroke-linecap="round"/>` +
       `<path d="${ledge}" fill="${fill}" stroke="${line}" stroke-width="1.3" stroke-linejoin="round"/>`;
   }).join('');
 
-  // Four separate arrows pointing out of a round well.
-  // o: the well's middle (x, y), its radius (r) and the arrows' scale (k).
-  const psArrows = (well, fill, { x = PS_L, y = PS_Y, r = 6.6, k = 1 } = {}) => {
-    const a = (dx, dy) => { // an arrow 3 wide, its point 0.9 from the middle (at k 1)
-      const p = [[-1.5, -4.9], [1.5, -4.9], [1.5, -2.3], [0, -0.9], [-1.5, -2.3]].map(([u, v]) => [u * k, v * k]);
+  // The d-pad: four separate arrows pointing out of a round well, on the left wing.
+  const psArrows = (well, fill) => {
+    const x = PS_WL, y = PS_Y;
+    const a = (dx, dy) => { // an arrow 3 wide, its point 0.9 from the middle
+      const p = [[-1.5, -4.9], [1.5, -4.9], [1.5, -2.3], [0, -0.9], [-1.5, -2.3]];
       return '<path d="M' + p.map(([u, v]) => {
         const px = x + (dx ? v * dx : u), py = y + (dy ? v * dy : u);
         return px.toFixed(2) + ' ' + py.toFixed(2);
       }).join('L') + 'Z" fill="' + fill + '" stroke-linejoin="round"/>';
     };
-    return circle(x, y, r, well) + a(0, 1) + a(0, -1) + a(1, 0) + a(-1, 0);
+    return circle(x, y, PS_WELL, well) + a(0, 1) + a(0, -1) + a(1, 0) + a(-1, 0);
   };
 
-  // △ ○ × □ on four dark buttons in a round well.
-  // o: the well's middle (x, y), its radius (wr) and the buttons' scale (k).
-  const psButtons = (well, button, { x = PS_R, y = PS_Y, wr = 7.2, k = 1 } = {}) => {
-    const d = 4.35 * k, r = 2.45 * k, s = 1.27 * k, w = 0.55 * k;
-    return circle(x, y, wr, well) + circle(x, y - d, r, button) + circle(x + d, y, r, button) + circle(x, y + d, r, button) + circle(x - d, y, r, button) +
+  // △ ○ × □ on four dark buttons in a round well, on the right wing.
+  const psButtons = (well, button) => {
+    const x = PS_WR, y = PS_Y, d = 4.35, r = 2.45, s = 1.27, w = 0.55;
+    return circle(x, y, PS_WELL, well) + circle(x, y - d, r, button) + circle(x + d, y, r, button) + circle(x, y + d, r, button) + circle(x - d, y, r, button) +
       `<g fill="none" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">` +
       `<path stroke="${C.teal}" d="M${x} ${(y - d - s).toFixed(2)}l${s} ${(s * 1.75).toFixed(2)}h${(-2 * s).toFixed(2)}z"/>` +
       `<circle stroke="${C.red}" cx="${x + d}" cy="${y}" r="${s}"/>` +
@@ -322,15 +328,15 @@ const { CONSOLES, PAD } = (() => {
       `<rect stroke="${C.pink}" x="${(x - d - s * 0.85).toFixed(2)}" y="${(y - s * 0.85).toFixed(2)}" width="${(s * 1.7).toFixed(2)}" height="${(s * 1.7).toFixed(2)}"/></g>`;
   };
 
-  // The DualShock's sticks: a dark well with the stick's rim and top.
   // The DualShocks' sticks: big, in round housings that bulge out of the body's bottom edge.
   const PS_HOUSINGS = [[20.1, 25.8, 6.2], [39.9, 25.8, 6.2]];
   // The body's bottom edge between them: the PS2's at the sticks' centres, the PS3's a bit lower.
   const PS2_LOW = 25.8, PS3_LOW = 27.3;
+  // Each stick: a dark well with the stick's rim and top.
   const psSticks = (rim) => PS_HOUSINGS.map(([x, y]) => ring(x, y, 4.4, C.blackDeep, rim, 1.1) + circle(x, y, 2.5, C.mid)).join('');
   // SELECT and START.
   const psSelect = (x, y, fill) => `<rect x="${x - 1.6}" y="${y - 0.75}" width="3.2" height="1.5" rx=".35" fill="${fill}"/>`;
-  const psStart = (x, y, fill, k = 1) => `<path d="M${x - 1.2 * k} ${y - 1.25 * k}L${x + 1.5 * k} ${y}L${x - 1.2 * k} ${y + 1.25 * k}Z" fill="${fill}" stroke="${fill}" stroke-width=".5" stroke-linejoin="round"/>`;
+  const psStart = (x, y, fill, k) => `<path d="M${x - 1.2 * k} ${y - 1.25 * k}L${x + 1.5 * k} ${y}L${x - 1.2 * k} ${y + 1.25 * k}Z" fill="${fill}" stroke="${fill}" stroke-width=".5" stroke-linejoin="round"/>`;
 
   // The other plastics: the PC Engine pad's panel, the CD-i pad's grey, the Amiga 500's and the C64's cases, an
   // MSX's light keys, a PC's beige; the Wii Remote's keys and lights.
@@ -414,29 +420,26 @@ const { CONSOLES, PAD } = (() => {
       diamond(46, 15.6, 3.9, 1.95, [C.green, C.blue, C.red, C.yellow])],
 
     ps1: ['PS1',
-      psShoulders('#7E828A', C.grey, C.greyLine, PS_WL, PS_WR) + `<path d="${psBody(25.6, PS_WL, PS_WR)}" fill="${C.grey}"/>` +
-      psArrows('#B2B5BB', '#4A4D54', { x: PS_WL, r: PS_WELL }) + psButtons('#B2B5BB', '#4A4D54', { x: PS_WR, wr: PS_WELL }) +
-      psSelect(26.8, 20.6, '#4A4D54') + psStart(33.2, 20.6, '#4A4D54', 0.78) +
-      `<path d="${psBody(25.6, PS_WL, PS_WR)}" fill="none" stroke="${C.greyLine}" stroke-width="1.3" stroke-linejoin="round"/>`],
+      psShoulders('#7E828A', C.grey, C.greyLine) + shell(psBody(), C.grey, C.greyLine,
+        psArrows('#B2B5BB', '#4A4D54') + psButtons('#B2B5BB', '#4A4D54') +
+        psSelect(26.8, 20.6, '#4A4D54') + psStart(33.2, 20.6, '#4A4D54', 0.78))],
 
     ps2: ['PS2',
-      psShoulders(C.mid, C.black, C.blackLine, PS_WL, PS_WR) + `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS2_LOW)}" fill="${C.black}"/>` +
-      psArrows(C.blackDeep, C.blackKey, { x: PS_WL, r: PS_WELL }) + psButtons(C.blackDeep, '#4A4E56', { x: PS_WR, wr: PS_WELL }) +
-      psSelect(24, 17.4, C.blackKey) + psStart(36, 17.4, C.blackKey, 0.78) +
-      // ANALOG: a button like SELECT, its LED under it.
-      psSelect(30, 21.2, C.blackKey) + `<rect x="29.1" y="22.8" width="1.8" height=".8" rx=".25" fill="${C.red}"/>` + psSticks(C.blackRing) +
-      `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS2_LOW)}" fill="none" stroke="${C.blackLine}" stroke-width="1.3" stroke-linejoin="round"/>`],
+      psShoulders(C.mid, C.black, C.blackLine) + shell(psBody(PS_HOUSINGS[1], PS2_LOW), C.black, C.blackLine,
+        psArrows(C.blackDeep, C.blackKey) + psButtons(C.blackDeep, '#4A4E56') +
+        psSelect(24, 17.4, C.blackKey) + psStart(36, 17.4, C.blackKey, 0.78) +
+        // ANALOG: a button like SELECT, its LED under it.
+        psSelect(30, 21.2, C.blackKey) + `<rect x="29.1" y="22.8" width="1.8" height=".8" rx=".25" fill="${C.red}"/>` + psSticks(C.blackRing))],
 
     ps3: ['PS3',
-      psShoulders(C.mid, C.black, C.blackLine, PS_WL, PS_WR) + `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS3_LOW)}" fill="${C.black}"/>` +
-      // The player lights: four small squares by the top edge, the first lit (a thin white edge).
-      [26.4, 28.8, 31.2, 33.6].map((x, i) => `<rect x="${x - 0.55}" y="11.25" width="1.1" height="1.1" rx=".15" fill="${i ? '#7A3A3D' : C.red}"` +
-        (i ? '' : ` stroke="${C.white}" stroke-width=".18"`) + '/>').join('') +
-      psArrows(C.blackDeep, C.blackKey, { x: PS_WL, r: PS_WELL }) + psButtons(C.blackDeep, '#4A4E56', { x: PS_WR, wr: PS_WELL }) +
-      psSelect(24, 17.4, C.blackKey) + psStart(36, 17.4, C.blackKey, 0.78) +
-      // The PS button: round, black.
-      circle(30, 21.2, 1.9, C.blackDeep) + psSticks(C.blackRing) +
-      `<path d="${psBody(25.6, PS_WL, PS_WR, PS_HOUSINGS[1], PS3_LOW)}" fill="none" stroke="${C.blackLine}" stroke-width="1.3" stroke-linejoin="round"/>`],
+      psShoulders(C.mid, C.black, C.blackLine) + shell(psBody(PS_HOUSINGS[1], PS3_LOW), C.black, C.blackLine,
+        // The player lights: four small squares by the top edge, the first lit (a thin white edge).
+        [26.4, 28.8, 31.2, 33.6].map((x, i) => `<rect x="${x - 0.55}" y="11.25" width="1.1" height="1.1" rx=".15" fill="${i ? '#7A3A3D' : C.red}"` +
+          (i ? '' : ` stroke="${C.white}" stroke-width=".18"`) + '/>').join('') +
+        psArrows(C.blackDeep, C.blackKey) + psButtons(C.blackDeep, '#4A4E56') +
+        psSelect(24, 17.4, C.blackKey) + psStart(36, 17.4, C.blackKey, 0.78) +
+        // The PS button: round, black.
+        circle(30, 21.2, 1.9, C.blackDeep) + psSticks(C.blackRing))],
 
     xbox: ['Xbox',
       body('M12 5h36c6 0 10 5 10.5 12 .5 9-1 18-6 18-4 0-6-4-8-6.5H15.5c-2 2.5-4 6.5-8 6.5-5 0-6.5-9-6-18C2 10 6 5 12 5z', C.black, C.blackLine) +
@@ -578,6 +581,15 @@ const svgCon = (body, cls = 'con') => `<svg class="${cls}" viewBox="0 0 60 40" o
 // An input with nothing on it: the icon's place, outlined.
 const EMPTY_ICON = svgCon('<rect x="8" y="8" width="44" height="24" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3.5 3"/>');
 const consoleIcon = (id) => svgCon(CONSOLES[id] ? CONSOLES[id][1] : PAD);
+// An input's console by its short name when the bridge says which it is, else the name given.
+const shortName = (p) => (CONSOLES[p.device] || [])[0] || p.name || '';
+
+// The switch as the bridge last described it (sw: null until then), its inputs, and how many it has
+// (SVS models differ in inputs and outputs).
+function svsInputs(v) {
+  const known = !!(v && v.known), sw = known && v.switch_seq ? svsSw.data : null, ins = sw ? sw.inputs : [];
+  return { known, sw, ins, total: known ? Math.max(v.total || 0, ins.length) : 0 };
+}
 
 async function svsLoad(key) {
   if (svsSw.loading === key) return;
@@ -595,27 +607,22 @@ async function svsLoad(key) {
 
 function showSvs(v) {
   svsSw.last = v;
-  const paired = v && v.paired, known = v && v.known, live = known && v.heard_s < 150;
+  const paired = v && v.paired, { known, sw, ins, total } = svsInputs(v), live = known && v.heard_s < 150;
   if (known && ((v.switch_seq && v.switch_seq !== svsSw.seq) || (v.profiles_seq || 0) !== svsSw.pseq)) {
     svsLoad((v.switch_seq || 0) + '/' + (v.profiles_seq || 0));
   }
-  const sw = known && v.switch_seq ? svsSw.data : null;
-  const ins = sw ? sw.inputs : [], out = sw ? sw.output : null;
+  const out = sw ? sw.output : null;
   const port = (n) => ins[n - 1] || {};
   const label = (n) => port(n).name || 'Input ' + n;
-  const short = (p) => (CONSOLES[p.device] || [])[0] || p.name || '';
   // Until a bridge has reported or is paired there's nothing to show but that it's awaited.
   document.querySelectorAll('.svs-more').forEach((e) => { e.hidden = !paired && !known; });
   $('v-dot').className = 'dot ' + (!paired && !known ? '' : live ? 'ok' : 'warn');
   text('v-state', !paired && !known ? 'no bridge yet' : live ? 'live' : 'not heard lately');
   // Input 0: the switch has no input active.
   const on = known && v.input > 0;
-  // One tile per input, the active one lit: once the bridge has said how many the switch has, or
-  // described them (SVS models differ in inputs and outputs).
-  const total = known ? Math.max(v.total || 0, ins.length) : 0;
   // What is on screen, and since when (the tile is lit in the grid); the RT4K may show another input
   // (gameid.js knows: then the SVS's active one isn't lit).
-  const what = on ? short(port(v.input)) || 'Input ' + v.input : '';
+  const what = on ? shortName(port(v.input)) || 'Input ' + v.input : '';
   const away = window.gidAway ? window.gidAway() : '';
   $('v-since').hidden = !known;
   text('v-since', !known ? '' : (on ? what + (away ? ' active on the SVS · the RT4K shows ' + away : v.since_s < 5 ? ' just switched in' : ' on screen for ' + duration(v.since_s))
@@ -628,10 +635,9 @@ function showSvs(v) {
   if (shape !== svsSw.cards) {
     svsSw.cards = shape;
     $('v-grid').innerHTML = Array.from({ length: total }, (_, i) => {
-      // The console's icon and short name when the bridge says which it is, else the name given.
-      // Nothing picked on it: the same tile, with an empty slot for the icon. Under it, its profile
-      // (profiles.js), and its gameID (gameid.js).
-      const n = i + 1, p = port(n), what = short(p);
+      // One tile per input: its console's icon and short name or, with nothing picked on it, an empty slot
+      // for the icon. Under it, its profile (profiles.js), and its gameID (gameid.js).
+      const n = i + 1, p = port(n), what = shortName(p);
       const icon = what ? consoleIcon(p.device) : EMPTY_ICON;
       const sel = window.profSvsSelect ? window.profSvsSelect(n) : '';
       return '<div data-n="' + n + '" class="' + (what ? '' : 'empty') + '" title="S' + n + (p.name ? ': ' + esc(p.name) : '') +
@@ -654,8 +660,8 @@ function showSvs(v) {
   $('v-hint').hidden = !!paired;
   $('v-unpair').hidden = !paired;
   const hist = known && v.history ? v.history : [];
-  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>' + (input ? esc(short(port(input)) || label(input)) +
-    (short(port(input)) ? ' <span class="small">S' + input + '</span>' : '') : 'None active') +
+  $('v-hist').innerHTML = hist.map(([input, s], i) => '<tr><td>' + (input ? esc(shortName(port(input)) || label(input)) +
+    (shortName(port(input)) ? ' <span class="small">S' + input + '</span>' : '') : 'None active') +
     (i === 0 ? ' <span class="small">(now)</span>' : '') + '</td><td class="r">' + ago(s) + '</td></tr>').join('') ||
     '<tr><td colspan="2" class="small">None yet</td></tr>';
   // gameID (gameid.js): what's on screen, each card's gameID (the cards may be new).
@@ -665,21 +671,19 @@ function showSvs(v) {
 // profiles.js: the profiles' combos changed (read, picked, the RT4K asleep), so the cards are drawn again.
 window.svsRedraw = () => { if (svsSw.last) showSvs(svsSw.last); };
 
-// gameid.js: the switch as the bridge last said it. bridge: one is paired or reporting; inputs: each one's
-// console, by its short name and its id in the bridge's list ('' when nothing's picked on it).
 // gameid.js: the consoles this page knows, by their id in the SVS Bridge's list: their short names (a
 // game's console, picked or shown as a tag).
 window.consoleNames = () => Object.fromEntries(Object.entries(CONSOLES).map(([id, c]) => [id, c[0]]));
 
+// gameid.js: the switch as the bridge last said it. bridge: one is paired or reporting; inputs: each one's
+// console, by its short name and its id in the bridge's list ('' when nothing's picked on it).
 window.svsNow = () => {
-  const v = svsSw.last, known = !!(v && v.known);
-  const ins = known && v.switch_seq && svsSw.data ? svsSw.data.inputs : [];
-  const total = known ? Math.max(v.total || 0, ins.length) : 0;
+  const v = svsSw.last, { known, ins, total } = svsInputs(v);
   return {
     bridge: !!(v && (v.paired || v.known)), known, input: known ? v.input : 0,
     inputs: Array.from({ length: total }, (_, i) => {
       const p = ins[i] || {};
-      return { name: (CONSOLES[p.device] || [])[0] || p.name || '', device: p.device || '' };
+      return { name: shortName(p), device: p.device || '' };
     }),
   };
 };
@@ -697,9 +701,13 @@ function hostFor(name) {
   return ['cruller', ...parts].join('-');
 }
 
+// A name Cruller takes (settings.c settings_name_ok): up to 32 letters, numbers, spaces, _ and -, one a
+// letter or number.
+const validName = (name) => /^[A-Za-z0-9 _-]{1,32}$/.test(name) && /[A-Za-z0-9]/.test(name);
+
 async function rename() {
   const name = $('f-name').value.trim();
-  if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name) || !/[A-Za-z0-9]/.test(name)) { text('um', 'The name takes letters, numbers and spaces (up to 32).'); return false; }
+  if (!validName(name)) { text('um', 'The name takes letters, numbers and spaces (up to 32).'); return false; }
   if (!(await askUser('Rename to ' + name + '?', 'Cruller restarts as ' + hostFor(name) + '.local. Bookmarks to the old address stop working.', 'Rename and restart'))) return false;
   const host = hostFor(name) + '.local';
   busy({ mode: 'spin', title: 'Renaming…', text: 'Saving "' + name + '".' });
@@ -707,7 +715,7 @@ async function rename() {
     const r = await fetch('/settings', { method: 'POST', body: new URLSearchParams({ name }) });
     if (!r.ok) throw new Error((await r.text()).trim());
   } catch (e) {
-    busy({ mode: 'bad', title: 'It didn\'t work', text: e.message, actions: [{ label: 'Close', onclick: busyHide }] });
+    busyFail('It didn\'t work', e.message);
     return false;
   }
   busy({ mode: 'spin', title: 'Restarting as ' + host, text: 'This page moves there as soon as it answers.' });
@@ -743,32 +751,18 @@ function wzGo(n) {
   [1, 2, 3].forEach((i) => $('wz-b' + i).classList.toggle('on', i <= Math.min(n, 3)));
 }
 
-async function wzScan() {
+function wzScan() {
   const list = $('wz-nets');
   list.innerHTML = '<div class="small">Looking for networks…</div>';
-  try {
-    const nets = await (await fetch('/wifi/scan')).json();
-    list.textContent = nets.length ? '' : 'No networks found';
-    for (const n of nets) {
-      const b = document.createElement('button');
-      b.className = 'wiz-net';
-      b.innerHTML = '<span></span><span class="small"></span>';
-      b.firstChild.textContent = n.ssid;
-      b.lastChild.textContent = n.rssi + ' dBm' + (n.secure ? ' · 🔒' : ' · open');
-      b.onclick = () => {
-        list.querySelectorAll('.wiz-net').forEach((x) => x.setAttribute('aria-pressed', x === b));
-        $('wz-ssid').hidden = true;
-        wz.ssid = n.ssid;
-        wz.secure = n.secure;
-        text('wz-passlabel', n.secure ? 'Password for ' + n.ssid : n.ssid + ' is open: no password');
-        $('wz-pass').disabled = !n.secure;
-        if (n.secure) $('wz-pass').focus();
-      };
-      list.appendChild(b);
-    }
-  } catch (e) {
-    list.textContent = 'Could not look for networks';
-  }
+  return listNets(list, 'wiz-net', (n, b) => {
+    list.querySelectorAll('.wiz-net').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    $('wz-ssid').hidden = true;
+    wz.ssid = n.ssid;
+    wz.secure = n.secure;
+    text('wz-passlabel', n.secure ? 'Password for ' + n.ssid : n.ssid + ' is open: no password');
+    $('wz-pass').disabled = !n.secure;
+    if (n.secure) $('wz-pass').focus();
+  });
 }
 
 function wzOther() {
@@ -791,7 +785,7 @@ function wzName() {
 
 async function wzConnect() {
   const name = $('wz-name').value.trim();
-  if (name && (!/^[A-Za-z0-9 _-]{1,32}$/.test(name) || !/[A-Za-z0-9]/.test(name))) { text('wz-err2', 'Letters, numbers and spaces only (up to 32).'); return; }
+  if (name && !validName(name)) { text('wz-err2', 'Letters, numbers and spaces only (up to 32).'); return; }
   text('wz-err2', '');
   wzGo(3);
   wzProgress({ state: 'joining', ssid: wz.ssid });
@@ -906,14 +900,10 @@ setInterval(showUptime, 1000);
 function wake() {
   return send('pwr on');
 }
-window.rt4kWake = wake; // fw.js, sd.js
+window.rt4kWake = wake; // fw.js, sd.js, profiles.js
 
 function showPower(power) {
-  const link = $('link');
-  if (link.textContent.startsWith('connected')) {
-    const what = { standby: 'RT4K in standby', starting: 'RT4K starting', unknown: 'RT4K not answering' }[power];
-    link.textContent = 'connected' + (what ? ', ' + what : '');
-  }
+  showLink();
   const veil = $('veil');
   text('veil-text', power === 'standby' ? 'RT4K in standby' : power === 'starting' ? 'RT4K starting…' : '');
   $('veil-on').hidden = power !== 'standby';
@@ -948,18 +938,18 @@ function out(t) { append('rx', t); }
 
 let ws, font = null;
 const planes = [null, null], BG = [[5, 7, 12], [233, 237, 243], [32, 192, 32], [208, 32, 32]];
+const LATIN1 = new TextDecoder('latin1'), UTF8 = new TextDecoder();
+
+// Over the screen: the socket's state, and the RT4K's power while it's connected.
+function showLink() {
+  const what = { standby: 'RT4K in standby', starting: 'RT4K starting', unknown: 'RT4K not answering' }[S.rt4k_power];
+  text('link', !ws || ws.readyState !== 1 ? 'reconnecting' : 'connected' + (what ? ', ' + what : ''));
+}
 
 // Where the RT4K puts its menu: OSD/Firmware › On Screen Display › Position (0 Left, 1 Center, 2 Right),
 // byte 0x17cc of its live settings (struct ver 109, as the settings map has it). Read each time the menu
 // shows up, so one changed in the menu itself shows the next time it opens.
 const OSD_POS_AT = 0x17cc;
-// Whether a plane shows anything: a character, or a cell's background (the plane comes, blank, with no menu).
-function showing(p) {
-  if (!p) return false;
-  const k = kv(p.r), rows = k.rows || 0, w = k.width || k.cols || 0, stp = k.stride || w;
-  for (let y = 0; y < rows; y++) for (let x = 0; x < w; x++) { const j = y * stp + x; if (p.d[j] > 32 || p.d[2048 + j] & 192) return true; }
-  return false;
-}
 let osdPos = 0, osdPosReading = false, menuShut = -1e9; // (menuShut: since when the menu's plane is blank; long ago at first, so the first menu reads)
 async function readOsdPos() {
   if (osdPosReading) return;
@@ -978,23 +968,22 @@ function send(t) {
   return false;
 }
 
-// Key-to-screen as this page sees it: from a key sent to the next menu change received.
-const ST = { lat: 0, key: 0 };
-
-// Key-to-screen times seen by this page (for the Cruller tab and the Debug chart).
+// Key-to-screen times seen by this page (for the Cruller tab and the Debug chart): from a key sent
+// (keyAt) to the next menu change received.
+let keyAt = 0;
 const keyTimes = [];
 function keySeen(ms) {
   keyTimes.push(ms);
   if (keyTimes.length > 50) keyTimes.shift();
-  const avg = Math.round(keyTimes.reduce((a, b) => a + b, 0) / keyTimes.length);
-  text('c-lat', avg + ' ms');
+  const a = avg(keyTimes);
+  text('c-lat', a + ' ms');
   text('c-lat2', 'avg of last ' + keyTimes.length + ' · max ' + Math.max(...keyTimes));
-  text('lg-key', 'key → screen ' + avg + ' ms');
+  text('lg-key', 'key → screen ' + a + ' ms');
   if (tab === 'debug') drawCharts();
 }
 
 function blink() {
-  ST.key = performance.now();
+  keyAt = performance.now();
   const l = $('led');
   l.classList.add('on');
   clearTimeout(blink.t);
@@ -1004,22 +993,22 @@ function blink() {
 function conn() {
   ws = new WebSocket('ws://' + location.host + '/ws');
   ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { $('link').textContent = 'connected'; tellVisibility(); tellDebug(); };
-  ws.onclose = () => { $('link').textContent = 'reconnecting'; setTimeout(conn, 2000); };
+  ws.onopen = () => { told = {}; showLink(); tellShown(); };
+  ws.onclose = () => { showLink(); setTimeout(conn, 2000); };
   ws.onmessage = (e) => {
     const u = new Uint8Array(e.data);
-    if (u[0] === 1) out(new TextDecoder('latin1').decode(u.subarray(1)));
-    else if (u[0] === 3) { font = u.slice(1); draw(); }
-    else if (u[0] === 4) lg(new TextDecoder('latin1').decode(u.subarray(1)));
-    else if (u[0] === 5) st(JSON.parse(new TextDecoder().decode(u.subarray(1))));
-    else if (u[0] === 6) onDebug(u[1], new TextDecoder().decode(u.subarray(2)));
+    if (u[0] === 1) out(LATIN1.decode(u.subarray(1)));
+    else if (u[0] === 3) { font = u.subarray(1); for (const p of planes) if (p) p.bmp = null; draw(); }
+    else if (u[0] === 4) lg(LATIN1.decode(u.subarray(1)));
+    else if (u[0] === 5) st(JSON.parse(UTF8.decode(u.subarray(1))));
+    else if (u[0] === 6) onDebug(u[1], UTF8.decode(u.subarray(2)));
     else if (u[0] === 2) {
       const n = u[2], d = u.subarray(3 + n);
-      if (u[1] === 1 && ST.key) { ST.lat = Math.round(performance.now() - ST.key); ST.key = 0; keySeen(ST.lat); }
-      planes[u[1] - 1] = d.length ? { r: new TextDecoder().decode(u.subarray(3, 3 + n)), d: d.slice() } : null;
+      if (u[1] === 1 && keyAt) { keySeen(Math.round(performance.now() - keyAt)); keyAt = 0; }
+      planes[u[1] - 1] = d.length ? plane(UTF8.decode(u.subarray(3, 3 + n)), d) : null;
       if (u[1] === 1) { // the menu opened (its plane blank for 1.5 s, not a moment between two of its pages)
         const now = performance.now();
-        if (!showing(planes[0])) menuShut = menuShut || now;
+        if (!planes[0] || planes[0].x1 < 0) menuShut = menuShut || now;
         else { if (menuShut && now - menuShut > 1500) readOsdPos(); menuShut = 0; }
       }
       draw();
@@ -1027,18 +1016,20 @@ function conn() {
   };
 }
 
-// Tell Cruller whether this page shows the live screen: it polls the RT4K's OSD (~25 KB/s) only while
-// some page does, so a background tab, or one on Cruller, Debug or Firmware, counts as hidden.
-let told = null; // [socket, visible] last sent
-function tellVisibility() {
-  if (!ws || ws.readyState !== 1) return;
-  const visible = document.visibilityState === 'visible' && tab === 'rt4k' && !$('tv').closest('[data-subview]').hidden;
-  if (told && told[0] === ws && told[1] === visible) return;
-  ws.send(new Uint8Array([0x10, visible ? 1 : 0]));
-  told = [ws, visible];
+// Tells Cruller what this page shows (ws.h): the live screen (0x10: it polls the RT4K's OSD, ~25 KB/s,
+// only while some page does) and Debug (0x11: the reports). A background tab shows neither.
+let told = {}; // code: what this socket was told last
+function tell(code, on) {
+  if (told[code] === on || !ws || ws.readyState !== 1) return;
+  ws.send(new Uint8Array([code, on ? 1 : 0]));
+  told[code] = on;
 }
-document.addEventListener('visibilitychange', () => { tellVisibility(); tellDebug(); });
-setInterval(tellVisibility, 1000); // a reconnected socket starts out counted as visible
+function tellShown() {
+  const visible = document.visibilityState === 'visible';
+  tell(0x10, visible && tab === 'rt4k' && !$('tv').closest('[data-subview]').hidden);
+  tell(0x11, visible && tab === 'debug');
+}
+document.addEventListener('visibilitychange', tellShown);
 
 // --- the TV screen -------------------------------------------------------------------------------------
 
@@ -1046,6 +1037,18 @@ function kv(r) {
   const o = {};
   r.split(' ').forEach((t) => { const i = t.indexOf('='); if (i > 0) o[t.slice(0, i)] = +t.slice(i + 1); });
   return o;
+}
+
+// A cell shows something: a character, or its background.
+const lit = (p, j) => p.d[j] > 32 || p.d[2048 + j] & 192;
+
+// A plane as it comes (ws.h 0x02): its size from the ready line (the menu's "rows=32 stride=64 width=40",
+// the messages' "rows=4 cols=32 stride=64"), its bytes (2048 characters, then their colours), how far its
+// content reaches (x1, y1: -1 when it's blank, as it comes with no menu) and, once drawn, its bitmap.
+function plane(ready, d) {
+  const k = kv(ready), w = k.width || k.cols || 0, p = { rows: k.rows || 0, w, stride: k.stride || w, d, x1: -1, y1: -1, bmp: null };
+  for (let y = 0; y < p.rows; y++) for (let x = 0; x < w; x++) if (lit(p, y * p.stride + x)) { p.x1 = Math.max(p.x1, x); p.y1 = y; }
+  return p;
 }
 
 // 16:9, black. The main plane's rows fill its height, anchored left; the secondary plane (messages)
@@ -1056,14 +1059,15 @@ function kv(r) {
 function fit() {
   const t = $('tv'), r = t.getBoundingClientRect(), d = devicePixelRatio || 1;
   if (!r.width) return;
-  t.width = Math.max(1, Math.round(r.width * d));
-  t.height = Math.max(1, Math.round(r.height * d));
+  const w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+  if (w === t.width && h === t.height) return; // (setting them clears it)
+  t.width = w;
+  t.height = h;
   draw();
 }
 
 function render(p) {
-  const k = kv(p.r), rows = k.rows || 0, w = k.width || k.cols || 0, s = k.stride || w, d = p.d;
-  const c = document.createElement('canvas');
+  const { rows, w, stride: s, d } = p, c = document.createElement('canvas');
   c.width = w * 8;
   c.height = rows * 16;
   if (!rows || !w) return c;
@@ -1085,6 +1089,9 @@ function render(p) {
   return c;
 }
 
+// A plane's bitmap: drawn once for its bytes and the font.
+const bitmap = (p) => p.bmp || (p.bmp = render(p));
+
 // Scales an area of an OSD bitmap by s, same factor both ways: whole numbers straight (sharp pixels),
 // fractions via the next whole number and a smooth shrink, so the font's strokes stay even.
 function blit(g, c, sx, sy, sw, sh, dx, dy, s) {
@@ -1096,57 +1103,57 @@ function blit(g, c, sx, sy, sw, sh, dx, dy, s) {
     g.drawImage(c, sx, sy, sw, sh, dx, dy, sw * s, sh * s);
     return;
   }
-  const k = Math.ceil(s), u = document.createElement('canvas');
-  u.width = sw * k;
-  u.height = sh * k;
-  const ug = u.getContext('2d');
-  ug.imageSmoothingEnabled = false;
-  ug.drawImage(c, sx, sy, sw, sh, 0, 0, sw * k, sh * k);
+  const w = Math.round(sw * s), h = Math.round(sh * s), k = Math.ceil(s);
+  if (k > 1) {
+    const u = document.createElement('canvas');
+    u.width = sw * k;
+    u.height = sh * k;
+    const ug = u.getContext('2d');
+    ug.imageSmoothingEnabled = false;
+    ug.drawImage(c, sx, sy, sw, sh, 0, 0, u.width, u.height);
+    [c, sx, sy, sw, sh] = [u, 0, 0, u.width, u.height];
+  }
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = 'high';
-  g.drawImage(u, dx, dy, Math.round(sw * s), Math.round(sh * s));
+  g.drawImage(c, sx, sy, sw, sh, dx, dy, w, h);
 }
 
 // With no menu open, the RT4K leaves a copy of the message plane (e.g. "HDMI? / No Signal") in the
 // main plane, which the TV doesn't show: same characters and colours in every cell.
 function sameAsMessages(p0, p1) {
-  const a = kv(p0.r), b = kv(p1.r), sa = a.stride || a.width || 0, sb = b.stride || b.cols || 0;
-  for (let y = 0; y < (a.rows || 0); y++) {
-    for (let x = 0; x < (a.width || a.cols || 0); x++) {
-      const i = y * sa + x, inB = y < (b.rows || 0) && x < (b.cols || b.width || 0), j = y * sb + x;
-      const ca = p0.d[i] > 32 || p0.d[2048 + i] & 192 ? p0.d[i] | p0.d[2048 + i] << 8 : 0;
-      const cb = inB && (p1.d[j] > 32 || p1.d[2048 + j] & 192) ? p1.d[j] | p1.d[2048 + j] << 8 : 0;
+  for (let y = 0; y < p0.rows; y++) {
+    for (let x = 0; x < p0.w; x++) {
+      const i = y * p0.stride + x, j = y * p1.stride + x, inB = y < p1.rows && x < p1.w;
+      const ca = lit(p0, i) ? p0.d[i] | p0.d[2048 + i] << 8 : 0;
+      const cb = inB && lit(p1, j) ? p1.d[j] | p1.d[2048 + j] << 8 : 0;
       if (ca !== cb) return false;
     }
   }
   return true;
 }
 
+// Drawn once a frame at most, however many planes come in it.
 function draw() {
-  const t = $('tv'), g = t.getContext('2d'), W = t.width, H = t.height;
+  if (draw.queued) return;
+  draw.queued = true;
+  requestAnimationFrame(() => { draw.queued = false; paint(); });
+}
+
+function paint() {
+  const t = $('tv'), g = t.getContext('2d'), W = t.width, H = t.height, [p0, p1] = planes;
   g.fillStyle = '#000';
   g.fillRect(0, 0, W, H);
   if (!font) return;
-  const mk = planes[0] ? kv(planes[0].r) : {}, ph = (mk.rows || 32) * 16, sc = H * (2048 / 2160) / ph;
-  if (planes[0] && !(planes[1] && sameAsMessages(planes[0], planes[1]))) {
-    const c = render(planes[0]), pw = c.width * sc; // (as the RT4K's Position puts it: its left margin mirrored on the right)
+  const sc = H * (2048 / 2160) / (((p0 && p0.rows) || 32) * 16);
+  if (p0 && !(p1 && sameAsMessages(p0, p1))) {
+    const c = bitmap(p0), pw = c.width * sc; // (as the RT4K's Position puts it: its left margin mirrored on the right)
     const x = osdPos === 1 ? (W - pw) / 2 : osdPos === 2 ? W * (1 - 0.031) - pw : W * 0.031;
     blit(g, c, 0, 0, c.width, c.height, x, H * 0.974 - c.height * sc, sc);
   }
   // Secondary plane: only its content (it's left-aligned inside a 32-column box).
-  if (planes[1]) {
-    const p = planes[1], k = kv(p.r), rows = k.rows || 0, w = k.width || k.cols || 0, stp = k.stride || w;
-    let x1 = -1, y1 = -1;
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < w; x++) {
-        const j = y * stp + x;
-        if (p.d[j] > 32 || p.d[2048 + j] & 192) { if (x > x1) x1 = x; if (y > y1) y1 = y; }
-      }
-    }
-    if (x1 >= 0) {
-      const c = render(p), sw = (x1 + 1) * 8, sh = (y1 + 1) * 16, s2 = sc * 2;
-      blit(g, c, 0, 0, sw, sh, W * 0.955 - sw * s2, H * 0.012, s2);
-    }
+  if (p1 && p1.x1 >= 0) {
+    const sw = (p1.x1 + 1) * 8, sh = (p1.y1 + 1) * 16, s2 = sc * 2;
+    blit(g, bitmap(p1), 0, 0, sw, sh, W * 0.955 - sw * s2, H * 0.012, s2);
   }
 }
 
@@ -1230,6 +1237,11 @@ const FW_RELEASES = 'https://api.github.com/repos/margaale/Cruller/releases?per_
 const FW_ASSET = { rp2: '-pico2_w-cruller.uf2', esp32: '-esp32s3_devkitc1_n16r8-cruller.bin' }; // each platform's image among a release's assets
 const upd = { loaded: false, list: [], onProgress: null };
 
+// The releases, read once the Cruller tab shows (and the status has said which board this is).
+function updFirst() {
+  if (tab === 'cruller' && S.platform && !upd.loaded) updLoad();
+}
+
 // "0.3.10" vs "0.3.9": -1, 0, 1. A pre-release comes before its release, and pre-releases compare by N,
 // CI's run number, whatever their label: 0.3.3-pr.40 < 0.3.3-alpha.41 < 0.3.3.
 function cmpVersion(a, b) {
@@ -1249,7 +1261,7 @@ async function updLoad() {
   // Alphas (develop builds) are listed only to a board already running one: a release (master) sees releases.
   const onAlpha = S.version.includes('-');
   try {
-    const rels = await (await fetch(FW_RELEASES, { cache: 'no-store' })).json();
+    const rels = await (await fetch(FW_RELEASES, { cache: 'no-cache' })).json(); // (an unchanged list comes back as a 304, without it)
     const suffix = FW_ASSET[S.platform];
     upd.list = rels.filter((r) => !r.draft && (onAlpha || !r.prerelease)).map((r) => {
       const a = suffix && r.assets.find((x) => x.name.endsWith(suffix));
@@ -1281,11 +1293,11 @@ async function updLoad() {
 }
 
 function updShow() {
-  const r = upd.list[+$('u-ver').value];
+  const r = upd.list[+$('u-ver').value], c = r ? cmpVersion(r.version, S.version) : 1;
   text('u-notes', r ? r.notes || '(no notes)' : '');
   // The Pico's boot ROM starts the newer of its two slots: an older version wouldn't boot.
-  $('u-go').disabled = !r || cmpVersion(r.version, S.version) <= 0;
-  text('u-go', r && cmpVersion(r.version, S.version) <= 0 ? (cmpVersion(r.version, S.version) ? 'Older than installed' : 'Installed') : 'Download and install');
+  $('u-go').disabled = !r || c <= 0;
+  text('u-go', c < 0 ? 'Older than installed' : c === 0 ? 'Installed' : 'Download and install');
 }
 
 async function updInstall() {
@@ -1299,7 +1311,6 @@ async function updInstall() {
     failed('GitHub lists no SHA-256 for it', 'Cruller installs only a download it can check.');
     return;
   }
-  const mb = (n) => (n / 1048576).toFixed(2);
   const connecting = () => busy({ mode: 'progress', frac: 0, title: 'Installing ' + r.version, text: 'Cruller is connecting to GitHub…' });
   connecting();
   try {
@@ -1337,7 +1348,7 @@ async function updRestart(label, onFailed) {
   await sleep(4000);
   let version = '', failure = '';
   const back = await waitFor(async () => {
-    const s = await (await fetch('/status', { cache: 'no-store' })).json();
+    const s = await fetchStatus();
     version = s.version;
     failure = (onFailed && s.update && s.update.failed) || '';
     return failure || s.uptime_s < 120;
@@ -1362,7 +1373,7 @@ async function updFile(file) {
 
 // Sends an image to /update; the bar follows what Cruller has received (pushed in the status).
 function updSend(data, label) {
-  const show = (got) => busy({ mode: 'progress', frac: got / data.length, title: 'Installing ' + label, text: 'Sending it to Cruller: ' + (got / 1048576).toFixed(2) + ' of ' + (data.length / 1048576).toFixed(2) + ' MB' });
+  const show = (got) => busy({ mode: 'progress', frac: got / data.length, title: 'Installing ' + label, text: 'Sending it to Cruller: ' + mb(got) + ' of ' + mb(data.length) + ' MB' });
   show(0);
   upd.onProgress = (u) => { if (!u.from) show(u.got); };
   const x = new XMLHttpRequest();
@@ -1370,14 +1381,14 @@ function updSend(data, label) {
   x.onload = () => {
     upd.onProgress = null;
     if (x.status !== 200) {
-      busy({ mode: 'bad', title: 'The update failed', text: x.responseText.trim(), actions: [{ label: 'Close', onclick: busyHide }] });
+      busyFail('The update failed', x.responseText.trim());
       return;
     }
     updRestart(label);
   };
   x.onerror = () => {
     upd.onProgress = null;
-    busy({ mode: 'bad', title: 'The connection to Cruller dropped', text: 'The update didn\'t finish; Cruller keeps its current firmware.', actions: [{ label: 'Close', onclick: busyHide }] });
+    busyFail('The connection to Cruller dropped', 'The update didn\'t finish; Cruller keeps its current firmware.');
   };
   x.send(data);
 }
@@ -1430,6 +1441,9 @@ function busy(o) {
 
 function busyHide() { clearInterval(busy.t); $('busy').hidden = true; }
 
+// How it went wrong, and a button to close it.
+const busyFail = (title, why) => busy({ mode: 'bad', title, text: why, actions: [{ label: 'Close', onclick: busyHide }] });
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Waits until check() says yes (tried every 1.5 s), up to timeout_ms. Only while Cruller restarts.
@@ -1442,10 +1456,8 @@ async function waitFor(check, timeoutMs) {
 }
 
 // Cruller answers again, freshly started (not the old one still shutting down).
-const backUp = async () => {
-  const r = await fetch('/status', { cache: 'no-store' });
-  return r.ok && (await r.json()).uptime_s < 120;
-};
+const fetchStatus = async () => (await fetch('/status', { cache: 'no-store' })).json();
+const backUp = async () => (await fetchStatus()).uptime_s < 120;
 
 async function restart(forget) {
   const ok = forget
@@ -1457,7 +1469,7 @@ async function restart(forget) {
     const r = await fetch(forget ? '/factory-reset' : '/restart', { method: 'POST' });
     if (!r.ok) throw new Error((await r.text()).trim());
   } catch (e) {
-    busy({ mode: 'bad', title: 'It didn\'t work', text: e.message, actions: [{ label: 'Close', onclick: busyHide }] });
+    busyFail('It didn\'t work', e.message);
     return;
   }
   if (forget) {
@@ -1477,53 +1489,49 @@ async function restart(forget) {
   }
 }
 
-// --- Wi-Fi: nearby networks (GET /wifi/scan); tapping one fills in the name --------------------------------
+// --- Wi-Fi: nearby networks (GET /wifi/scan) ---------------------------------------------------------------
 
-async function scan() {
-  const find = $('find'), list = $('nets');
-  find.disabled = true;
-  find.textContent = 'Looking for networks…';
+// A button for each in list (its class cls): pick(network, button) when one is tapped.
+async function listNets(list, cls, pick) {
   try {
     const nets = await (await fetch('/wifi/scan')).json();
     list.textContent = nets.length ? '' : 'No networks found';
     for (const n of nets) {
       const b = document.createElement('button');
       b.type = 'button';
+      b.className = cls;
       b.style.justifyContent = 'space-between';
       b.innerHTML = '<span></span><span class="small"></span>';
       b.firstChild.textContent = n.ssid;
-      b.lastChild.textContent = n.rssi + ' dBm' + (n.secure ? '' : ' · open');
-      b.onclick = () => { document.querySelector('input[name=ssid]').value = n.ssid; document.querySelector('input[name=pass]').focus(); };
+      b.lastChild.textContent = n.rssi + ' dBm' + (n.secure ? ' · 🔒' : ' · open');
+      b.onclick = () => pick(n, b);
       list.appendChild(b);
     }
   } catch (e) {
     list.textContent = 'Could not look for networks';
   }
+}
+
+// The Cruller tab's network form: tapping one fills in the name.
+$('find').onclick = async () => {
+  const find = $('find');
+  find.disabled = true;
+  find.textContent = 'Looking for networks…';
+  await listNets($('nets'), '', (n) => { document.querySelector('input[name=ssid]').value = n.ssid; document.querySelector('input[name=pass]').focus(); });
   find.disabled = false;
   find.textContent = 'Find networks again';
-}
-$('find').onclick = scan;
+};
 
 // --- Debug ---------------------------------------------------------------------------------------------
 
 // Cruller pushes the reports over the WebSocket (type 6) every 2 s while this page shows Debug.
-const samples = []; // {t, tx, rx}: from the status in each report, for the byte-rate charts
+const samples = []; // {t, tx, rx}: the serial link's byte counts in each report, for the byte-rate charts
 const sensorSamples = []; // [average mV, lowest mV, °C × 10], 100 ms apart: the last 2 minutes
-const replyTimes = [];
-let toldDebug = null; // [socket, showing] last sent
-
-function tellDebug() {
-  if (!ws || ws.readyState !== 1) return;
-  const showing = tab === 'debug' && document.visibilityState === 'visible';
-  if (toldDebug && toldDebug[0] === ws && toldDebug[1] === showing) return;
-  ws.send(new Uint8Array([0x11, showing ? 1 : 0]));
-  toldDebug = [ws, showing];
-}
+let replyTimes = []; // the reply times of the commands in the last report, oldest first
 
 let report = null; // the last Debug report
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);
 const rows = (id, html) => { $(id).innerHTML = html; };
 const barCell = (used, size) => {
   const p = size ? Math.min(100, Math.round(100 * used / size)) : 0;
@@ -1546,10 +1554,9 @@ function onDebug(kind, t) {
   }
   if (kind !== 5) return;
   const r = report = JSON.parse(t);
-  const s = r.status;
-  samples.push({ t: Date.now(), tx: s.rt4k_tx, rx: s.rt4k_rx });
+  samples.push({ t: Date.now(), tx: r.serial.tx, rx: r.serial.rx });
   if (samples.length > 61) samples.shift();
-  st(s);
+  showFreeze(r.freeze);
 
   // The board's supply and temperature (the Pico 2 W; null on a board without them)
   const sn = r.sensors;
@@ -1582,11 +1589,9 @@ function onDebug(kind, t) {
 
   // Command queue: oldest first from Cruller; newest first here
   const cmds = r.console.slice().reverse();
-  const answered = cmds.filter((c) => c.reply_ms >= 0);
-  replyTimes.length = 0;
-  answered.forEach((c) => replyTimes.push(c.reply_ms));
-  text('q-reply', answered.length ? avg(replyTimes) + ' ms' : '–');
-  text('q-reply2', answered.length ? 'avg of ' + answered.length + ' · max ' + Math.max(...replyTimes) + ' ms' : 'no replies yet');
+  replyTimes = r.console.filter((c) => c.reply_ms >= 0).map((c) => c.reply_ms);
+  text('q-reply', replyTimes.length ? avg(replyTimes) + ' ms' : '–');
+  text('q-reply2', replyTimes.length ? 'avg of ' + replyTimes.length + ' · max ' + Math.max(...replyTimes) + ' ms' : 'no replies yet');
   const wins = cmds.map((c) => c.window_ms);
   text('q-win', wins.length ? avg(wins) + ' ms' : '–');
   text('q-win2', wins.length ? 'avg · max ' + Math.max(...wins) + ' ms' : 'until the reply is complete');
@@ -1622,37 +1627,25 @@ function onDebug(kind, t) {
   drawCharts();
 }
 
-async function getText(path) {
-  const r = await fetch(path, { cache: 'no-store' });
-  return r.text();
-}
-
-// The task list: on request only (scanning the stacks pauses both cores for a few milliseconds).
+// The task list: on request only (scanning the stacks pauses both cores for a few milliseconds). The
+// least stack ever left first.
 async function stacks() {
   rows('t-rows', '<tr><td colspan="4" class="small">Reading…</td></tr>');
   try {
-    const t = await getText('/debug/tasks?stacks');
-    const list = [...t.matchAll(/^(\S+)\s+(\S+)\s+prio (\d+) stack free (\d+)$/gm)].map((m) => ({ name: m[1], state: m[2], prio: +m[3], free: +m[4] }));
-    list.sort((a, b) => a.free - b.free);
+    const list = (await (await fetch('/debug/tasks?json', { cache: 'no-store' })).json()).tasks;
+    list.sort((a, b) => a.stack_free - b.stack_free);
     rows('t-rows', list.map((k) => '<tr><td>' + esc(k.name) + '</td><td>' + k.state + '</td><td class="r">' + k.prio + '</td><td class="r ' +
-      (k.free < 128 ? 'warn' : '') + '">' + k.free * 4 + ' B</td></tr>').join('')); // high-water mark, in 4-byte words
+      (k.stack_free < 512 ? 'warn' : '') + '">' + k.stack_free + ' B</td></tr>').join(''));
   } catch (e) {
     rows('t-rows', '<tr><td colspan="4" class="small">Could not read them: ' + esc(e.message) + '</td></tr>');
   }
 }
 
-// The freeze recorder: the newest sample of each core.
-async function freeze() {
-  freeze.done = true;
-  try {
-    const t = await getText('/debug/freeze');
-    const last = {};
-    for (const m of t.matchAll(/^core (\d)\s+(-?\d+) ms (\S+)\s+pc=\S+ lr=\S+ wdt left (\d+) fed (\d+) ms ago/gm)) last[m[1]] = m;
-    rows('z-rows', Object.values(last).map((m) => '<tr><td>' + m[1] + '</td><td>' + esc(m[3]) + '</td><td class="r">' + (m[4] / 1000).toFixed(1) +
-      ' s</td><td class="r">' + m[5] + ' ms ago</td></tr>').join('') || '<tr><td colspan="4" class="small">No samples</td></tr>');
-  } catch (e) {
-    rows('z-rows', '<tr><td colspan="4" class="small">Could not read it: ' + esc(e.message) + '</td></tr>');
-  }
+// The freeze recorder (the report's "freeze"): each core's newest sample.
+function showFreeze(f) {
+  rows('z-rows', !f ? '' : f.cores.map((c) => '<tr><td>' + c.core + '</td><td>' + esc(c.task) + (c.where === 'task' ? '' : ' <span class="small">' + esc(c.where) + '</span>') +
+    '</td><td class="r">' + (c.wdt_left_ms / 1000).toFixed(1) + ' s</td><td class="r">' + c.fed_ago_ms + ' ms ago</td></tr>').join('') ||
+    '<tr><td colspan="4" class="small">' + (f.last_reset ? 'No freeze recorder on this board (last reset: ' + esc(f.last_reset) + ')' : 'No samples') + '</td></tr>');
 }
 
 async function tool(path) {
@@ -1666,7 +1659,7 @@ async function tool(path) {
 }
 
 function copyJson() {
-  const data = { report: report || { status: S }, keyTimesSeenByThisPage: keyTimes };
+  const data = { status: S, report, keyTimesSeenByThisPage: keyTimes };
   navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => text('d-state', 'Copied'), () => text('d-state', 'Could not copy'));
 }
 
@@ -1745,10 +1738,10 @@ function drawCharts() {
   const last = (a) => (a.length ? a[a.length - 1] : 0);
   text('lg-tx', 'sent ' + last(tx).toFixed(2) + ' KB/s');
   text('lg-rx', 'received ' + last(rx).toFixed(1) + ' KB/s');
-  if (replyTimes.length) text('lg-rep', 'reply ' + Math.round(replyTimes.reduce((a, b) => a + b, 0) / replyTimes.length) + ' ms');
+  if (replyTimes.length) text('lg-rep', 'reply ' + avg(replyTimes) + ' ms');
   chart('ch-tx', [{ data: tx, color: '#4CC38A' }], 'KB/s');
   chart('ch-rx', [{ data: rx, color: '#4CC38A' }], 'KB/s');
-  chart('ch-lat', [{ data: keyTimes, color: '#E8618C' }, { data: replyTimes.slice().reverse(), color: '#C9CCD1' }], 'ms');
+  chart('ch-lat', [{ data: keyTimes, color: '#E8618C' }, { data: replyTimes, color: '#C9CCD1' }], 'ms');
   drawSensors();
 }
 

@@ -3,7 +3,6 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(CRULLER_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
-set(CRULLER_WEB ${CRULLER_ROOT}/src/web)
 
 set(PICO_BOARD pico2_w CACHE STRING "Board type")
 
@@ -14,12 +13,10 @@ project(cruller C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-include(${CRULLER_ROOT}/src/version.cmake)
-set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z or X.Y.Z-label.N)")
+include(${CRULLER_ROOT}/src/version.cmake) # (CRULLER_VERSION, CRULLER_DEBUG)
+include(${CRULLER_ROOT}/src/web/web.cmake)
+include(${CRULLER_ROOT}/src/core/core.cmake) # (CRULLER_CORE_SOURCES)
 set(CRULLER_BUILD 0 CACHE STRING "Build number: CI's run number (github.run_number), 0 for a local build")
-# The developer tools (src/platform/platform.h): the CI builds them into pre-releases and pull requests, not
-# into releases.
-option(CRULLER_DEBUG "The developer tools (src/platform/platform.h): 16 KB of RAM" ON)
 
 pico_sdk_init()
 
@@ -49,34 +46,7 @@ target_compile_definitions(littlefs PUBLIC LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WAR
 # Common code (src/core) and the Pico 2 W target (src/platform/rp2, see src/platform/platform.h).
 add_library(cruller_app INTERFACE)
 target_sources(cruller_app INTERFACE
-    ${CRULLER_ROOT}/src/core/buttons.c
-    ${CRULLER_ROOT}/src/core/cfgfs.c
-    ${CRULLER_ROOT}/src/core/clients.c
-    ${CRULLER_ROOT}/src/core/console.c
-    ${CRULLER_ROOT}/src/core/console_core.c
-    ${CRULLER_ROOT}/src/core/creds.c
-    ${CRULLER_ROOT}/src/core/gameid.c
-    ${CRULLER_ROOT}/src/core/gameid_core.c
-    ${CRULLER_ROOT}/src/core/gameid_run.c
-    ${CRULLER_ROOT}/src/core/http.c
-    ${CRULLER_ROOT}/src/core/json.c
-    ${CRULLER_ROOT}/src/core/ota_fetch.c
-    ${CRULLER_ROOT}/src/core/ota_fetch_proto.c
-    ${CRULLER_ROOT}/src/core/power.c
-    ${CRULLER_ROOT}/src/core/power_core.c
-    ${CRULLER_ROOT}/src/core/rfc2217.c
-    ${CRULLER_ROOT}/src/core/rfc2217_proto.c
-    ${CRULLER_ROOT}/src/core/rt4k_info.c
-    ${CRULLER_ROOT}/src/core/rt4k_info_core.c
-    ${CRULLER_ROOT}/src/core/rtl1.c
-    ${CRULLER_ROOT}/src/core/rtl1_core.c
-    ${CRULLER_ROOT}/src/core/settings.c
-    ${CRULLER_ROOT}/src/core/svs.c
-    ${CRULLER_ROOT}/src/core/svs_proto.c
-    ${CRULLER_ROOT}/src/core/version.c
-    ${CRULLER_ROOT}/src/core/ws.c
-    ${CRULLER_ROOT}/src/core/ws_proto.c
-
+    ${CRULLER_CORE_SOURCES}
     main.c
     platform.c
     platform_reboot.c
@@ -84,44 +54,23 @@ target_sources(cruller_app INTERFACE
     flash_ops.c
     store_flash.c
     cfgfs_flash.c
-    donutshop.c
     ota.c
     tls.c
     tls_roots.c
-    net.c
+    net_port.c
     health.c
     freeze.c
     log.c
-    status_led.c
+    rt4k.c # (the native USB port is the RT4K's host; logs go to the in-memory log, /log)
     ${CRULLER_ROOT}/third_party/picow_ap/dhcpserver.c
     ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
 )
 target_include_directories(cruller_app INTERFACE
     ${CRULLER_ROOT}/src/core ${CRULLER_ROOT}/src/platform ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CRULLER_ROOT}/third_party/picow_ap)
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb_host ${CRULLER_ROOT}/third_party/picow_ap)
+cruller_web(cruller_app INTERFACE)
+cruller_defs(cruller_app INTERFACE)
 
-# Web assets kept as real files (src/web), embedded gzipped as C arrays (#embed, see src/web/embed.cmake).
-foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js gameid.js:web_gameid_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
-    string(REPLACE ":" ";" asset ${asset})
-    list(GET asset 0 file)
-    list(GET asset 1 name)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/${name}.c)
-    add_custom_command(OUTPUT ${out}
-        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${name}.gz # (the C file's #embed)
-        COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_WEB}/${file} -DOUT=${out} -DNAME=${name}
-            -P ${CRULLER_WEB}/embed.cmake
-        DEPENDS ${CRULLER_WEB}/${file} ${CRULLER_WEB}/embed.cmake
-        VERBATIM)
-    target_sources(cruller_app INTERFACE ${out})
-endforeach()
-target_compile_definitions(cruller_app INTERFACE
-    CYW43_HOST_NAME="cruller"
-)
-# The version for version.c alone: a new one compiles that file again, no other (ccache keeps the rest).
-set_source_files_properties(${CRULLER_ROOT}/src/core/version.c PROPERTIES COMPILE_DEFINITIONS CRULLER_VERSION="${CRULLER_VERSION}")
-if (NOT CRULLER_DEBUG)
-    target_compile_definitions(cruller_app INTERFACE CRULLER_DEBUG=0)
-endif()
 target_link_libraries(cruller_app INTERFACE
     pico_stdlib
     pico_cyw43_arch_lwip_sys_freertos
@@ -138,25 +87,25 @@ target_link_libraries(cruller_app INTERFACE
     hardware_flash
     littlefs
     FreeRTOS-Kernel-Heap4
+    tinyusb_host
 )
 
 # The image's version (CRULLER_BIN_MAJOR/MINOR, above) goes in crt0's metadata block, and only crt0 is
 # built with it: pico_set_binary_version() would define it for every file, and the build number changes
-# with every CI run, so the CI's ccache would find none of them again.
-set_source_files_properties(${PICO_SDK_PATH}/src/rp2_common/pico_crt0/crt0.S PROPERTIES COMPILE_DEFINITIONS
+# with every CI run, so the CI's ccache would find none of them again. crt0 as the SDK's pico_crt0 names it.
+get_target_property(crt0 pico_crt0 INTERFACE_SOURCES)
+if (NOT crt0)
+    message(FATAL_ERROR "pico_crt0 has no sources: the image's version has nowhere to go")
+endif()
+set_source_files_properties(${crt0} PROPERTIES COMPILE_DEFINITIONS
     "PICO_CRT0_VERSION_MAJOR=${CRULLER_BIN_MAJOR};PICO_CRT0_VERSION_MINOR=${CRULLER_BIN_MINOR}")
 
 function(cruller_image TARGET)
     add_executable(${TARGET})
     target_link_libraries(${TARGET} PRIVATE cruller_app)
-    # The native USB port is the RT4K's host; logs go to the in-memory log (/log) instead.
-    target_sources(${TARGET} PRIVATE rt4k.c)
-    target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/usb_host)
-    target_link_libraries(${TARGET} PRIVATE tinyusb_host)
     # The RT4K receive path runs from RAM (see cmake/linker/default_text_excludes.incl).
     pico_add_linker_script_override_path(${TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker
         FILES default_text_excludes.incl)
-    pico_enable_stdio_usb(${TARGET} 0)
     pico_enable_stdio_uart(${TARGET} 0)
     pico_add_extra_outputs(${TARGET})
 endfunction()
@@ -165,16 +114,19 @@ endfunction()
 cruller_image(cruller)
 target_compile_definitions(cruller PRIVATE PICO_CRT0_IMAGE_TYPE_TBYB=1)
 
-# First image, installed by DonutShop's OTA stage-3 with a normal boot: must not be TBYB.
-cruller_image(cruller_migration_app)
+# First image on a new board (the factory image, below), started with a normal boot: must not be TBYB.
+cruller_image(cruller_factory_app)
 
-# --- migration image --------------------------------------------------------------------------
+# --- factory image ----------------------------------------------------------------------------
 
+# A new board over USB: the flash contents from offset 0 (partition table, slot A) as a UF2, to drop on
+# the RP2350 drive in BOOTSEL mode. Family "absolute": each block goes to its own address.
+# cruller.uf2 alone brings no partition table, and without one OTA has no partition to update.
 set(PT_JSON ${CMAKE_CURRENT_SOURCE_DIR}/pt.json)
 set(PT_BIN ${CMAKE_CURRENT_BINARY_DIR}/pt.bin)
-set(MIGRATION_BIN ${CMAKE_CURRENT_BINARY_DIR}/cruller_migration.bin)
-set(PARTITION_A_OFFSET 0x2000)      # pt.json: first partition after the table
-set(DONUTSHOP_FS_OFFSET 0x1FF000)   # the migration image must end below DonutShop's LittleFS
+set(FACTORY_BIN ${CMAKE_CURRENT_BINARY_DIR}/cruller_factory.bin)
+set(PARTITION_A_OFFSET 0x2000)    # pt.json: slot A, after the table
+set(PARTITION_B_OFFSET 0x1D2000)  # pt.json: slot B, where slot A ends
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(
@@ -184,25 +136,18 @@ add_custom_command(
     COMMENT "Partition table"
 )
 add_custom_command(
-    OUTPUT ${MIGRATION_BIN}
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_migration.py
-        ${PT_BIN} ${CMAKE_CURRENT_BINARY_DIR}/cruller_migration_app.bin ${MIGRATION_BIN}
-        ${PARTITION_A_OFFSET} ${DONUTSHOP_FS_OFFSET}
-    DEPENDS ${PT_BIN} cruller_migration_app ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_migration.py
-    COMMENT "DonutShop -> Cruller migration image"
+    OUTPUT ${FACTORY_BIN}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_factory.py
+        ${PT_BIN} ${CMAKE_CURRENT_BINARY_DIR}/cruller_factory_app.bin ${FACTORY_BIN}
+        ${PARTITION_A_OFFSET} ${PARTITION_B_OFFSET}
+    DEPENDS ${PT_BIN} cruller_factory_app ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_factory.py
+    COMMENT "Factory image (partition table + slot A)"
 )
-add_custom_target(cruller_migration ALL DEPENDS ${MIGRATION_BIN})
-
-# --- factory image ----------------------------------------------------------------------------
-
-# A new board over USB: the same flash contents from offset 0 (partition table and slot A) as a UF2,
-# to drop on the RP2350 drive in BOOTSEL mode. Family "absolute": each block goes to its own address.
-# cruller.uf2 alone brings no partition table, and without one OTA has no partition to update.
 set(FACTORY_UF2 ${CMAKE_CURRENT_BINARY_DIR}/cruller-factory.uf2)
 add_custom_command(
     OUTPUT ${FACTORY_UF2}
-    COMMAND picotool uf2 convert ${MIGRATION_BIN} -t bin ${FACTORY_UF2} -o 0x10000000 --family absolute
-    DEPENDS ${MIGRATION_BIN}
+    COMMAND picotool uf2 convert ${FACTORY_BIN} -t bin ${FACTORY_UF2} -o 0x10000000 --family absolute
+    DEPENDS ${FACTORY_BIN}
     COMMENT "Factory UF2 (partition table + slot A)"
 )
 add_custom_target(cruller_factory ALL DEPENDS ${FACTORY_UF2})

@@ -45,9 +45,6 @@ bool svs_parse(const char *json, svs_msg_t *out, const char **error);
 // 0 if it doesn't fit.
 size_t svs_switch_json(const svs_switch_t *sw, char *out, size_t size);
 
-// JSON-escapes in (quotes, backslashes, control characters) into out, always terminated.
-void svs_json_escape(char *out, size_t size, const char *in);
-
 #define SVS_PROFILE_MAX  150  // a profile's file name, in bytes
 #define SVS_PROFILES_MAX 1024 // each input's profile as text, its terminator included
 
@@ -61,3 +58,7 @@ bool svs_profiles_parse(const char *body, char *out, size_t size, const char **e
 // Writes them (svs_profiles_parse's form) as {"1":"S1_PS1.rt4",...}. Returns the length, or 0 if it
 // doesn't fit.
 size_t svs_profiles_json(const char *text, char *out, size_t size);
+
+// Input's profile in them (svs_profiles_parse's form), into out: false (out "") when it has none, or it
+// doesn't fit.
+bool svs_profile_for(const char *text, int input, char *out, size_t size);

@@ -3,8 +3,9 @@
 // The browser does the heavy lifting: it reads RetroTINK's firmware index on GitHub, downloads the
 // chosen zip, checks it against the SHA-256 in the index, unzips it and hashes every file. Cruller
 // then writes each file to the RT4K's SD card (POST /rt4k/put, RTL1 put) and runs the RT4K's own
-// installer (fwup check / fwup go) once the user confirms. All of it but the writing works with the
-// RT4K asleep: the installed version comes from what Cruller kept, and an install turns it on.
+// installer (fwup check / fwup go) once they're written: the user confirms once, before it starts. All of
+// it but the writing works with the RT4K asleep: the installed version comes from what Cruller kept, and
+// an install turns it on.
 
 (() => {
   'use strict';
@@ -22,8 +23,6 @@
   let onPower = null;   // install() waiting for the RT4K to come on
   let busy = false;
   const channels = {}; // name -> [{version, date, url, sha, changelog}]
-
-  const sha256 = window.sha256; // sha256.js, loaded first
 
   // --- the firmware index (RetroTINK's markdown pages) ----------------------------------------------
 
@@ -97,34 +96,18 @@
   }
 
   // --- Cruller ----------------------------------------------------------------------------------------
+  //
+  // The RT4K's SD card and console through sd.js's helpers (window.sdInternals); a failure says which
+  // command or file.
 
-  async function ask(cmd, expect, timeout) {
-    const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect) + (timeout ? '&timeout=' + timeout : ''),
-      { method: 'POST', body: cmd });
-    const t = (await r.text()).trim();
-    if (!r.ok) throw new Error(cmd + ': ' + t);
-    return t;
-  }
-
-  function putFile(path, data, sha) {
-    return new Promise((resolve, reject) => {
-      const x = new XMLHttpRequest();
-      x.open('POST', '/rt4k/put?path=' + encodeURIComponent(path) + '&sha=' + sha);
-      x.onload = () => (x.status === 200 ? resolve(x.responseText.trim()) : reject(new Error(path + ': ' + x.responseText.trim())));
-      x.onerror = () => reject(new Error(path + ': connection to Cruller lost'));
-      x.send(data);
-    });
-  }
+  const sd = () => window.sdInternals;
+  const said = (what) => (e) => { throw new Error(what + ': ' + sd().failure(e)); };
+  const ask = (cmd, expect, timeout) => sd().ask(cmd, expect, timeout).catch(said(cmd));
 
   async function download(url, onProgress) {
-    let r;
-    try {
-      r = await fetch(url);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-    } catch (e) {
-      r = await fetch(rawUrl(url)); // jsDelivr failing: straight from GitHub
-      if (!r.ok) throw new Error('download failed: HTTP ' + r.status);
-    }
+    let r = await fetch(url).catch(() => null);
+    if (!r || !r.ok) r = await fetch(rawUrl(url)); // jsDelivr failing: straight from GitHub
+    if (!r.ok) throw new Error('download failed: HTTP ' + r.status);
     const total = +r.headers.get('Content-Length') || 0;
     const reader = r.body.getReader();
     const parts = [];
@@ -136,10 +119,7 @@
       got += value.length;
       onProgress(got, total);
     }
-    const buf = new Uint8Array(got);
-    let o = 0;
-    for (const p of parts) { buf.set(p, o); o += p.length; }
-    return buf;
+    return new Uint8Array(await new Blob(parts).arrayBuffer());
   }
 
   // --- UI -------------------------------------------------------------------------------------------
@@ -167,11 +147,6 @@
     }
     current = state === 'run' ? id : current;
   }
-
-  // The page's status handler passes each status's "put" (bytes Cruller handed to the RT4K): the
-  // browser's own upload progress only counts what it buffered, all of it within a moment.
-  let onPut = null;
-  window.fwPutProgress = (put) => { if (onPut && put) onPut(put); };
 
   function selected() {
     const list = channels[q('fwc').value] || [];
@@ -235,10 +210,12 @@
   async function install() {
     const f = selected();
     if (!f || busy) return;
-    // Asleep: turned on now, so it boots while the zip downloads; only the writing needs it.
-    if (power === 'standby' && !(await window.askUser('Turn the RT4K on and install ' + f.version + '?',
-      'It\'s in standby. Cruller turns it on and downloads the firmware meanwhile; the files go to its SD card once it answers.',
-      'Turn on and install'))) return;
+    // One question, before anything: once the files are written and checked, the RT4K installs them by
+    // itself. Asleep, it's turned on now, so it boots while the zip downloads; only the writing needs it.
+    const [title, asleep, button] = power === 'standby' ?
+      ['Turn the RT4K on and install', 'It\'s in standby: Cruller turns it on and downloads the firmware meanwhile. ', 'Turn on and install'] : ['Install', '', 'Install'];
+    if (!(await window.askUser(title + ' ' + f.version + '?', asleep + 'Once the files are on its SD card and it has checked them, the RT4K ' +
+      'restarts and flashes for about 40 seconds (LED pink, then blue). Don\'t power it off.', button))) return;
     if (busy) return;
     busy = true;
     q('fwi').disabled = true;
@@ -255,8 +232,9 @@
       const zip = await download(f.url, (got, total) => step('dl', 'run', mb(got) + (total ? ' of ' + mb(total) : ''), got, total));
       step('dl', 'done', mb(zip.length));
       step('chk', 'run', 'hashing…');
+      await window.need('/sha256.js');
       await new Promise((r) => setTimeout(r, 20));
-      const zsha = sha256(zip);
+      const zsha = window.sha256(zip);
       if (zsha !== f.sha) throw new Error('the download does not match the SHA-256 in RetroTINK\'s index');
       step('chk', 'done', zsha.slice(0, 12) + '… matches');
       const all = zipEntries(zip);
@@ -287,7 +265,6 @@
       const t0 = Date.now();
       for (const [i, e] of entries.entries()) {
         const data = await unzipEntry(e);
-        const sha = sha256(data);
         const show = (sent) => {
           const now = done + Math.min(sent, e.size);
           const rate = now / Math.max(1, (Date.now() - t0) / 1000);
@@ -295,9 +272,7 @@
             (rate > 1024 ? ' · ' + Math.round(rate / 1024) + ' KB/s' : ''), now, total);
         };
         show(0);
-        onPut = (put) => { if (put.path === e.name) show(put.sent); };
-        await putFile(e.name, data, sha);
-        onPut = null;
+        await sd().putFile(e.name, data, show).catch(said(e.name));
         done += e.size;
       }
       step('wr', 'done', entries.length + ' files · ' + mb(total) + ' in ' + Math.round((Date.now() - t0) / 1000) + ' s');
@@ -306,17 +281,11 @@
       const version = (check.match(/version=(\S+)/) || [])[1];
       const token = (check.match(/token=([0-9A-Fa-f]+)/) || [])[1];
       if (!check.startsWith('fwup ok') || !token) throw new Error('the RT4K refused the update: ' + check);
-      step('in', 'run', 'ready to install ' + version);
-      if (!(await window.askUser('Install ' + version + ' now?', 'The RT4K restarts and flashes for about 40 seconds (LED pink, then blue). Don\'t power it off.', 'Install'))) {
-        step('in', 'wait', 'not installed');
-        status('The files are on the SD card; the RT4K menu (OSD/Firmware > Check SD Card) can install them later.');
-        return;
-      }
+      step('in', 'run', 'installing ' + version + '…');
       const go = await ask('fwup go ' + token, 'fwup', 10000);
       if (!/flashing/.test(go)) throw new Error('the RT4K did not start the install: ' + go);
       step('in', 'done', 'flashing ' + version + ': the RT4K restarts by itself (about 40 s)');
     } catch (e) {
-      onPut = null;
       if (current) step(current, 'fail', e.message);
       else status('Failed: ' + e.message);
     } finally {
@@ -347,23 +316,21 @@
     q('fwi').onclick = install;
     showInstalled(); // from the status: nothing to ask the RT4K, which may be asleep
     status('Reading RetroTINK\'s firmware index...');
-    for (const [name, file] of CHANNELS) {
-      try {
-        const r = await fetch(RAW + file);
-        channels[name] = parseIndex(await r.text());
-        const o = document.createElement('option');
-        o.value = name;
-        o.textContent = name;
-        q('fwc').appendChild(o);
-      } catch (e) {
-        status('Could not read ' + file + ': ' + e.message);
-      }
-    }
-    status('');
+    // Both at once, listed in their order.
+    const read = await Promise.all(CHANNELS.map(([, file]) => fetch(RAW + file).then((r) => r.text()).then(parseIndex, (e) => e)));
+    status(CHANNELS.map(([, file], k) => (read[k] instanceof Error ? 'Could not read ' + file + ': ' + read[k].message : '')).filter(Boolean).join(' '));
+    CHANNELS.forEach(([name], k) => {
+      if (read[k] instanceof Error) return;
+      channels[name] = read[k];
+      const o = document.createElement('option');
+      o.value = name;
+      o.textContent = name;
+      q('fwc').appendChild(o);
+    });
     showVersions();
   }
 
   window.fwOpen = open;
   window.fwStatus = onStatus;
-  window.fwInternals = { sha256, parseIndex, rawUrl, zipEntries, unzipEntry, wanted }; // for tests/test_fw.js
+  window.fwInternals = { parseIndex, rawUrl, zipEntries, unzipEntry, wanted }; // for tests/test_fw.js
 })();

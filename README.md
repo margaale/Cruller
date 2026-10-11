@@ -150,9 +150,9 @@ it opens from the menu button.
 Pick **Release** or **Experimental**, then a version, and press **Download and install**. Your
 browser downloads the zip from RetroTINK's firmware repository, checks it against the SHA-256 the
 repository lists, and unzips it. Cruller writes the files to the RT4K's SD card (only your model's
-`.rbf`, and `rt4kup.bin` last), and the RT4K checks them. Once you confirm, the RT4K installs the
-update and restarts, which takes about 40 s. Keep the page open, and don't turn the RT4K off while
-it installs.
+`.rbf`, and `rt4kup.bin` last), the RT4K checks them, then installs the update and restarts, which
+takes about 40 s. It asks once, before it starts. Keep the page open, and don't turn the RT4K off
+while it installs.
 
 The RT4K can be in standby: the installed version is the one Cruller saw the last time it was on
 (it keeps it across restarts), and **Download and install** offers to turn it on. The zip downloads
@@ -377,10 +377,10 @@ requests keep the tools.
 ### Tests
 
 The pure parts of `src/core` (the RTL1 engine, WebSocket framing, power state, the RFC 2217
-parser, the console's reply windows, the SVS Bridge's reports, the GitHub download's URLs, gameID's
-consoles, games and choices, the files they're kept in, JSON) and the page's JavaScript (the firmware
-updater, the SD card view, the profiles, the settings map and the profile editor, the Consoles view)
-are tested on the host, with no Pico:
+parser, the console's reply windows and each command's last line, the log's ring, the SVS Bridge's
+reports, the GitHub download's URLs, gameID's consoles, games and choices, the files they're kept in,
+JSON) and the page's JavaScript (the firmware updater, the SD card view, the profiles, the settings map
+and the profile editor, the Consoles view) are tested on the host, with no Pico:
 
 ```bash
 tests/run.sh
@@ -392,9 +392,9 @@ It needs gcc, and Node.js for the page's tests. CI runs the page's tests on the 
 
 ```
 src/core/            The common code (HTTP, WebSocket, console, RTL1, RFC 2217, power, SVS,
-                     gameID, settings and files, firmware downloads), and the interfaces each
-                     board implements
-src/platform/rp2/    The Raspberry Pi Pico 2 W: startup, Wi-Fi and the setup portal, the RT4K's
+                     gameID, settings and files, firmware downloads, Wi-Fi and the setup portal,
+                     the services' startup), and the interfaces each board implements
+src/platform/rp2/    The Raspberry Pi Pico 2 W: startup, the CYW43 radio, the RT4K's
                      USB host, flash (A/B slots, settings, littlefs), watchdog
 src/platform/esp32/  The ESP32-S3 port, an ESP-IDF project (no RT4K link yet)
 src/web/             The page, embedded gzipped as C arrays at build time (minified in CI)

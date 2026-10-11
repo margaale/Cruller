@@ -10,10 +10,7 @@
 #include "pico/time.h"
 #include "pico/unique_id.h"
 
-#include "platform_reboot.h"
-
 uint32_t plat_ms(void) { return to_ms_since_boot(get_absolute_time()); }
-uint32_t plat_us(void) { return time_us_32(); }
 
 void plat_lock_init(plat_lock_t *lock) { critical_section_init(lock); }
 void plat_lock_enter(plat_lock_t *lock) { critical_section_enter_blocking(lock); }
@@ -35,8 +32,6 @@ void plat_board_id(char *out, size_t size) {
     pico_get_unique_board_id_string(id, sizeof(id));
     snprintf(out, size, "%s", id);
 }
-
-void plat_reboot(void) { platform_reboot(); }
 
 extern char __data_start__, __data_end__, __bss_start__, __bss_end__, __StackTop;
 

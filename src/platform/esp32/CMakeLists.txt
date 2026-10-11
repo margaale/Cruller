@@ -4,15 +4,15 @@
 cmake_minimum_required(VERSION 3.22)
 
 get_filename_component(CRULLER_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
-include(${CRULLER_ROOT}/src/version.cmake)
-set(CRULLER_VERSION "${CRULLER_VERSION_DEFAULT}" CACHE STRING "Firmware version (X.Y.Z)")
+include(${CRULLER_ROOT}/src/version.cmake) # (CRULLER_VERSION, CRULLER_DEBUG)
+include(${CRULLER_ROOT}/src/web/web.cmake)
 set(PROJECT_VER ${CRULLER_VERSION})
-# The developer tools (src/platform/platform.h): the CI builds them into pre-releases and pull requests, not
-# into releases.
-option(CRULLER_DEBUG "The developer tools (src/platform/platform.h)" ON)
 set(IDF_TARGET esp32s3)
 # The generated sdkconfig goes to the build directory; sdkconfig.defaults here is the source.
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+# Only main and what it requires (main/CMakeLists.txt), not every ESP-IDF component: less to configure,
+# compile, place (ldgen) and link.
+idf_build_set_property(MINIMAL_BUILD ON)
 project(cruller)

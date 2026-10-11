@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "power_core.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 static uint32_t now;
 
@@ -180,39 +175,24 @@ static void test_names(void) {
     CHECK(!strcmp(power_state_name(PWR_UNKNOWN), "unknown"));
 }
 
-#define T(fn) {#fn, fn}
-static const struct { const char *name; void (*fn)(void); } tests[] = {
-    T(test_starts_unknown_and_probes),
-    T(test_answer_means_on),
-    T(test_other_lines_prove_nothing),
-    T(test_unknown_silence_means_standby),
-    T(test_break_means_standby),
-    T(test_standby_probes_slowly),
-    T(test_ir_power_on_noticed),
-    T(test_wake_then_boot_then_on),
-    T(test_pwr_on_while_on),
-    T(test_power_toggle_means_standby),
-    T(test_boot_gives_up),
-    T(test_on_with_traffic_does_not_probe),
-    T(test_on_quiet_probes_then_standby),
-    T(test_on_quiet_answered_stays_on),
-    T(test_mirror_silence_means_standby),
-    T(test_one_answer_resets_silence),
-    T(test_disconnect_forgets),
-    T(test_names),
-};
-
 int main(void) {
-    const size_t n = sizeof(tests) / sizeof(tests[0]);
-    size_t failed_tests = 0;
-    for (size_t i = 0; i < n; i++) {
-        current = tests[i].name;
-        const int before = failures;
-        tests[i].fn();
-        const bool ok = failures == before;
-        if (!ok) failed_tests++;
-        printf("%s %s\n", ok ? "ok  " : "FAIL", tests[i].name);
-    }
-    printf("\n%u tests, %d checks, %u failed\n", (unsigned)n, checks, (unsigned)failed_tests);
-    return failed_tests ? 1 : 0;
+    RUN(test_starts_unknown_and_probes);
+    RUN(test_answer_means_on);
+    RUN(test_other_lines_prove_nothing);
+    RUN(test_unknown_silence_means_standby);
+    RUN(test_break_means_standby);
+    RUN(test_standby_probes_slowly);
+    RUN(test_ir_power_on_noticed);
+    RUN(test_wake_then_boot_then_on);
+    RUN(test_pwr_on_while_on);
+    RUN(test_power_toggle_means_standby);
+    RUN(test_boot_gives_up);
+    RUN(test_on_with_traffic_does_not_probe);
+    RUN(test_on_quiet_probes_then_standby);
+    RUN(test_on_quiet_answered_stays_on);
+    RUN(test_mirror_silence_means_standby);
+    RUN(test_one_answer_resets_silence);
+    RUN(test_disconnect_forgets);
+    RUN(test_names);
+    return tests_done();
 }

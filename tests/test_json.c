@@ -3,14 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "json.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
-#define RUN(t) do { current = #t; t(); } while (0)
 
 static json_tok_t tok[64];
 static const char *text;
@@ -64,12 +58,25 @@ static void test_numbers(void) {
     CHECK(!json_long(text, tok, json_at(tok, 0, 4), &v) && !json_long(text, tok, json_at(tok, 0, 5), &v)); // not whole numbers as written
 }
 
+// Writing: each part whole or not at all, the buffer always a string.
+static void test_writing(void) {
+    char out[16];
+    size_t n = 0;
+    CHECK(json_put(out, sizeof(out), &n, "{\"a\":") && json_put_str(out, sizeof(out), &n, "x\"y") && n == 11 && !strcmp(out, "{\"a\":\"x\\\"y\""));
+    CHECK(!json_put_str(out, sizeof(out), &n, "toolong") && n == 11 && !strcmp(out, "{\"a\":\"x\\\"y\""));
+    CHECK(json_putf(out, sizeof(out), &n, ",%d}", 7) && n == 14 && !strcmp(out, "{\"a\":\"x\\\"y\",7}"));
+    CHECK(!json_putf(out, sizeof(out), &n, "%s", "ab") && n == 14 && !strcmp(out, "{\"a\":\"x\\\"y\",7}"));
+    CHECK(json_put(out, sizeof(out), &n, "!") && n == 15 && out[14] == '!'); // full: 15 and the 0
+    CHECK(!json_putf(out, sizeof(out), &n, "x") && !json_put_str(out, sizeof(out), &n, "") && n == 15 && strlen(out) == 15);
+}
+
 static void test_rejects(void) {
     const char *bad[] = {"", "{", "[1,]", "{\"a\" 1}", "{\"a\":1,}", "{a:1}", "\"x", "\"\\x\"", "\"\\u12\"", "tru", "[1] 2",
         "\"a\nb\"", "{\"a\":}", "[,1]", "-", "nope"};
     for (size_t k = 0; k < sizeof(bad) / sizeof(*bad); k++) {
-        if (parse(bad[k]) >= 0) printf("  accepted: %s\n", bad[k]);
-        CHECK(parse(bad[k]) < 0);
+        const int r = parse(bad[k]);
+        if (r >= 0) printf("  accepted: %s\n", bad[k]);
+        CHECK(r < 0);
     }
     // too many tokens for the room given
     text = "[1,2,3,4]";
@@ -87,6 +94,6 @@ int main(void) {
     RUN(test_strings);
     RUN(test_numbers);
     RUN(test_rejects);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    RUN(test_writing);
+    return tests_done();
 }

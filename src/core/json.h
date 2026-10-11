@@ -41,3 +41,10 @@ bool json_bool(const char *text, const json_tok_t *tok, int i, bool *out);
 // s written as a JSON string's inside (quotes, backslashes and control characters escaped) into out,
 // 0-terminated; the length, or -1 when it doesn't fit.
 int json_escape_str(char *out, size_t size, const char *s);
+
+// Writing JSON into out (size bytes) from *n on, 0-terminated: each true and *n past what it added, or
+// false with out as it was when that doesn't fit (so a part that doesn't fit is left out whole).
+bool json_put(char *out, size_t size, size_t *n, const char *s);                 // s as it is
+bool json_put_str(char *out, size_t size, size_t *n, const char *s);             // s as a string: quoted, escaped
+bool json_putf(char *out, size_t size, size_t *n, const char *fmt, ...)          // printf's
+    __attribute__((format(printf, 4, 5)));

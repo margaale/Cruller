@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "console_core.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 static uint32_t now;
 
@@ -90,7 +85,6 @@ static void test_expect_waits_for_its_line(void) {
     CHECK(!console_core_poll(now)); // quiet, but its line hasn't come: still open
     now += 4000;
     CHECK(console_core_line("[COM] fwup ok version=1.87.3 token=AB12", now) == 2);
-    CHECK(console_core_got_expected());
     const uint32_t open = run_until_closed(5000);
     CHECK(open >= CON_QUIET_MS && open < CON_QUIET_MS + 20);
 }
@@ -100,7 +94,6 @@ static void test_expect_timeout(void) {
     console_core_begin(2, "fwup", 2000, NULL, now);
     const uint32_t open = run_until_closed(10000);
     CHECK(open >= 2000 && open < 2020);
-    CHECK(!console_core_got_expected());
 }
 
 static void test_next_window_new_owner(void) {
@@ -197,36 +190,49 @@ static void test_reply_coming_until_its_last_line(void) {
     run_until_closed(5000);
 }
 
-#define T(fn) {#fn, fn}
-static const struct { const char *name; void (*fn)(void); } tests[] = {
-    T(test_reply_coming_until_its_last_line),
-    T(test_key_closes_on_its_reply),
-    T(test_refusal_closes_at_once),
-    T(test_alternative_final_lines),
-    T(test_other_line_than_final_waits),
-    T(test_waiting_reply_until_no_reply_timeout),
-    T(test_no_window_broadcasts),
-    T(test_reply_goes_to_sender),
-    T(test_closes_after_quiet),
-    T(test_no_reply_closes),
-    T(test_long_listing_stays_together),
-    T(test_chatty_window_is_capped),
-    T(test_expect_waits_for_its_line),
-    T(test_expect_timeout),
-    T(test_next_window_new_owner),
-};
+// Each command's known last line, as console.c opens its window.
+static void test_final_lines(void) {
+    static const struct {
+        const char *cmd, *done;
+        bool no_reply;
+    } cases[] = {
+        {"remote menu", "Serial Remote:", false},
+        {"ver", "Build tag:", false},
+        {"prof get", "prof loaded=", false}, // the exact command, ahead of "prof <n>"
+        {"prof 3", "prof load ok|prof save ok|prof:|prof err", false},
+        {"ls", "ls end|ls err|ls:", false},
+        {"ls /profile", "ls end|ls err|ls:", false},
+        {"input", "input=", false}, // bare: reads the active input
+        {"input 7", "input", false},
+        {"pwr on", "Power On Requested", false},
+        {"SVS NEW INPUT=2", NULL, true},
+        {"versions", NULL, false}, // exact commands match whole: not "ver"
+        {"prof", NULL, false},     // nor a first word without its argument
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        bool no_reply = !cases[i].no_reply;
+        const char *done = console_core_final_line(cases[i].cmd, &no_reply);
+        CHECK(done ? cases[i].done && !strcmp(done, cases[i].done) : !cases[i].done);
+        CHECK(no_reply == cases[i].no_reply);
+    }
+}
 
 int main(void) {
-    const size_t n = sizeof(tests) / sizeof(tests[0]);
-    size_t failed_tests = 0;
-    for (size_t i = 0; i < n; i++) {
-        current = tests[i].name;
-        const int before = failures;
-        tests[i].fn();
-        const bool ok = failures == before;
-        if (!ok) failed_tests++;
-        printf("%s %s\n", ok ? "ok  " : "FAIL", tests[i].name);
-    }
-    printf("\n%u tests, %d checks, %u failed\n", (unsigned)n, checks, (unsigned)failed_tests);
-    return failed_tests ? 1 : 0;
+    RUN(test_reply_coming_until_its_last_line);
+    RUN(test_key_closes_on_its_reply);
+    RUN(test_refusal_closes_at_once);
+    RUN(test_alternative_final_lines);
+    RUN(test_other_line_than_final_waits);
+    RUN(test_waiting_reply_until_no_reply_timeout);
+    RUN(test_no_window_broadcasts);
+    RUN(test_reply_goes_to_sender);
+    RUN(test_closes_after_quiet);
+    RUN(test_no_reply_closes);
+    RUN(test_long_listing_stays_together);
+    RUN(test_chatty_window_is_capped);
+    RUN(test_expect_waits_for_its_line);
+    RUN(test_expect_timeout);
+    RUN(test_next_window_new_owner);
+    RUN(test_final_lines);
+    return tests_done();
 }

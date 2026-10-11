@@ -1,36 +1,11 @@
 get_filename_component(CRULLER_ROOT ${COMPONENT_DIR}/../../../.. ABSOLUTE)
 set(CORE ${CRULLER_ROOT}/src/core)
+include(${CORE}/core.cmake) # (CRULLER_CORE_SOURCES)
 
 idf_component_register(
     SRCS
-        ${CORE}/buttons.c
-        ${CORE}/cfgfs.c
-        ${CORE}/clients.c
-        ${CORE}/console.c
-        ${CORE}/console_core.c
-        ${CORE}/creds.c
-        ${CORE}/gameid.c
-        ${CORE}/gameid_core.c
-        ${CORE}/gameid_run.c
-        ${CORE}/http.c
-        ${CORE}/json.c
-        ${CORE}/ota_fetch.c
-        ${CORE}/ota_fetch_proto.c
-        ${CORE}/power.c
-        ${CORE}/power_core.c
-        ${CORE}/rfc2217.c
-        ${CORE}/rfc2217_proto.c
-        ${CORE}/rt4k_info.c
-        ${CORE}/rt4k_info_core.c
+        ${CRULLER_CORE_SOURCES}
         ${CORE}/rt4k_stub.c # the RT4K's USB host comes next
-        ${CORE}/rtl1.c
-        ${CORE}/rtl1_core.c
-        ${CORE}/settings.c
-        ${CORE}/svs.c
-        ${CORE}/svs_proto.c
-        ${CORE}/version.c
-        ${CORE}/ws.c
-        ${CORE}/ws_proto.c
         ${CRULLER_ROOT}/third_party/picow_ap/dnsserver.c
         ${CRULLER_ROOT}/third_party/littlefs/lfs.c
         ${CRULLER_ROOT}/third_party/littlefs/lfs_util.c
@@ -40,7 +15,7 @@ idf_component_register(
         cfgfs_part.c
         ota.c
         tls.c
-        net.c
+        net_port.c
         health.c
         freeze.c
         log.c
@@ -51,11 +26,8 @@ idf_component_register(
         lwip mbedtls nvs_flash vfs
 )
 
-# The version for version.c alone: a new one compiles that file again, no other (ccache keeps the rest).
-set_source_files_properties(${CORE}/version.c PROPERTIES COMPILE_DEFINITIONS CRULLER_VERSION="${CRULLER_VERSION}")
-if (NOT CRULLER_DEBUG)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE CRULLER_DEBUG=0)
-endif()
+cruller_defs(${COMPONENT_LIB} PRIVATE)
+cruller_web(${COMPONENT_LIB} PRIVATE)
 # littlefs (cfgfs.h) as on rp2: static buffers, quiet.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
 
@@ -63,18 +35,3 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE LFS_NO_MALLOC LFS_NO_DEBUG L
 # puts them under freertos/.
 idf_component_get_property(freertos_dir freertos COMPONENT_DIR)
 target_include_directories(${COMPONENT_LIB} PRIVATE ${freertos_dir}/FreeRTOS-Kernel/include/freertos)
-
-# The web page, embedded gzipped as C arrays (#embed; the same as rp2, see src/web/embed.cmake).
-foreach(asset sha256.js:web_sha256_js fw.js:web_fw_js sd.js:web_sd_js profiles.js:web_profiles_js mapper.js:web_mapper_js editor.js:web_editor_js gameid.js:web_gameid_js rt4k_settings.json:web_rt4k_settings_json app.js:web_app_js index.html:web_index_html)
-    string(REPLACE ":" ";" asset ${asset})
-    list(GET asset 0 file)
-    list(GET asset 1 name)
-    set(out ${CMAKE_CURRENT_BINARY_DIR}/${name}.c)
-    add_custom_command(OUTPUT ${out}
-        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${name}.gz # (the C file's #embed)
-        COMMAND ${CMAKE_COMMAND} -DIN=${CRULLER_ROOT}/src/web/${file} -DOUT=${out} -DNAME=${name}
-            -P ${CRULLER_ROOT}/src/web/embed.cmake
-        DEPENDS ${CRULLER_ROOT}/src/web/${file} ${CRULLER_ROOT}/src/web/embed.cmake
-        VERBATIM)
-    target_sources(${COMPONENT_LIB} PRIVATE ${out})
-endforeach()

@@ -15,7 +15,8 @@
 #include "pico/platform.h"
 #include "pico/time.h"
 
-#include "health.h"
+#include "health_rp2.h"
+#include "json.h"
 
 #define PERIOD_US    250000u
 #define SAMPLES      16u      // per core: the last 4 s (the watchdog fires after 8 s without feeding)
@@ -195,10 +196,23 @@ static void cfsr_names(uint32_t cfsr, char *out, size_t size) {
     if (!o) snprintf(out, size, "none");
 }
 
-// One core's part of the record as text. After the task: in a task or an exception ("irq n", "exc n":
-// 3 HardFault, 14 PendSV, 15 SysTick, "lockup": faulted again in the HardFault handler), and its
-// interrupts (on, "OFF": all masked, "rtos": in a FreeRTOS critical section). Then what faulted, if
-// the core was found in a HardFault.
+// Where a sample was: in a task or an exception ("irq n", "exc n": 3 HardFault, 14 PendSV, 15 SysTick,
+// "lockup": faulted again in the HardFault handler); its interrupts: on, "OFF" (all masked), "rtos" (in a
+// FreeRTOS critical section); its task's name.
+static void where_of(const sample_t *s, char *where, size_t size) {
+    if (s->pc == LOCKUP_PC) snprintf(where, size, "lockup");
+    else if (!s->exc) snprintf(where, size, "task");
+    else if (s->exc >= 16) snprintf(where, size, "irq %u", (unsigned)(s->exc - 16));
+    else snprintf(where, size, "exc %u", (unsigned)s->exc);
+}
+static const char *ints_of(const sample_t *s) { return s->primask ? "OFF" : s->basepri ? "rtos" : "on"; }
+static void task_of(const sample_t *s, char task[NAME_LEN]) {
+    memcpy(task, s->task, NAME_LEN);
+    task[NAME_LEN - 1] = 0;
+}
+
+// One core's part of the record as text: each sample (its task, where, its interrupts). Then what
+// faulted, if the core was found in a HardFault.
 static size_t format_core(int c, uint32_t newest, char *out, size_t size) {
     size_t o = 0;
     out[0] = 0;
@@ -207,20 +221,15 @@ static size_t format_core(int c, uint32_t newest, char *out, size_t size) {
     if (!n) o += (size_t)snprintf(out + o, size - o, "core %d: no samples\n", c);
     for (uint32_t k = count - n; k < count && o < size; k++) {
         const sample_t *s = &rec.core[c].s[k % SAMPLES];
-        char task[NAME_LEN];
-        memcpy(task, s->task, NAME_LEN);
-        task[NAME_LEN - 1] = 0;
-        char where[12];
-        if (s->pc == LOCKUP_PC) snprintf(where, sizeof(where), "lockup");
-        else if (!s->exc) snprintf(where, sizeof(where), "task");
-        else if (s->exc >= 16) snprintf(where, sizeof(where), "irq %u", (unsigned)(s->exc - 16));
-        else snprintf(where, sizeof(where), "exc %u", (unsigned)s->exc);
+        char task[NAME_LEN], where[12];
+        task_of(s, task);
+        where_of(s, where, sizeof(where));
         // Signed: a sample the reset cut short (its count not yet stepped) can be newer than "newest".
         const long ms = (long)((int32_t)(s->us - newest) / 1000);
         o += (size_t)snprintf(out + o, size - o,
             "core %d %6ld ms %-11s pc=%08lx lr=%08lx %-6s ints %-4s wdt left %lu fed %lu ms ago\n", c, ms,
-            task, (unsigned long)s->pc, (unsigned long)s->lr, where, s->primask ? "OFF" : s->basepri ? "rtos" : "on",
-            (unsigned long)s->wdt_left_ms, (unsigned long)s->fed_ago_ms);
+            task, (unsigned long)s->pc, (unsigned long)s->lr, where, ints_of(s), (unsigned long)s->wdt_left_ms,
+            (unsigned long)s->fed_ago_ms);
     }
     const fault_t *f = &rec.core[c].fault;
     if (f->taken && o < size) {
@@ -244,6 +253,23 @@ size_t freeze_dump(char *out, size_t size) {
     const uint32_t newest = newest_us();
     const size_t o = format_core(0, newest, out, size);
     return o + format_core(1, newest, out + o, size - o);
+}
+
+size_t freeze_last_json(char *out, size_t size) {
+    size_t n = 0;
+    bool ok = json_put(out, size, &n, "{\"cores\":[");
+    for (int c = 0, any = 0; ok && c < 2; c++) {
+        const uint32_t count = rec.core[c].count;
+        if (!count) continue;
+        const sample_t *s = &rec.core[c].s[(count - 1) % SAMPLES];
+        char task[NAME_LEN], where[12];
+        task_of(s, task); // (read from its TCB in the NMI: escaped, whatever it holds)
+        where_of(s, where, sizeof(where));
+        ok = json_putf(out, size, &n, "%s{\"core\":%d,\"task\":", any++ ? "," : "", c) && json_put_str(out, size, &n, task) &&
+            json_putf(out, size, &n, ",\"where\":\"%s\",\"ints\":\"%s\",\"wdt_left_ms\":%lu,\"fed_ago_ms\":%lu}", where, ints_of(s),
+                (unsigned long)s->wdt_left_ms, (unsigned long)s->fed_ago_ms);
+    }
+    return ok && json_put(out, size, &n, "]}") ? n : 0;
 }
 
 void freeze_report(void) {

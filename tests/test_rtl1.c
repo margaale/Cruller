@@ -4,23 +4,13 @@
 // the engine (whole, in chunks, byte by byte), advance a fake clock, and check the outcome, the
 // terminal text and the frames sent back. Reference data comes from a real RT4K Pro (fw 1.87.0).
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "check.h"
 #include "rtl1_core.h"
 #include "sha256_ref.h"
-
-// --- tiny test framework ------------------------------------------------------------------------
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
-#define CHECK_STR_HAS(s, sub) do { checks++; if (!strstr((s), (sub))) { failures++; \
-    printf("  FAIL %s:%d in %s: \"%s\" lacks \"%s\"\n", __FILE__, __LINE__, current, (s), (sub)); } } while (0)
 
 // --- simulated surroundings -----------------------------------------------------------------------
 
@@ -148,12 +138,16 @@ static void load_fixtures(void) {
     sha256_ref(osd2, sizeof(osd2), osd2_digest);
 }
 
-// The RT4K's full answer to "osd2", as captured.
-static void put_osd2_transfer(void) {
-    put_str(READY_OSD2);
+// The RT4K's frames for "osd2", and its full answer, as captured.
+static void put_osd2_frames(void) {
     put_frame(NONCE, 3, 0, osd2, 2048);
     put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
     put_frame(NONCE, 2, 2, osd2_digest, 32);
+}
+
+static void put_osd2_transfer(void) {
+    put_str(READY_OSD2);
+    put_osd2_frames();
     put_str("[COM] osd done\n");
 }
 
@@ -190,6 +184,10 @@ static void test_crc_matches_rt4k_frames(void) {
     rtl1_encode_frame(f, 0xdb65, 2, 2, osd2_digest, 32);
     CHECK(f[40] == 0xaa && f[41] == 0xb5);
     CHECK(f[0] == 0xa5 && f[1] == 0x5a && f[2] == 0x65 && f[3] == 0xdb && f[4] == 0x20 && f[5] == 0x00);
+    // The payload already in place (an upload reads it straight into the frame): the same frame.
+    uint8_t g[42];
+    memcpy(g + 8, osd2_digest, 32);
+    CHECK(rtl1_encode_frame(g, 0xdb65, 2, 2, g + 8, 32) == 42 && !memcmp(f, g, 42));
 }
 
 // --- tests: successful transfers -----------------------------------------------------------------
@@ -206,29 +204,15 @@ static void check_osd2_ok(void) {
     CHECK(tx_len == 0);
 }
 
-static void test_ok_whole(void) {
-    reset();
-    begin("osd2", sizeof(out));
-    put_osd2_transfer();
-    deliver(0);
-    check_osd2_ok();
-}
-
-static void test_ok_byte_by_byte(void) {
-    reset();
-    begin("osd2", sizeof(out));
-    put_osd2_transfer();
-    deliver(1);
-    check_osd2_ok();
-}
-
-static void test_ok_usb_packets(void) {
-    // 62 data bytes per FTDI packet.
-    reset();
-    begin("osd2", sizeof(out));
-    put_osd2_transfer();
-    deliver(62);
-    check_osd2_ok();
+static void test_ok_whole_bytes_packets(void) {
+    static const size_t chunks[] = {0, 1, 62}; // whole, byte by byte, FTDI packets (62 data bytes each)
+    for (size_t k = 0; k < 3; k++) {
+        reset();
+        begin("osd2", sizeof(out));
+        put_osd2_transfer();
+        deliver(chunks[k]);
+        check_osd2_ok();
+    }
 }
 
 static void test_ok_random_chunks(void) {
@@ -287,9 +271,7 @@ static void test_ok_without_closing_line(void) {
     reset();
     begin("osd2", sizeof(out));
     put_str(READY_OSD2);
-    put_frame(NONCE, 3, 0, osd2, 2048);
-    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
-    put_frame(NONCE, 2, 2, osd2_digest, 32);
+    put_osd2_frames();
     deliver(0);
     CHECK(rtl1_core_phase() == RTL1_PH_DONE);
     CHECK(!rtl1_core_poll(clock_ms + RTL1_TAIL_TIMEOUT_MS - 10));
@@ -327,15 +309,9 @@ static void test_refused_nothing_shown(void) {
     CHECK_STR_HAS(info.detail, "nothing shown");
 }
 
-static void test_refused_busy(void) {
+static void test_refused_with_a_reason(void) {
     check_refused("[COM] busy\n");
-}
-
-static void test_refused_bad_command(void) {
     check_refused("[COM] Bad Command: osd\n");
-}
-
-static void test_refused_unknown_command(void) {
     check_refused("[COM] Unknown command\n");
 }
 
@@ -410,35 +386,28 @@ static void check_failure_drained(const char *detail, bool abort_expected, uint8
     CHECK(term_equals(READY_OSD2 "[COM] after\n")); // closing line swallowed, later text shown
 }
 
-static void test_bad_crc(void) {
+// One flipped bit in a payload: drained, the closing line ends it; an ABORT sent too unless in USB mode
+// (where it would arrive after the transfer).
+static void bad_crc(bool abort_on_error) {
+    hooks.abort_on_error = abort_on_error;
     reset();
     begin("osd2", sizeof(out));
     put_str(READY_OSD2);
     const size_t at = wire_len;
-    put_frame(NONCE, 3, 0, osd2, 2048);
-    wire[at + 500] ^= 0x01; // one flipped bit in the payload
-    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
-    put_frame(NONCE, 2, 2, osd2_digest, 32);
+    put_osd2_frames();
+    wire[at + 500] ^= 0x01; // in the first frame's payload
     put_str("[COM] osd done\n[COM] after\n");
     deliver(62);
-    check_failure_drained("bad CRC", true, 0);
+    check_failure_drained("bad CRC", abort_on_error, 0);
+    hooks.abort_on_error = true;
+}
+
+static void test_bad_crc(void) {
+    bad_crc(true);
 }
 
 static void test_bad_crc_without_abort(void) {
-    // USB mode: no ABORT (it would arrive after the transfer); still drained, closing line ends it.
-    hooks.abort_on_error = false;
-    reset();
-    begin("osd2", sizeof(out));
-    put_str(READY_OSD2);
-    const size_t at = wire_len;
-    put_frame(NONCE, 3, 0, osd2, 2048);
-    wire[at + 500] ^= 0x01;
-    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
-    put_frame(NONCE, 2, 2, osd2_digest, 32);
-    put_str("[COM] osd done\n[COM] after\n");
-    deliver(62);
-    check_failure_drained("bad CRC", false, 0);
-    hooks.abort_on_error = true;
+    bad_crc(false);
 }
 
 static void test_wrong_nonce(void) {
@@ -536,9 +505,7 @@ static void test_oversized_length_resyncs(void) {
     begin("osd2", sizeof(out));
     put_str(READY_OSD2);
     put("\xa5\x5a\x24\x52\xff\xff", 6);
-    put_frame(NONCE, 3, 0, osd2, 2048);
-    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
-    put_frame(NONCE, 2, 2, osd2_digest, 32);
+    put_osd2_frames();
     put_str("[COM] osd done\n");
     deliver(0);
     CHECK(rtl1_core_result() == RTL1_OK);
@@ -593,9 +560,7 @@ static void test_quiet_keeps_other_lines(void) {
         begin_quiet("osd2", sizeof(out));
         put_str("[COM] RT4KPRO, FW Version: 1.87.0\n");   // before the ready line
         put_str(READY_OSD2);
-        put_frame(NONCE, 3, 0, osd2, 2048);
-        put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
-        put_frame(NONCE, 2, 2, osd2_digest, 32);
+        put_osd2_frames();
         put_str("[COM] Build tag: b0922t\n");             // between the last frame and the closing line
         put_str("[COM] osd done\n");
         deliver(chunks[k]);
@@ -625,12 +590,6 @@ static void test_quiet_then_loud(void) {
 // Whatever goes wrong, a transfer's bytes (from its ready line to its closing line) never reach the
 // terminal: console.c cuts lines at their first NUL, so leaked frames showed as one line of binary
 // and the closing line, "<end of the digest and CRC>[COM] osd done", kept by every page loaded later.
-
-static void put_osd2_frames(void) {
-    put_frame(NONCE, 3, 0, osd2, 2048);
-    put_frame(NONCE, 3, 1, osd2 + 2048, 2048);
-    put_frame(NONCE, 2, 2, osd2_digest, 32);
-}
 
 static void test_ready_line_lost(void) {
     // A mirror poll whose ready line lost its end (the FT232R overran while Wi-Fi was busy, here a
@@ -775,7 +734,7 @@ static void test_line_in_progress_when_transfer_starts(void) {
 #define PUT_NONCE 0x6630
 
 static void begin_put_ready(void) {
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put ready nonce=0x6630\n");
     deliver(0);
 }
@@ -812,7 +771,7 @@ static void test_put_acks_then_done(void) {
 
 static void test_put_byte_by_byte(void) {
     reset();
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put ready nonce=0x6630\n");
     put_frame(PUT_NONCE, 4, 0, NULL, 0);
     put_frame(PUT_NONCE, 4, 1, NULL, 0);
@@ -827,7 +786,7 @@ static void test_put_byte_by_byte(void) {
 
 static void test_put_usage_refused(void) {
     reset();
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put: usage 'put <size> <sha256hex> <path>'\n");
     deliver(0);
     CHECK(rtl1_core_phase() == RTL1_PH_IDLE);
@@ -837,7 +796,7 @@ static void test_put_usage_refused(void) {
 
 static void test_put_err_refused(void) {
     reset();
-    rtl1_core_begin_put(PUT_CMD, &info, 0, clock_ms);
+    rtl1_core_begin_put(PUT_CMD, &info, clock_ms);
     put_str("[COM] put err: no space\n");
     deliver(0);
     CHECK(rtl1_core_result() == RTL1_ERR_DEVICE);
@@ -925,80 +884,61 @@ static void test_transfer_after_put(void) {
 
 // --- runner ------------------------------------------------------------------------------------
 
-#define T(fn) {#fn, fn}
-static const struct { const char *name; void (*fn)(void); } tests[] = {
-    T(test_sha256_reference),
-    T(test_fixture_digest_matches_rt4k),
-    T(test_crc_matches_rt4k_frames),
-    T(test_ok_whole),
-    T(test_ok_byte_by_byte),
-    T(test_ok_usb_packets),
-    T(test_ok_random_chunks),
-    T(test_ok_with_chatter_around),
-    T(test_ok_font_closes_with_get_done),
-    T(test_ok_ignores_noise_between_frames),
-    T(test_ok_without_closing_line),
-    T(test_text_passes_through_when_idle),
-    T(test_refused_nothing_shown),
-    T(test_refused_busy),
-    T(test_refused_bad_command),
-    T(test_refused_unknown_command),
-    T(test_ready_without_nonce),
-    T(test_ready_for_another_command_is_ignored),
-    T(test_no_ready_line),
-    T(test_short_ready_timeout),
-    T(test_stall_mid_transfer),
-    T(test_bad_crc),
-    T(test_bad_crc_without_abort),
-    T(test_wrong_nonce),
-    T(test_sequence_gap),
-    T(test_nak),
-    T(test_more_data_than_buffer),
-    T(test_digest_mismatch),
-    T(test_digest_wrong_size),
-    T(test_unexpected_frame_type),
-    T(test_drain_gives_up),
-    T(test_oversized_length_resyncs),
-    T(test_next_transfer_after_failure),
-    T(test_quiet_hides_transfer_lines),
-    T(test_quiet_hides_refusal),
-    T(test_quiet_keeps_other_lines),
-    T(test_quiet_then_loud),
-    T(test_ready_line_lost),
-    T(test_ready_line_lost_whole),
-    T(test_ready_line_after_the_wait),
-    T(test_rest_after_giving_up),
-    T(test_tail_of_frames_without_control_bytes),
-    T(test_frames_while_idle),
-    T(test_transfer_typed_in_terminal),
-    T(test_closing_line_after_the_wait),
-    T(test_line_in_progress_when_transfer_starts),
-    T(test_put_ready_enters_send),
-    T(test_put_acks_then_done),
-    T(test_put_byte_by_byte),
-    T(test_put_usage_refused),
-    T(test_put_err_refused),
-    T(test_put_nak_recorded),
-    T(test_put_abort_fails),
-    T(test_put_damaged_ack_ignored),
-    T(test_put_closing_error),
-    T(test_put_other_lines_reach_terminal),
-    T(test_put_no_timeout_while_sending),
-    T(test_transfer_after_put),
-};
-
 int main(void) {
     load_fixtures();
-    const size_t n = sizeof(tests) / sizeof(tests[0]);
-    size_t failed_tests = 0;
-    for (size_t i = 0; i < n; i++) {
-        current = tests[i].name;
-        const int before = failures;
-        tests[i].fn();
-        const bool ok = failures == before;
-        if (!ok) failed_tests++;
-        printf("%s %s\n", ok ? "ok  " : "FAIL", tests[i].name);
-    }
-    printf("\n%u tests, %d checks, %u failed\n", (unsigned)n, checks, (unsigned)failed_tests);
-    return failed_tests ? 1 : 0;
+    RUN(test_sha256_reference);
+    RUN(test_fixture_digest_matches_rt4k);
+    RUN(test_crc_matches_rt4k_frames);
+    RUN(test_ok_whole_bytes_packets);
+    RUN(test_ok_random_chunks);
+    RUN(test_ok_with_chatter_around);
+    RUN(test_ok_font_closes_with_get_done);
+    RUN(test_ok_ignores_noise_between_frames);
+    RUN(test_ok_without_closing_line);
+    RUN(test_text_passes_through_when_idle);
+    RUN(test_refused_nothing_shown);
+    RUN(test_refused_with_a_reason);
+    RUN(test_ready_without_nonce);
+    RUN(test_ready_for_another_command_is_ignored);
+    RUN(test_no_ready_line);
+    RUN(test_short_ready_timeout);
+    RUN(test_stall_mid_transfer);
+    RUN(test_bad_crc);
+    RUN(test_bad_crc_without_abort);
+    RUN(test_wrong_nonce);
+    RUN(test_sequence_gap);
+    RUN(test_nak);
+    RUN(test_more_data_than_buffer);
+    RUN(test_digest_mismatch);
+    RUN(test_digest_wrong_size);
+    RUN(test_unexpected_frame_type);
+    RUN(test_drain_gives_up);
+    RUN(test_oversized_length_resyncs);
+    RUN(test_next_transfer_after_failure);
+    RUN(test_quiet_hides_transfer_lines);
+    RUN(test_quiet_hides_refusal);
+    RUN(test_quiet_keeps_other_lines);
+    RUN(test_quiet_then_loud);
+    RUN(test_ready_line_lost);
+    RUN(test_ready_line_lost_whole);
+    RUN(test_ready_line_after_the_wait);
+    RUN(test_rest_after_giving_up);
+    RUN(test_tail_of_frames_without_control_bytes);
+    RUN(test_frames_while_idle);
+    RUN(test_transfer_typed_in_terminal);
+    RUN(test_closing_line_after_the_wait);
+    RUN(test_line_in_progress_when_transfer_starts);
+    RUN(test_put_ready_enters_send);
+    RUN(test_put_acks_then_done);
+    RUN(test_put_byte_by_byte);
+    RUN(test_put_usage_refused);
+    RUN(test_put_err_refused);
+    RUN(test_put_nak_recorded);
+    RUN(test_put_abort_fails);
+    RUN(test_put_damaged_ack_ignored);
+    RUN(test_put_closing_error);
+    RUN(test_put_other_lines_reach_terminal);
+    RUN(test_put_no_timeout_while_sending);
+    RUN(test_transfer_after_put);
+    return tests_done();
 }

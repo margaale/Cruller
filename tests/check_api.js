@@ -1,7 +1,7 @@
-// Checks of the routes (src/core/http.c's handle()): every route docs/API.md documents is there with
-// its method, the old names it lists too, every path the page fetches exists, and the doc's version is
-// HTTP_API_VERSION. A route renamed or dropped can't silently break a client. Run by tests/run.sh when
-// node is available.
+// Checks of the routes (src/core/http.c's handle() and its assets[]): every route docs/API.md documents
+// is there with its method, the old names it lists too, every path the page fetches exists, and the
+// doc's version is HTTP_API_VERSION. A route renamed or dropped can't silently break a client. Run by
+// tests/run.sh when node is available.
 
 const fs = require('fs');
 const path = require('path');
@@ -33,6 +33,11 @@ for (const line of table.split('\n')) {
     }
 }
 if (routes.size < 10) fail(`http.c: found only ${routes.size} routes in handle(); has its shape changed?`);
+// The web assets, from their table (GET only): {"/app.js", JS, ...}.
+const assets = http.slice(http.indexOf('} assets[] = {'), http.indexOf('};', http.indexOf('} assets[] = {')));
+const served = [...assets.matchAll(/\{"(\/[^"]*)",/g)].map((m) => m[1]);
+for (const p of served) routes.set(p, new Set(['GET']));
+if (!routes.has('/app.js')) fail('http.c: no web assets found in its assets[] table; has its shape changed?');
 
 // docs/API.md: "GET /api/v1/info" with its method; a bare `/api/...` (the old names) with any, except
 // a version's root (`/api/v1`).
@@ -54,9 +59,10 @@ if (!version) fail('http.h: no HTTP_API_VERSION');
 else if (docVersion !== version) fail(`docs/API.md's api_version is ${docVersion}, HTTP_API_VERSION is ${version}`);
 else if (![...routes.keys()].some((p) => p.startsWith(`/api/v${version}/`))) fail(`http.c routes nothing under /api/v${version}/`);
 
-// The page: every path it fetches (fetch('/x...'), xhr.open('POST', '/x...')) is a route.
+// The page: every path each of its scripts (the ones http.c serves) fetches (fetch('/x...'),
+// xhr.open('POST', '/x...')) is a route.
 let fetched = 0;
-for (const f of ['app.js', 'fw.js', 'sd.js', 'profiles.js', 'mapper.js', 'editor.js', 'gameid.js']) {
+for (const f of served.filter((p) => p.endsWith('.js')).map((p) => p.slice(1))) {
     const js = read(path.join('src', 'web', f));
     for (const [, p] of js.matchAll(/(?:fetch\(|\.open\('\w+',\s*)'(\/[^'?]*)/g)) {
         fetched++;

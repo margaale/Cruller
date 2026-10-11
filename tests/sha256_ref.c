@@ -1,4 +1,4 @@
-// Plain SHA-256 (FIPS 180-4) for the host tests; the firmware uses the RP2350's hardware engine.
+// Plain SHA-256 (FIPS 180-4) for the host tests; the firmware has plat_sha256_*() (each board's hardware).
 
 #include "sha256_ref.h"
 

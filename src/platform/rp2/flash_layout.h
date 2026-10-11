@@ -22,11 +22,6 @@
 #define CFGFS_OFFSET          (DATA_PART_OFFSET + STORE_SECTORS * FLASH_SECTOR_SIZE_B)
 #define CFGFS_SIZE            (DATA_PART_SIZE - STORE_SECTORS * FLASH_SECTOR_SIZE_B)
 
-// DonutShop (arduino-pico, flash=4194304_2097152) LittleFS, read once after migrating.
-// The first Cruller OTA overwrites it (partition B and the data partition overlap it).
-#define DS_FS_OFFSET          0x1FF000u
-#define DS_FS_SIZE            0x200000u
-
 // When running from a partition, 0x10000000 is translated to the partition start. Physical
 // flash offsets are read through the untranslated XIP alias instead.
 #define FLASH_RAW_PTR(off)    ((const uint8_t *)(XIP_NOCACHE_NOALLOC_NOTRANSLATE_BASE + (off)))

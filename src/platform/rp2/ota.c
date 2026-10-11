@@ -15,6 +15,7 @@
 #include "flash_ops.h"
 #include "platform_reboot.h"
 #include "health.h"
+#include "health_rp2.h"
 
 static struct {
     uint8_t block[512];      // UF2 block being assembled
@@ -35,8 +36,6 @@ static struct {
 // creates (and deletes) a lockout task on the other core; one per 256-byte page was ~2000 of them per
 // image, faster than the idle task freed them, and the heap ran out mid-update.
 static uint8_t __attribute__((aligned(4))) sector_buf[FLASH_SECTOR_SIZE_B];
-
-static uint8_t __attribute__((aligned(4))) rom_workarea[4 * 1024];
 
 // The boot ROM's functions check, on the way out, a canary taken on the way in with the calling core's
 // own RCP salt. A task that FreeRTOS moves to the other core in between fails that check, and the RCP
@@ -103,7 +102,8 @@ static bool start(const struct uf2_block *b) {
     resident_partition_t part;
     const UBaseType_t affinity = rom_pin();
     rom_flash_flush_cache();
-    const int rc = rom_get_uf2_target_partition(rom_workarea, sizeof(rom_workarea), RP2350_ARM_S_FAMILY_ID, &part);
+    // The ROM's workarea: sector_buf, which holds no sector yet (this is the first block).
+    const int rc = rom_get_uf2_target_partition(sector_buf, sizeof(sector_buf), RP2350_ARM_S_FAMILY_ID, &part);
     rom_unpin(affinity);
     if (rc < 0) return fail("no partition to update (is the partition table installed?)");
     const uint32_t first = (part.permissions_and_location & PICOBIN_PARTITION_LOCATION_FIRST_SECTOR_BITS) >> PICOBIN_PARTITION_LOCATION_FIRST_SECTOR_LSB;
@@ -202,10 +202,13 @@ bool ota_is_trial_boot(void) {
 
 void ota_confirm_if_trial(void) {
     if (boot.type != BOOT_TYPE_FLASH_UPDATE) return;
+    void *workarea = pvPortMalloc(FLASH_SECTOR_SIZE_B); // the ROM's, once a boot (an upload may have sector_buf)
     const UBaseType_t affinity = rom_pin();
-    const int ret = rom_explicit_buy(rom_workarea, sizeof(rom_workarea));
+    const int ret = workarea ? rom_explicit_buy(workarea, FLASH_SECTOR_SIZE_B) : -1;
     rom_unpin(affinity);
+    vPortFree(workarea);
     printf("ota: update confirmed (explicit buy %d)\n", ret);
+    health_rearm_watchdog(); // the buy stops it
 }
 
 int ota_boot_partition(void) {

@@ -86,40 +86,18 @@ int gameid_consoles_parse(const char *json, size_t len, gameid_console_t *out, i
     return tok[arr].size;
 }
 
-// Appends the string s (escaped, in quotes) at *n; false when it doesn't fit.
-static bool put_str(char *out, size_t size, size_t *n, const char *s) {
-    if (*n + 2 >= size) return false;
-    out[(*n)++] = '"';
-    const int k = json_escape_str(out + *n, size - *n - 1, s);
-    if (k < 0) return false;
-    *n += (size_t)k;
-    if (*n + 1 >= size) return false;
-    out[(*n)++] = '"';
-    out[*n] = 0;
-    return true;
-}
-
-static bool put(char *out, size_t size, size_t *n, const char *s) {
-    const size_t k = strlen(s);
-    if (*n + k >= size) return false;
-    memcpy(out + *n, s, k + 1);
-    *n += k;
-    return true;
-}
-
 size_t gameid_consoles_json(const gameid_console_t *c, int count, bool versioned, char *out, size_t size) {
     size_t n = 0;
-    if (!put(out, size, &n, versioned ? "{\"v\":1,\"consoles\":[" : "{\"consoles\":[")) return 0;
+    if (!json_put(out, size, &n, versioned ? "{\"v\":1,\"consoles\":[" : "{\"consoles\":[")) return 0;
     for (int k = 0; k < count; k++) {
-        char tail[48];
-        snprintf(tail, sizeof(tail), ",\"svs_input\":%d,\"enabled\":%s}", c[k].svs_input, c[k].enabled ? "true" : "false");
-        if (!put(out, size, &n, k ? ",{\"name\":" : "{\"name\":") || !put_str(out, size, &n, c[k].name) ||
-            !put(out, size, &n, ",\"url\":") || !put_str(out, size, &n, c[k].url) ||
-            !put(out, size, &n, ",\"other\":") || !put_str(out, size, &n, c[k].other) ||
-            !put(out, size, &n, ",\"mac\":") || !put_str(out, size, &n, c[k].mac) ||
-            !put(out, size, &n, ",\"device\":") || !put_str(out, size, &n, c[k].device) || !put(out, size, &n, tail)) return 0;
+        if (!json_put(out, size, &n, k ? ",{\"name\":" : "{\"name\":") || !json_put_str(out, size, &n, c[k].name) ||
+            !json_put(out, size, &n, ",\"url\":") || !json_put_str(out, size, &n, c[k].url) ||
+            !json_put(out, size, &n, ",\"other\":") || !json_put_str(out, size, &n, c[k].other) ||
+            !json_put(out, size, &n, ",\"mac\":") || !json_put_str(out, size, &n, c[k].mac) ||
+            !json_put(out, size, &n, ",\"device\":") || !json_put_str(out, size, &n, c[k].device) ||
+            !json_putf(out, size, &n, ",\"svs_input\":%d,\"enabled\":%s}", c[k].svs_input, c[k].enabled ? "true" : "false")) return 0;
     }
-    return put(out, size, &n, "]}") ? n : 0;
+    return json_put(out, size, &n, "]}") ? n : 0;
 }
 
 bool gameid_game_parse(const char *json, size_t len, gameid_game_t *g, const char **why) {
@@ -146,16 +124,16 @@ bool gameid_game_from_line(const char *line, gameid_game_t *g) {
 
 size_t gameid_game_line(const gameid_game_t *g, char *out, size_t size) {
     size_t n = 0;
-    return put(out, size, &n, "[") && put_str(out, size, &n, g->id) && put(out, size, &n, ",") && put_str(out, size, &n, g->profile) &&
-        put(out, size, &n, ",") && put_str(out, size, &n, g->name) &&
-        (!g->console[0] || (put(out, size, &n, ",") && put_str(out, size, &n, g->console))) && put(out, size, &n, "]") ? n : 0;
+    return json_put(out, size, &n, "[") && json_put_str(out, size, &n, g->id) && json_put(out, size, &n, ",") && json_put_str(out, size, &n, g->profile) &&
+        json_put(out, size, &n, ",") && json_put_str(out, size, &n, g->name) &&
+        (!g->console[0] || (json_put(out, size, &n, ",") && json_put_str(out, size, &n, g->console))) && json_put(out, size, &n, "]") ? n : 0;
 }
 
 size_t gameid_game_json(const gameid_game_t *g, char *out, size_t size) {
     size_t n = 0;
-    return put(out, size, &n, "{\"id\":") && put_str(out, size, &n, g->id) && put(out, size, &n, ",\"profile\":") &&
-        put_str(out, size, &n, g->profile) && put(out, size, &n, ",\"name\":") && put_str(out, size, &n, g->name) &&
-        put(out, size, &n, ",\"console\":") && put_str(out, size, &n, g->console) && put(out, size, &n, "}") ? n : 0;
+    return json_put(out, size, &n, "{\"id\":") && json_put_str(out, size, &n, g->id) && json_put(out, size, &n, ",\"profile\":") &&
+        json_put_str(out, size, &n, g->profile) && json_put(out, size, &n, ",\"name\":") && json_put_str(out, size, &n, g->name) &&
+        json_put(out, size, &n, ",\"console\":") && json_put_str(out, size, &n, g->console) && json_put(out, size, &n, "}") ? n : 0;
 }
 
 // --- asking a console ----------------------------------------------------------------------------------

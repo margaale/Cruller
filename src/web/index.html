@@ -400,7 +400,7 @@ button.chipb{height:32px;border-radius:999px;font-size:13px;color:#C9CCD1;backgr
 <div class="panel">
 <h2>Wi-Fi</h2>
 <div class="row" style="align-items:baseline"><span style="font-size:20px;font-weight:600" id="w-ssid">–</span><span class="small" id="w-rssi"></span></div>
-<div class="kv"><span>Address</span><span>cruller.local</span><span>IP</span><span id="w-ip">–</span><span>State</span><span id="w-state">–</span></div>
+<div class="kv"><span>Address</span><span id="w-host">cruller.local</span><span>IP</span><span id="w-ip">–</span><span>State</span><span id="w-state">–</span></div>
 <button onclick="$('wifi-form').hidden^=1">Change network</button>
 <form id="wifi-form" method="post" action="/wifi" hidden style="display:flex;flex-direction:column;gap:8px">
 <input name="ssid" placeholder="Network name (SSID)" required maxlength="32" autocomplete="off" autocapitalize="none">
@@ -458,10 +458,10 @@ screen, the profile for its game (gameid.js, docs/GAMEID.md); the consoles not o
 <section data-view="consoles" id="cons" class="grid3">
 <div class="panel span3 svs-more">
 <div class="row"><h2 class="grow">SVS inputs</h2><span class="dot" id="v-dot"></span><span class="small" id="v-state">–</span>
-<button class="refresh svs-more" id="vpr" title="Read /profile/SVS again" aria-label="Read /profile/SVS again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
+<button class="refresh" id="vpr" title="Read /profile/SVS again" aria-label="Read /profile/SVS again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
 <div class="small" id="v-since"></div>
-<div class="svs-grid svs-more" id="v-grid" hidden></div>
-<div class="small svs-more" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
+<div class="svs-grid" id="v-grid" hidden></div>
+<div class="small" id="v-nogrid">The inputs show up once the SVS Bridge says how many this switch has.</div>
 <div class="small" id="v-noname" hidden>Pick each input's module and the console on it in the SVS Bridge's SVS tab: they show up here.</div>
 <div class="svs-more" id="v-prof" style="display:flex;flex-direction:column;gap:8px"></div>
 <div class="small" id="gnot"></div></div>
@@ -587,8 +587,8 @@ screen, the profile for its game (gameid.js, docs/GAMEID.md); the consoles not o
 </div><div class="small" id="d-tool"></div></div>
 
 <div class="panel span2"><div class="row"><h2 class="grow">Cruller log</h2></div><pre id="lg"></pre></div>
-<div class="panel"><div class="row"><h2 class="grow">Freeze recorder</h2><button onclick="freeze()">Refresh</button></div>
-<div class="small">What each core was running at the last samples; after a watchdog reset it shows the moments before it.</div>
+<div class="panel"><div class="row"><h2 class="grow">Freeze recorder</h2></div>
+<div class="small">What each core is running, sampled every 250 ms. After a watchdog reset, Cruller's log has the moments before it.</div>
 <table class="tbl"><thead><tr><th>Core</th><th>Task</th><th class="r">Watchdog left</th><th class="r">Fed</th></tr></thead><tbody id="z-rows"></tbody></table>
 <a class="more" href="/debug/freeze" target="_blank">Every sample →</a></div>
 <div class="panel span3" id="mp"></div>
@@ -627,13 +627,9 @@ screen, the profile for its game (gameid.js, docs/GAMEID.md); the consoles not o
 <div class="row" style="justify-content:flex-end"><button value="no" id="ask-no">Cancel</button><button value="yes" id="ask-yes" class="primary">OK</button></div>
 </form>
 </dialog>
-<script src="/sha256.js" defer></script>
-<script src="/fw.js" defer></script>
 <script src="/sd.js" defer></script>
 <script src="/profiles.js" defer></script>
-<script src="/editor.js" defer></script>
 <script src="/gameid.js" defer></script>
-<script src="/mapper.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>

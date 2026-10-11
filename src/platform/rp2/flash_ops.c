@@ -7,9 +7,8 @@
 #include "task.h"
 #include "hardware/flash.h"
 #include "pico/flash.h"
-#include "pico/time.h"
 
-#include "rt4k.h"
+#include "platform.h"
 
 #define FLASH_SAFE_TIMEOUT_MS 1000
 
@@ -53,20 +52,16 @@ static bool tick_base_known;
 static uint32_t tick_base_ms;     // the time since boot at tick 0, as the ticks count it
 static uint32_t ticks_restored;   // in all, for the log
 
-static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
-}
-
 static int run_safe(void (*fn)(void *), flash_op_t *op) {
     if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) return flash_safe_execute(fn, op, FLASH_SAFE_TIMEOUT_MS);
     if (!tick_base_known) {
-        tick_base_ms = now_ms() - (uint32_t)xTaskGetTickCount();
+        tick_base_ms = plat_ms() - (uint32_t)xTaskGetTickCount();
         tick_base_known = true;
     }
     const int rc = flash_safe_execute(fn, op, FLASH_SAFE_TIMEOUT_MS);
     // Against the base, not this write's own length, so the rounding doesn't add up over an image.
     // The pending tick is in already: both cores turn interrupts back on before this returns.
-    const int32_t behind = (int32_t)(now_ms() - tick_base_ms - (uint32_t)xTaskGetTickCount());
+    const int32_t behind = (int32_t)(plat_ms() - tick_base_ms - (uint32_t)xTaskGetTickCount());
     if (behind > 0) {
         xTaskCatchUpTicks((TickType_t)behind);
         ticks_restored += (uint32_t)behind;

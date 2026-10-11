@@ -8,8 +8,9 @@
 //   0x04 Cruller log text; 0x05 the /status JSON (on connect, then every 5 s; every 0.5 s while an
 //        upload to the RT4K runs, with its progress in "put")
 //   0x06 Debug report: [5][JSON], every 2 s to pages showing their Debug tab:
-//        {"status": the /status JSON, "serial": FT232R counters and modem lines, "mirror": OSD polls and
-//        key -> screen times, "console": the last commands, "memory": clients, lwIP pools, heaps}
+//        {"serial": FT232R counters and modem lines, "mirror": OSD polls and key -> screen times,
+//        "console": the last commands, "memory": clients, lwIP pools, heaps, "sensors": the board's
+//        supply and temperature (null without them), "freeze": each core's newest freeze-recorder sample}
 //        [6]["owner\tline\n"...]: every line from the RT4K as it comes, with the console owner it was
 //        routed to (console.h: 0 page, 1 power, 2 query, 3 HTTP, 4 files, 5+ RFC 2217; -1 nobody's)
 // Client -> server, text messages: one RT4K console command each ("remote menu", "ver", ...).
@@ -44,8 +45,8 @@ bool ws_has_room(bool events);
 // and times key -> screen (in ws_debug).
 void ws_key_sent(void);
 
-// Connected clients (open pages), and the most allowed in *max.
-int ws_clients(int *max);
+// Connected clients (open pages).
+int ws_clients(void);
 
 // Connected /api/v1/events clients.
 int ws_event_clients(void);
@@ -53,6 +54,6 @@ int ws_event_clients(void);
 // Debug: zero the key -> screen and poll error counters (for a measurement run).
 void ws_debug_reset(void);
 
-// Debug: one line on where the ws and mirror tasks are.
+// Debug: where the ws and mirror tasks are, and the mirror's counters, as text (GET /debug/tasks).
 #include <stddef.h>
 void ws_debug(char *out, size_t size);

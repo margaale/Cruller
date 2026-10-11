@@ -1,5 +1,5 @@
 // Cruller: RetroTINK 4K controller firmware for the Raspberry Pi Pico 2 W.
-// M0: Wi-Fi (with DonutShop credential import and a setup portal), web UI, A/B OTA.
+// M0: Wi-Fi (with a setup portal), web UI, A/B OTA.
 // M1: RT4K link over USB (host) and a web terminal.
 
 #include <stdio.h>
@@ -12,30 +12,19 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "app.h"
 #include "flash_ops.h"
 #include "freeze.h"
 #include "health.h"
-#include "http.h"
+#include "health_rp2.h"
 #include "log.h"
-#include "net.h"
-#include "cfgfs.h"
-#include "console.h"
-#include "gameid_run.h"
 #include "ota.h"
-#include "power.h"
-#include "rfc2217.h"
-#include "rt4k.h"
+#include "platform.h"
 #include "rtl1.h"
-#include "status_led.h"
-#include "ws.h"
 #include "version.h"
 
 #define MAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 4)
 #define MAIN_TASK_STACK    512 // words: it peaked at 124 (CYW43 start included), then only logs
-
-static uint32_t ms_since_boot(void) {
-    return to_ms_since_boot(get_absolute_time());
-}
 
 // The last chip-level reset (POWMAN CHIP_RESET). A supply dip shows as a brown-out, or as a power-on
 // when the supply went all the way down; the log (kept in RAM) survives neither. Watchdog resets
@@ -73,7 +62,7 @@ static void main_task(void *param) {
 
     health_start(ota_is_trial_boot());
     freeze_start();
-    const uint32_t t0 = ms_since_boot();
+    const uint32_t t0 = plat_ms();
     // The CYW43's async context pins its task, and registers the chip's IRQ, on the core that calls
     // cyw43_arch_init(). Do it from core 0: core 1 belongs to the RT4K's USB (task and IRQ), and Wi-Fi
     // work landing there made the FT232R overflow (bad RTL1 CRCs whenever the web page was busy).
@@ -88,34 +77,10 @@ static void main_task(void *param) {
         watchdog_reboot(0, 0, 100);
         for (;;) vTaskDelay(portMAX_DELAY);
     }
-    printf("CYW43 up in %lu ms, on core %u\n", (unsigned long)(ms_since_boot() - t0),
+    printf("CYW43 up in %lu ms, on core %u\n", (unsigned long)(plat_ms() - t0),
         (unsigned)async_context_core_num(cyw43_arch_async_context()));
-    health_start_net_probe();
     health_start_sensors();
-    status_led_start();
-    // The files (gameID's): before rt4k_start(), so a first format needn't hold the USB host off.
-    if (!cfgfs_mount()) printf("cfgfs: no files this run\n");
-    console_start(); // before rt4k_start(): the rt4k task feeds them text from the start
-    power_start();
-    rt4k_start();
-    ws_start();
-    http_start();
-    gameid_run_start(); // asks the consoles once the network is up
-    rfc2217_start();
-    net_start();
-
-    // An updated image must be confirmed within ~16.7 s or the boot ROM reverts to the previous
-    // one. Healthy enough = CYW43 up and the web server (which carries OTA) listening; joining the
-    // network is not required, so a network outage never rejects a good image.
-    while (!http_listening()) vTaskDelay(pdMS_TO_TICKS(50));
-    ota_confirm_if_trial();
-    health_rearm_watchdog(); // the buy above stops the watchdog
-
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(30000));
-        printf("alive %lu s, heap free %u (min %u)\n", (unsigned long)(ms_since_boot() / 1000),
-            (unsigned)xPortGetFreeHeapSize(), (unsigned)xPortGetMinimumEverFreeHeapSize());
-    }
+    app_run();
 }
 
 int main(void) {

@@ -3,9 +3,10 @@
 // rp2 (Raspberry Pi Pico 2 W, Pico SDK) and esp32 (ESP32-S3, ESP-IDF).
 //
 // The larger pieces have their own interfaces in src/core, implemented per target too: rt4k.h (the
-// serial link to the RT4K), net.h (Wi-Fi, setup portal, mDNS), ota.h (firmware updates), tls.h (HTTPS
-// client, for the updates from GitHub), store.h (settings kept across restarts), health.h (watchdog),
-// freeze.h (freeze recorder), log.h (the in-memory log), status_led.h.
+// serial link to the RT4K), net_port.h (the Wi-Fi radio: joins, scans, the setup access point, mDNS),
+// ota.h (firmware updates), tls.h (HTTPS client, for the updates from GitHub), store.h (settings kept
+// across restarts), health.h (watchdog), freeze.h (freeze recorder), log.h (the in-memory log),
+// status_led.h.
 
 #pragma once
 
@@ -29,10 +30,11 @@
 // --- time --------------------------------------------------------------------------------------------
 
 uint32_t plat_ms(void); // milliseconds since boot (wraps after 49 days: compare differences)
-uint32_t plat_us(void); // microseconds since boot, low 32 bits
 
 // --- short critical sections (a few instructions; both cores, and interrupts, locked out) ---------
 
+// On the Pico 2 W each lock takes one of the few hardware spinlocks left free (the SDK panics at
+// startup when none is): data seldom touched takes plat_critical_enter() instead.
 void plat_lock_init(plat_lock_t *lock);
 void plat_lock_enter(plat_lock_t *lock);
 void plat_lock_exit(plat_lock_t *lock);

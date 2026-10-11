@@ -1,5 +1,5 @@
-// status_led.h on the DevKitC-1's RGB LED (a WS2812): joining = blue fast blink, portal = amber slow
-// blink, connected = green.
+// The status LED (status_led.h) on the DevKitC-1's RGB LED (a WS2812): joining = blue, portal = amber,
+// connected = green.
 
 #include "status_led.h"
 
@@ -11,30 +11,23 @@
 
 #define LED_GPIO 48 // DevKitC-1 v1.0; v1.1 boards have it on GPIO 38
 
-static volatile led_mode_t mode = LED_JOINING;
-
-void status_led_set(led_mode_t m) { mode = m; }
-
 static void led_task(void *param) {
     led_strip_handle_t strip = param;
-    bool on = false, last = !on;
+    led_mode_t last_mode = LED_CONNECTED;
+    int last_on = -1;
     for (;;) {
-        const TickType_t now = xTaskGetTickCount();
-        const led_mode_t m = mode;
-        switch (m) {
-            case LED_JOINING:   on = (now / pdMS_TO_TICKS(100)) % 2; break;
-            case LED_PORTAL:    on = (now / pdMS_TO_TICKS(500)) % 2; break;
-            case LED_CONNECTED: on = true; break;
-        }
-        if (on != last) {
+        const led_mode_t m = status_led_mode();
+        const bool on = status_led_lit(m, plat_ms());
+        if (on != last_on || m != last_mode) { // (a new mode, a new color)
             if (!on) led_strip_clear(strip);
             else if (m == LED_JOINING) led_strip_set_pixel(strip, 0, 0, 0, 24);
             else if (m == LED_PORTAL) led_strip_set_pixel(strip, 0, 24, 12, 0);
             else led_strip_set_pixel(strip, 0, 0, 16, 0);
             if (on) led_strip_refresh(strip);
-            last = on;
+            last_on = on;
+            last_mode = m;
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(m == LED_CONNECTED ? 1000 : 50)); // steady: a change shows within a second
     }
 }
 

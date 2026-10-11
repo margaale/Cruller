@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "svs_proto.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 static svs_msg_t m;
 static const char *err;
@@ -189,9 +184,14 @@ static void test_profiles(void) {
     CHECK(svs_profiles_parse("1\tS1_\"Q\\.rt4", text, sizeof(text), &err));
     CHECK(svs_profiles_json(text, out, sizeof(out)) && !strcmp(out, "{\"1\":\"S1_\\\"Q\\\\.rt4\"}"));
     CHECK(svs_profiles_json(text, out, 8) == 0);
-}
 
-#define RUN(t) do { current = #t; t(); } while (0)
+    // One input's (gameID: its console went off, the input's own back).
+    CHECK(svs_profiles_parse("3\tS3_PS1.rt4\n1\tS1_SNES 240p.rt4\n12\tS12_N64.rt4", text, sizeof(text), &err));
+    CHECK(svs_profile_for(text, 1, out, sizeof(out)) && !strcmp(out, "S1_SNES 240p.rt4"));
+    CHECK(svs_profile_for(text, 12, out, sizeof(out)) && !strcmp(out, "S12_N64.rt4"));
+    CHECK(!svs_profile_for(text, 2, out, sizeof(out)) && !out[0]);
+    CHECK(!svs_profile_for(text, 1, out, 8) && !out[0]); // doesn't fit
+}
 
 int main(void) {
     RUN(test_input_only);
@@ -204,6 +204,5 @@ int main(void) {
     RUN(test_escapes);
     RUN(test_json_out);
     RUN(test_profiles);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    return tests_done();
 }
