@@ -1,20 +1,8 @@
 // Tests for src/web/profiles.js: profile names, and each SVS input's profile. Run by tests/run.sh (node 18+).
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const { load, check, done } = require('./harness');
 
-const window = {};
-const web = path.join(__dirname, '..', 'src', 'web');
-const context = vm.createContext({ window, Date, TextEncoder });
-for (const f of ['sd.js', 'profiles.js']) vm.runInContext(fs.readFileSync(path.join(web, f), 'utf8'), context); // as the page loads them
-const pf = window.profInternals;
-
-let checks = 0, failures = 0;
-function check(cond, what) {
-  checks++;
-  if (!cond) { failures++; console.log('  FAIL ' + what); }
-}
+const pf = load(['sd.js', 'profiles.js'], { Date, TextEncoder }).profInternals; // (as the page loads them)
 
 check(pf.isProfile('a.rt4') && pf.isProfile('B.RT4') && pf.isProfile('c.rt6'), 'profile files');
 check(!pf.isProfile('_info.txt') && !pf.isProfile('a.rt4.bak') && !pf.isProfile('rt4'), 'other files');
@@ -62,5 +50,4 @@ check(steps(p) === 'mv S1_SNES.rt4 > X_SNES (2).rt4', 'the same name unassigned 
 p = pf.plan(['s1_snes.RT4', 'spare.rt6'], 1, 'spare.rt6');
 check(steps(p) === 'mv s1_snes.RT4 > X_snes.RT4 ; mv spare.rt6 > S1_spare.rt6', 'names and extensions kept as on the card: ' + steps(p));
 
-console.log(failures ? `profiles.js: ${failures} of ${checks} checks failed` : `profiles.js: ${checks} checks ok`);
-process.exit(failures ? 1 : 0);
+done('profiles.js');

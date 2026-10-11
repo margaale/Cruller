@@ -3,22 +3,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
+const { web, load, check, done } = require('./harness');
 
-const context = { window: {}, console, document: { getElementById: () => null } };
-vm.createContext(context);
-vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'editor.js'), 'utf8'), context);
-const e = context.window.editorInternals;
-const doc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'rt4k_settings.json'), 'utf8'));
-
-let checks = 0, failures = 0;
-function check(cond, what) {
-  checks++;
-  if (!cond) {
-    failures++;
-    console.log('  FAIL ' + what);
-  }
-}
+const e = load('editor.js', { console, document: { getElementById: () => null } }).editorInternals;
+const doc = JSON.parse(fs.readFileSync(path.join(web, 'rt4k_settings.json'), 'utf8'));
 
 // CRC-16/XMODEM's check value, and a profile built and read back.
 check(e.crc16(Buffer.from('123456789')) === 0x31c3, 'CRC-16/XMODEM of "123456789": ' + e.crc16(Buffer.from('123456789')).toString(16));
@@ -168,13 +156,10 @@ for (const m of doc.maps) {
 }
 
 // A value as a number: the same as mapper.js reads it (the map's min, max and step come from there).
-const mapper = { window: {}, console };
-vm.createContext(mapper);
-vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'mapper.js'), 'utf8'), mapper);
+const mapper = load('mapper.js', { console }).mapperInternals;
 for (const v of ['+3', '-0.50', '1.000 (Rmax: 30)', '+-100', '3432 dots/line', '1.5x', 'Off', '50%', '+0 (Y Min: 32)', '']) {
-  const a = e.asNumber(v), b = mapper.window.mapperInternals.asNumber(v);
+  const a = e.asNumber(v), b = mapper.asNumber(v);
   check(a === b || (isNaN(a) && isNaN(b)), 'asNumber("' + v + '"): ' + a + ', mapper.js ' + b);
 }
 
-console.log(failures ? `editor.js: ${failures} of ${checks} checks failed` : `editor.js: ${checks} checks ok`);
-process.exit(failures ? 1 : 0);
+done('editor.js');

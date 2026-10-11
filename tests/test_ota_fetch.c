@@ -4,13 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "ota_fetch_proto.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 #define ASSET "https://github.com/margaale/Cruller/releases/download/v0.3.3-alpha.61/cruller-0.3.3-alpha.61-pico2_w-cruller.uf2"
 
@@ -150,8 +145,6 @@ static void test_sha256(void) {
     CHECK(!ota_fetch_parse_sha256("", d));
 }
 
-#define RUN(t) do { current = #t; t(); } while (0)
-
 int main(void) {
     RUN(test_split_url);
     RUN(test_allowed);
@@ -160,6 +153,5 @@ int main(void) {
     RUN(test_head_fields);
     RUN(test_bad);
     RUN(test_sha256);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    return tests_done();
 }

@@ -4,8 +4,7 @@
 #include <string.h>
 
 #include "buttons.h"
-
-static int failures, checks;
+#include "check.h"
 
 // The console command for a button is `want`.
 static void expect(const char *button, const char *want) {
@@ -18,7 +17,7 @@ static void expect(const char *button, const char *want) {
     }
 }
 
-int main(void) {
+static void test_names(void) {
     // Power, as hass-RT4K sends it: "pwr on" is the one command without "remote".
     expect("power_on", "pwr on");
     expect("pwr_on", "pwr on");
@@ -69,16 +68,17 @@ int main(void) {
     // A name nobody maps goes through as a key; the RT4K refuses it if it doesn't have it.
     expect("profile13", "remote profile13");
     expect("", "remote ");
+}
 
-    // A small buffer is cut, not overrun.
+// A small buffer is cut, not overrun.
+static void test_small_buffer(void) {
     char small[8];
     buttons_command("diagnostics", small, sizeof(small));
-    checks++;
-    if (strcmp(small, "remote ")) {
-        failures++;
-        printf("  FAIL small buffer: \"%s\"\n", small);
-    }
+    CHECK(!strcmp(small, "remote "));
+}
 
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+int main(void) {
+    RUN(test_names);
+    RUN(test_small_buffer);
+    return tests_done();
 }

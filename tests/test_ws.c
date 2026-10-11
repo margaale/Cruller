@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "ws_proto.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 static void hex(const uint8_t *d, size_t n, char *out) {
     for (size_t i = 0; i < n; i++) sprintf(out + 2 * i, "%02x", d[i]);
@@ -168,8 +163,6 @@ static void test_parse_rejects_too_large(void) {
     CHECK(ws_parse(buf, 4, 256, &f) == -1); // known from the header alone
 }
 
-// --- runner ------------------------------------------------------------------------------------
-
 // --- /api/v1/events' types ---------------------------------------------------------------------
 
 static void test_event_types(void) {
@@ -200,38 +193,23 @@ static void test_event_names(void) {
     CHECK(ws_event_names(WS_EVENT_STATE, small, 0) == 0);
 }
 
-#define T(fn) {#fn, fn}
-static const struct { const char *name; void (*fn)(void); } tests[] = {
-    T(test_sha1_vectors),
-    T(test_base64_vectors),
-    T(test_accept_key_rfc6455),
-    T(test_header_short),
-    T(test_header_16bit),
-    T(test_header_64bit),
-    T(test_parse_rfc_masked_hello),
-    T(test_parse_incomplete),
-    T(test_parse_two_frames_in_one_buffer),
-    T(test_parse_16bit_length),
-    T(test_parse_close_and_empty),
-    T(test_parse_rejects_unmasked),
-    T(test_parse_rejects_fragments),
-    T(test_parse_rejects_reserved_bits),
-    T(test_parse_rejects_too_large),
-    T(test_event_types),
-    T(test_event_names),
-};
-
 int main(void) {
-    const size_t n = sizeof(tests) / sizeof(tests[0]);
-    unsigned failed_tests = 0;
-    for (size_t i = 0; i < n; i++) {
-        current = tests[i].name;
-        const int before = failures;
-        tests[i].fn();
-        const int ok = failures == before;
-        if (!ok) failed_tests++;
-        printf("%s %s\n", ok ? "ok  " : "FAIL", tests[i].name);
-    }
-    printf("\n%u tests, %d checks, %u failed\n", (unsigned)n, checks, failed_tests);
-    return failed_tests ? 1 : 0;
+    RUN(test_sha1_vectors);
+    RUN(test_base64_vectors);
+    RUN(test_accept_key_rfc6455);
+    RUN(test_header_short);
+    RUN(test_header_16bit);
+    RUN(test_header_64bit);
+    RUN(test_parse_rfc_masked_hello);
+    RUN(test_parse_incomplete);
+    RUN(test_parse_two_frames_in_one_buffer);
+    RUN(test_parse_16bit_length);
+    RUN(test_parse_close_and_empty);
+    RUN(test_parse_rejects_unmasked);
+    RUN(test_parse_rejects_fragments);
+    RUN(test_parse_rejects_reserved_bits);
+    RUN(test_parse_rejects_too_large);
+    RUN(test_event_types);
+    RUN(test_event_names);
+    return tests_done();
 }

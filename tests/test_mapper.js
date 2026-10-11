@@ -1,23 +1,9 @@
 // Tests for the settings map's logic (src/web/mapper.js): the OSD plane as text, menu lines, and where two
 // snapshots of the settings differ. Run with node (tests/run.sh).
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const { load, check, done } = require('./harness');
 
-const context = { window: {}, console };
-vm.createContext(context);
-vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'mapper.js'), 'utf8'), context);
-const m = context.window.mapperInternals;
-
-let checks = 0, failures = 0;
-function check(cond, what) {
-  checks++;
-  if (!cond) {
-    failures++;
-    console.log('  FAIL ' + what);
-  }
-}
+const m = load('mapper.js', { console }).mapperInternals;
 
 // An OSD plane as the RT4K sends it: 2048 character codes, then 2048 colours (background in the top
 // two bits: 1 light). rows: [text, selected].
@@ -140,8 +126,10 @@ check(JSON.stringify(m.compact(rec)) === '{"path":"Advanced › Scaling/Crop Set
 
 // --- a setting walked on a simulated RT4K ------------------------------------------------------------------
 // "Top Trim" from 0 to 300 at 0x524 (two bytes), a counter at 0x5810 that every change moves; the remote's
-// keys through /api/v1/command, one or several; the menu and the settings as the RT4K sends them. asks: a
-// change past asksPast asks first (a box until back or ok; ok goes on).
+// keys through /api/v1/command, one or several; the menu and the settings as the RT4K sends them. Its
+// options: asksPast (a change past it asks first: a box until back or ok; ok goes on), live (a value that
+// changes on its own beside it), lossy (every lossy-th key doesn't reach the RT4K), scale (the value shown
+// times it), hidesPast (past it, Enable Debug OSD's log covers the menu).
 
 const respond = (body, headers = {}) => ({ ok: true, status: 200, headers: { get: (h) => headers[h] || null }, arrayBuffer: async () => body.buffer, json: async () => JSON.parse(body), text: async () => String(body) });
 // /api/v1/command's answer: a 503 when Cruller couldn't hand the RT4K some ("sent": false).
@@ -150,7 +138,7 @@ const answered = (cmds, sent) => {
   return { ...respond(JSON.stringify({ ok: all, results: cmds.map((c, i) => ({ command: c, sent: !sent || sent[i], reply: !sent || sent[i] ? ['[COM] Serial Remote: x'] : [] })) })), ok: all, status: all ? 200 : 503 };
 };
 
-function rt4k(min, max, asksPast, live, lossy, scale, hidesPast) {
+function rt4k(min, max, { asksPast, live, lossy, scale, hidesPast } = {}) {
   const s = { v: 0, counter: 0, keys: 0, requests: 0, box: false, oks: 0, lost: 0 };
   const shown = () => (scale ? (s.v >= 0 ? '+' : '') + (s.v * scale).toFixed(5) : (s.v >= 0 ? '+' : '') + s.v);
   const label = () => ' • Top Trim:          ' + shown() + (live ? ' (Rmax: ' + (30 + (s.reads || 0) % 8) + ')' : '');
@@ -235,14 +223,13 @@ function adc() {
 // mapper.js on a simulated RT4K, every value walked.
 function on(sim) {
   const ids = {};
-  const ctx = {
-    window: {}, console, setTimeout, Blob: class {}, URL: {},
+  const w = load('mapper.js', {
+    console, Blob: class {}, URL: {},
+    // sleepless()'s waits (0 ms) right away: setTimeout's take a 15 ms timer tick on Windows, 600 of them a run.
+    setTimeout: (f, ms) => (ms ? setTimeout(f, ms) : setImmediate(f)),
     fetch: (u, o) => sim.fetch(u, o),
     document: { getElementById: (id) => ids[id] || (ids[id] = { textContent: '', innerHTML: '', disabled: false, checked: false, scrollTop: 0, scrollHeight: 0 }) },
-  };
-  vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'mapper.js'), 'utf8'), ctx);
-  const w = ctx.window.mapperInternals;
+  }).mapperInternals;
   w.sleepless();
   w.opts({ all: true, risky: false });
   return w;
@@ -279,7 +266,7 @@ async function long() {
 
 // Keys Cruller couldn't hand the RT4K: one in 13, answered "sent": false. Sent again.
 async function lossy() {
-  const sim = rt4k(-200, 200, undefined, false, 13), w = on(sim);
+  const sim = rt4k(-200, 200, { lossy: 13 }), w = on(sim);
   await w.mapSetting(['Color Correction Setup'], { label: 'Top Trim', value: '+0' });
   const rec = w.st.results[0];
   check(sim.lost > 10 && sim.v === 0 && rec.min === -200 && rec.max === 200, 'its ends and back with keys lost: ' + JSON.stringify([sim.lost, sim.v, rec.min, rec.max, rec.backNote]));
@@ -288,7 +275,7 @@ async function lossy() {
 // A float a little off where it starts (0.00021 from its steps, as the colour matrix after a walk): the
 // step still found from the steps taken, eight keys at a time; and back as near as its steps get.
 async function drift() {
-  const sim = rt4k(-3000, 3000, undefined, false, 0, 0.001), w = on(sim);
+  const sim = rt4k(-3000, 3000, { scale: 0.001 }), w = on(sim);
   await w.mapSetting(['Color Correction Setup'], { label: 'Top Trim', value: '+0.00021' });
   const rec = w.st.results[0];
   check(sim.v === 0 && rec.min === -3 && rec.max === 3 && sim.requests < 1700, 'stepped by 0.001 from 0.00021 off: ' + JSON.stringify([sim.v, rec.min, rec.max, sim.requests]));
@@ -297,7 +284,7 @@ async function drift() {
 
 // A value that takes the menu off the screen (Enable Debug OSD's Console, past 3): that key undone, not walked further.
 async function hides() {
-  const sim = rt4k(0, 4, undefined, false, 0, 0, 3), w = on(sim);
+  const sim = rt4k(0, 4, { hidesPast: 3 }), w = on(sim);
   await w.mapSetting(['OSD/Firmware'], { label: 'Top Trim', value: '+0' });
   const rec = w.st.results[0];
   check(sim.v === 0 && rec.max === 3 && /past \+3 the menu leaves the screen/.test(rec.backNote), 'back from where the menu went away: ' + JSON.stringify([sim.v, rec.max, rec.backNote]));
@@ -307,7 +294,7 @@ async function hides() {
 async function live() {
   check(m.same('1.000 (Rmax: 30)', '1.000 (Rmax: 37)') && m.same('-0.00', '0.00') && !m.same('Auto (PAL)', 'Auto (NTSC)') && !m.same('1.004', '1.000'), 'the same value shown');
   check(m.reading('Locked 84%', 'Locked 86%') && m.reading('Auto (4)', 'Auto (5)') && !m.reading('Locked 84%', 'Off') && !m.reading('+3', '+4') && !m.same('1/2', '1/3'), 'a reading of its own');
-  const sim = rt4k(-50, 50, undefined, true);
+  const sim = rt4k(-50, 50, { live: true });
   const w = on(sim);
   await w.mapSetting(['RGB/Component ADC Setup'], { label: 'Top Trim', value: '+0 (Rmax: 30)' });
   const rec = w.st.results[0];
@@ -316,12 +303,12 @@ async function live() {
 
 // A setting that asks first: right away (none of it walked), and past +2 (up to it walked).
 async function asked() {
-  let sim = rt4k(0, 300, 0), w = on(sim);
+  let sim = rt4k(0, 300, { asksPast: 0 }), w = on(sim);
   await w.mapSetting(['Black Frame Insertion Setup'], { label: 'Top Trim', value: '+0' });
   let rec = w.st.results[0];
   check(!sim.box && sim.oks === 0 && sim.v === 0, 'the box cancelled, never OK, the setting as it was: ' + JSON.stringify([sim.box, sim.oks, sim.v]));
   check(rec && /^asks first, cancelled: "Warning! Flicker/.test(rec.backNote), 'noted: ' + (rec && rec.backNote));
-  sim = rt4k(0, 300, 2);
+  sim = rt4k(0, 300, { asksPast: 2 });
   w = on(sim);
   await w.mapSetting(['Black Frame Insertion Setup'], { label: 'Top Trim', value: '+0' });
   rec = w.st.results[0];
@@ -329,7 +316,7 @@ async function asked() {
   check(/^past \+2 it asks first/.test(rec.backNote), 'noted where: ' + rec.backNote);
   const kept = w.compact({ ...rec, own: [{ off: 0x524, len: 2 }], note: 'did not come back as it was' });
   check(/^Warning! Flicker/.test(kept.asks) && kept.note === undefined, 'kept: what it asks, not how the run went: ' + JSON.stringify(kept));
-  sim = rt4k(0, 300, 20); // eight keys at a time by then: the box comes up in the middle of them
+  sim = rt4k(0, 300, { asksPast: 20 }); // eight keys at a time by then: the box comes up in the middle of them
   w = on(sim);
   await w.mapSetting(['Black Frame Insertion Setup'], { label: 'Top Trim', value: '+0' });
   rec = w.st.results[0];
@@ -344,10 +331,7 @@ async function movesAnother() {
   check(w.st.log.some((l) => /Native Sampling moved Samples per Line to 3509 .*: put back to 1716/.test(l[0])), 'said so: ' + JSON.stringify(w.st.log.map((l) => l[0])));
 }
 
-walked().then(asked).then(long).then(live).then(movesAnother).then(lossy).then(drift).then(hides).then(() => {
-  console.log(failures ? `mapper.js: ${failures} of ${checks} checks failed` : `mapper.js: ${checks} checks ok`);
-  process.exit(failures ? 1 : 0);
-}, (e) => {
+walked().then(asked).then(long).then(live).then(movesAnother).then(lossy).then(drift).then(hides).then(() => done('mapper.js'), (e) => {
   console.log('  FAIL the walk threw: ' + e.stack);
   process.exit(1);
 });

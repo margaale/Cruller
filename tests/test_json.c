@@ -3,14 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "json.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
-#define RUN(t) do { current = #t; t(); } while (0)
 
 static json_tok_t tok[64];
 static const char *text;
@@ -80,8 +74,9 @@ static void test_rejects(void) {
     const char *bad[] = {"", "{", "[1,]", "{\"a\" 1}", "{\"a\":1,}", "{a:1}", "\"x", "\"\\x\"", "\"\\u12\"", "tru", "[1] 2",
         "\"a\nb\"", "{\"a\":}", "[,1]", "-", "nope"};
     for (size_t k = 0; k < sizeof(bad) / sizeof(*bad); k++) {
-        if (parse(bad[k]) >= 0) printf("  accepted: %s\n", bad[k]);
-        CHECK(parse(bad[k]) < 0);
+        const int r = parse(bad[k]);
+        if (r >= 0) printf("  accepted: %s\n", bad[k]);
+        CHECK(r < 0);
     }
     // too many tokens for the room given
     text = "[1,2,3,4]";
@@ -100,6 +95,5 @@ int main(void) {
     RUN(test_numbers);
     RUN(test_rejects);
     RUN(test_writing);
-    printf("%d checks, %d failures\n", checks, failures);
-    return failures ? 1 : 0;
+    return tests_done();
 }

@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "console_core.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 static uint32_t now;
 
@@ -197,36 +192,21 @@ static void test_reply_coming_until_its_last_line(void) {
     run_until_closed(5000);
 }
 
-#define T(fn) {#fn, fn}
-static const struct { const char *name; void (*fn)(void); } tests[] = {
-    T(test_reply_coming_until_its_last_line),
-    T(test_key_closes_on_its_reply),
-    T(test_refusal_closes_at_once),
-    T(test_alternative_final_lines),
-    T(test_other_line_than_final_waits),
-    T(test_waiting_reply_until_no_reply_timeout),
-    T(test_no_window_broadcasts),
-    T(test_reply_goes_to_sender),
-    T(test_closes_after_quiet),
-    T(test_no_reply_closes),
-    T(test_long_listing_stays_together),
-    T(test_chatty_window_is_capped),
-    T(test_expect_waits_for_its_line),
-    T(test_expect_timeout),
-    T(test_next_window_new_owner),
-};
-
 int main(void) {
-    const size_t n = sizeof(tests) / sizeof(tests[0]);
-    size_t failed_tests = 0;
-    for (size_t i = 0; i < n; i++) {
-        current = tests[i].name;
-        const int before = failures;
-        tests[i].fn();
-        const bool ok = failures == before;
-        if (!ok) failed_tests++;
-        printf("%s %s\n", ok ? "ok  " : "FAIL", tests[i].name);
-    }
-    printf("\n%u tests, %d checks, %u failed\n", (unsigned)n, checks, (unsigned)failed_tests);
-    return failed_tests ? 1 : 0;
+    RUN(test_reply_coming_until_its_last_line);
+    RUN(test_key_closes_on_its_reply);
+    RUN(test_refusal_closes_at_once);
+    RUN(test_alternative_final_lines);
+    RUN(test_other_line_than_final_waits);
+    RUN(test_waiting_reply_until_no_reply_timeout);
+    RUN(test_no_window_broadcasts);
+    RUN(test_reply_goes_to_sender);
+    RUN(test_closes_after_quiet);
+    RUN(test_no_reply_closes);
+    RUN(test_long_listing_stays_together);
+    RUN(test_chatty_window_is_capped);
+    RUN(test_expect_waits_for_its_line);
+    RUN(test_expect_timeout);
+    RUN(test_next_window_new_owner);
+    return tests_done();
 }

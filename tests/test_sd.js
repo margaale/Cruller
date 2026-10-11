@@ -1,19 +1,9 @@
 // Tests for the SD card view's logic (src/web/sd.js): GET /rt4k/ls's format, sorting, folder
 // addresses. Run by tests/run.sh (node 18+).
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const { load, check, done } = require('./harness');
 
-const window = {};
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'sd.js'), 'utf8'), { window, Date, TextEncoder });
-const sd = window.sdInternals;
-
-let checks = 0, failures = 0;
-function check(cond, what) {
-  checks++;
-  if (!cond) { failures++; console.log('  FAIL ' + what); }
-}
+const sd = load('sd.js', { Date, TextEncoder }).sdInternals;
 
 // A listing as Cruller sends it (from the RT4K's "ent t=... sz=... mt=... nm=..." lines).
 const body = 'D\t0\t1762343402\tSony PS2\n' +
@@ -73,5 +63,4 @@ check(sd.profilePath('profile', 'Top.rt4') === 'Top.rt4' && sd.profilePath('prof
 check(sd.profilePath('', 'Top.rt4') === null && sd.profilePath('profiles', 'a.rt4') === null && sd.profilePath('profile', 'notes.txt') === null && sd.profilePath('firmware', 'a.rt4') === null, 'not profiles');
 check(!sd.isProfile('._S1_PS1.rt4') && sd.profilePath('profile/SVS', '._S1_PS1.rt4') === null && sd.isProfile('S1_PS1.rt4'), 'macOS\'s ._ shadows aren\'t profiles');
 
-console.log(failures ? `sd.js: ${failures} of ${checks} checks failed` : `sd.js: ${checks} checks ok`);
-process.exit(failures ? 1 : 0);
+done('sd.js');

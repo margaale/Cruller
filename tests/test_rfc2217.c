@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "check.h"
 #include "rfc2217_proto.h"
-
-static int failures, checks;
-static const char *current;
-
-#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
-    printf("  FAIL %s:%d in %s: %s\n", __FILE__, __LINE__, current, #cond); } } while (0)
 
 #define IAC 255
 #define SB 250
@@ -198,39 +193,24 @@ static void test_overlong_subneg_ignored(void) {
     CHECK(io.data_len == 1 && data[0] == 'z'); // and the parser is back on its feet
 }
 
-#define T(fn) {#fn, fn}
-static const struct { const char *name; void (*fn)(void); } tests[] = {
-    T(test_plain_data_passes),
-    T(test_escaped_ff_in_data),
-    T(test_greeting),
-    T(test_com_port_will_gets_do),
-    T(test_known_options_answered_once),
-    T(test_after_greeting_no_echo_of_our_offers),
-    T(test_unknown_options_refused),
-    T(test_set_baudrate_echoed),
-    T(test_baudrate_query),
-    T(test_datasize_parity_stopsize),
-    T(test_control_and_purge_acknowledged),
-    T(test_modem_state),
-    T(test_modem_state_pushed),
-    T(test_signature),
-    T(test_split_across_reads),
-    T(test_escaped_ff_in_subneg),
-    T(test_escape_out),
-    T(test_overlong_subneg_ignored),
-};
-
 int main(void) {
-    const size_t n = sizeof(tests) / sizeof(tests[0]);
-    size_t failed_tests = 0;
-    for (size_t i = 0; i < n; i++) {
-        current = tests[i].name;
-        const int before = failures;
-        tests[i].fn();
-        const bool ok = failures == before;
-        if (!ok) failed_tests++;
-        printf("%s %s\n", ok ? "ok  " : "FAIL", tests[i].name);
-    }
-    printf("\n%u tests, %d checks, %u failed\n", (unsigned)n, checks, (unsigned)failed_tests);
-    return failed_tests ? 1 : 0;
+    RUN(test_plain_data_passes);
+    RUN(test_escaped_ff_in_data);
+    RUN(test_greeting);
+    RUN(test_com_port_will_gets_do);
+    RUN(test_known_options_answered_once);
+    RUN(test_after_greeting_no_echo_of_our_offers);
+    RUN(test_unknown_options_refused);
+    RUN(test_set_baudrate_echoed);
+    RUN(test_baudrate_query);
+    RUN(test_datasize_parity_stopsize);
+    RUN(test_control_and_purge_acknowledged);
+    RUN(test_modem_state);
+    RUN(test_modem_state_pushed);
+    RUN(test_signature);
+    RUN(test_split_across_reads);
+    RUN(test_escaped_ff_in_subneg);
+    RUN(test_escape_out);
+    RUN(test_overlong_subneg_ignored);
+    return tests_done();
 }
