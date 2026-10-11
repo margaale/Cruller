@@ -27,7 +27,7 @@ fi
 TOOLS_ROOT="${TOOLS_ROOT:-/c/Users/mArgAAle/pico}"
 export PICO_SDK_PATH="${PICO_SDK_PATH:-$TOOLS_ROOT/pico-sdk}"
 export FREERTOS_KERNEL_PATH="${FREERTOS_KERNEL_PATH:-$TOOLS_ROOT/FreeRTOS-Kernel}"
-export PICO_TOOLCHAIN_PATH="${PICO_TOOLCHAIN_PATH:-$TOOLS_ROOT/tools/arm-gnu-14.2}"
+export PICO_TOOLCHAIN_PATH="${PICO_TOOLCHAIN_PATH:-$TOOLS_ROOT/tools/arm-gnu-15.3}"
 # TinyUSB 0.21.0 instead of the SDK's 0.18.0: its rp2040 host runs bulk on EPX (not once-per-frame
 # interrupt endpoints, ~62 KB/s, too slow for 2 Mbaud) and sizes the CDC RX FIFO buffer correctly.
 export PICO_TINYUSB_PATH="${PICO_TINYUSB_PATH:-$TOOLS_ROOT/tinyusb-0.21.0}"

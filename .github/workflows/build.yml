@@ -19,7 +19,7 @@ env:
   PICOTOOL_VERSION: "2.3.1"
   TINYUSB_VERSION: "0.21.0"
   FREERTOS_KERNEL_REF: "4f7299d6ea746b27a9dd19e87af568e34bd65b15" # raspberrypi/FreeRTOS-Kernel
-  ARM_GCC_RELEASE: "14.2.Rel1"
+  ARM_GCC_RELEASE: "15.3.Rel2"
   ESP_IDF_VERSION: "v6.1"
   GITVERSION_VERSION: "6.x"
   ESBUILD_VERSION: "0.28.2" # scripts/minify-web.sh, which minifies the page for the images: its JavaScript
