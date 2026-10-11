@@ -157,7 +157,7 @@ size_t net_scan_json(char *out, size_t size) {
 // network.
 // One TXT item, key=value.
 static void txt_add(struct mdns_service *service, const char *key, const char *value) {
-    char item[8 + SETTINGS_NAME_MAX]; // (the longest: a name, or the board's 32-digit ID)
+    char item[8 + SETTINGS_NAME_MAX]; // (the longest: a name)
     const int n = snprintf(item, sizeof(item), "%s=%s", key, value);
     if (n > 0) mdns_resp_add_service_txtitem(service, item, (u8_t)(n < (int)sizeof(item) ? n : (int)sizeof(item) - 1));
 }
