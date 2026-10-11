@@ -15,6 +15,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 include(${CRULLER_ROOT}/src/version.cmake) # (CRULLER_VERSION, CRULLER_DEBUG)
 include(${CRULLER_ROOT}/src/web/web.cmake)
+include(${CRULLER_ROOT}/src/core/core.cmake) # (CRULLER_CORE_SOURCES)
 set(CRULLER_BUILD 0 CACHE STRING "Build number: CI's run number (github.run_number), 0 for a local build")
 
 pico_sdk_init()
@@ -45,34 +46,7 @@ target_compile_definitions(littlefs PUBLIC LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WAR
 # Common code (src/core) and the Pico 2 W target (src/platform/rp2, see src/platform/platform.h).
 add_library(cruller_app INTERFACE)
 target_sources(cruller_app INTERFACE
-    ${CRULLER_ROOT}/src/core/buttons.c
-    ${CRULLER_ROOT}/src/core/cfgfs.c
-    ${CRULLER_ROOT}/src/core/clients.c
-    ${CRULLER_ROOT}/src/core/console.c
-    ${CRULLER_ROOT}/src/core/console_core.c
-    ${CRULLER_ROOT}/src/core/creds.c
-    ${CRULLER_ROOT}/src/core/gameid.c
-    ${CRULLER_ROOT}/src/core/gameid_core.c
-    ${CRULLER_ROOT}/src/core/gameid_run.c
-    ${CRULLER_ROOT}/src/core/http.c
-    ${CRULLER_ROOT}/src/core/json.c
-    ${CRULLER_ROOT}/src/core/ota_fetch.c
-    ${CRULLER_ROOT}/src/core/ota_fetch_proto.c
-    ${CRULLER_ROOT}/src/core/power.c
-    ${CRULLER_ROOT}/src/core/power_core.c
-    ${CRULLER_ROOT}/src/core/rfc2217.c
-    ${CRULLER_ROOT}/src/core/rfc2217_proto.c
-    ${CRULLER_ROOT}/src/core/rt4k_info.c
-    ${CRULLER_ROOT}/src/core/rt4k_info_core.c
-    ${CRULLER_ROOT}/src/core/rtl1.c
-    ${CRULLER_ROOT}/src/core/rtl1_core.c
-    ${CRULLER_ROOT}/src/core/settings.c
-    ${CRULLER_ROOT}/src/core/svs.c
-    ${CRULLER_ROOT}/src/core/svs_proto.c
-    ${CRULLER_ROOT}/src/core/version.c
-    ${CRULLER_ROOT}/src/core/ws.c
-    ${CRULLER_ROOT}/src/core/ws_proto.c
-
+    ${CRULLER_CORE_SOURCES}
     main.c
     platform.c
     platform_reboot.c

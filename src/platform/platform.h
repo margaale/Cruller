@@ -29,7 +29,6 @@
 // --- time --------------------------------------------------------------------------------------------
 
 uint32_t plat_ms(void); // milliseconds since boot (wraps after 49 days: compare differences)
-uint32_t plat_us(void); // microseconds since boot, low 32 bits
 
 // --- short critical sections (a few instructions; both cores, and interrupts, locked out) ---------
 
