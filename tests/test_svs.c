@@ -189,6 +189,13 @@ static void test_profiles(void) {
     CHECK(svs_profiles_parse("1\tS1_\"Q\\.rt4", text, sizeof(text), &err));
     CHECK(svs_profiles_json(text, out, sizeof(out)) && !strcmp(out, "{\"1\":\"S1_\\\"Q\\\\.rt4\"}"));
     CHECK(svs_profiles_json(text, out, 8) == 0);
+
+    // One input's (gameID: its console went off, the input's own back).
+    CHECK(svs_profiles_parse("3\tS3_PS1.rt4\n1\tS1_SNES 240p.rt4\n12\tS12_N64.rt4", text, sizeof(text), &err));
+    CHECK(svs_profile_for(text, 1, out, sizeof(out)) && !strcmp(out, "S1_SNES 240p.rt4"));
+    CHECK(svs_profile_for(text, 12, out, sizeof(out)) && !strcmp(out, "S12_N64.rt4"));
+    CHECK(!svs_profile_for(text, 2, out, sizeof(out)) && !out[0]);
+    CHECK(!svs_profile_for(text, 1, out, 8) && !out[0]); // doesn't fit
 }
 
 #define RUN(t) do { current = #t; t(); } while (0)

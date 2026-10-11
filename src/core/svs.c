@@ -67,6 +67,16 @@ uint32_t svs_get_switch(svs_switch_t *out) {
     return seq;
 }
 
+void svs_switch_ports(int input, char device[SVS_DEVICE_MAX + 1], char out_kind[SVS_KIND_MAX + 1]) {
+    device[0] = out_kind[0] = 0;
+    plat_critical_enter();
+    if (now_state.switch_seq) {
+        if (input > 0 && input <= now_switch.inputs_n) memcpy(device, now_switch.inputs[input - 1].device, SVS_DEVICE_MAX + 1);
+        if (now_switch.has_output) memcpy(out_kind, now_switch.output.kind, SVS_KIND_MAX + 1);
+    }
+    plat_critical_exit();
+}
+
 uint32_t svs_version(void) {
     return version;
 }

@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "json.h"
+
 // --- SHA-1 (RFC 3174), only for the handshake ----------------------------------------------------
 
 #define ROL(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
@@ -159,25 +161,16 @@ uint32_t ws_event_types(const char *list) {
     return types;
 }
 
-// Appends s to out (n bytes so far); false if it doesn't fit with the NUL.
-static int put(char *out, size_t size, size_t *n, const char *s) {
-    const size_t l = strlen(s);
-    if (*n + l >= size) return 0;
-    memcpy(out + *n, s, l + 1);
-    *n += l;
-    return 1;
-}
-
 size_t ws_event_names(uint32_t types, char *out, size_t size) {
     size_t n = 0;
-    int ok = size > 0 && put(out, size, &n, "[");
+    int ok = size > 0 && json_put(out, size, &n, "[");
     for (size_t i = 0, first = 1; ok && i < EVENT_TYPES; i++) {
         if (!(types & (1u << i))) continue;
-        ok = (first || put(out, size, &n, ",")) && put(out, size, &n, "\"") && put(out, size, &n, event_names[i]) &&
-            put(out, size, &n, "\"");
+        ok = (first || json_put(out, size, &n, ",")) && json_put(out, size, &n, "\"") && json_put(out, size, &n, event_names[i]) &&
+            json_put(out, size, &n, "\"");
         first = 0;
     }
-    ok = ok && put(out, size, &n, "]");
+    ok = ok && json_put(out, size, &n, "]");
     if (!ok) {
         if (size) out[0] = 0;
         return 0;

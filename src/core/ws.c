@@ -18,6 +18,7 @@
 #include "clients.h"
 #include "console.h"
 #include "freeze.h"
+#include "gameid_run.h"
 #include "net.h"
 #include "ota_fetch.h"
 #include "svs.h"
@@ -162,8 +163,9 @@ static bool push_log_status(client_t *c) {
     uint32_t sent, size;
     const uint32_t every = rtl1_put_progress(p, sizeof(p), &sent, &size) || http_update_progress(&sent, &size) ||
         ota_fetch_running() ? PUT_STATUS_EVERY_MS : STATUS_EVERY_MS; // uploads and downloads: their progress is in it
-    // The wizard's progress, the switch's input, a firmware download's state, the RT4K's firmware.
-    const uint32_t setup = net_setup_version() + svs_version() + ota_fetch_version() + rt4k_info_seq();
+    // The wizard's progress, the switch's input, a firmware download's state, the RT4K's firmware, gameID's state
+    // (the Consoles view reads it again then).
+    const uint32_t setup = net_setup_version() + svs_version() + ota_fetch_version() + rt4k_info_seq() + gameid_state_seq();
     if (c->last_status_ms && t - c->last_status_ms < every && power == c->status_power && setup == c->status_setup) return true;
     c->last_status_ms = t | 1;
     c->status_power = power;
