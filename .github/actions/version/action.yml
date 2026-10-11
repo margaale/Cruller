@@ -1,0 +1,45 @@
+# This run's version, for the build jobs (.github/workflows/build.yml): each asks it itself (the same commit
+# and run, the same answer) instead of all of them waiting on a job of its own. It needs the history
+# (actions/checkout with fetch-depth: 0): GitVersion reads the tags and the commits.
+name: Cruller's version
+description: GitVersion's X.Y.Z and label (GitVersion.yml) made into this run's version, and CRULLER_DEBUG
+inputs:
+  gitversion:
+    description: GitVersion's version, exact (found in the cache, no NuGet query)
+    required: true
+outputs:
+  # master: X.Y.Z, a release; develop: X.Y.Z-alpha.N; pull requests: X.Y.Z-pr.N, where N is this run's
+  # number. The run number grows with every run in the repository, so the newest build is the newest
+  # version whatever its branch: squash merges leave no commit count to compare.
+  version:
+    description: This run's version
+    value: ${{ steps.version.outputs.version }}
+  # The developer tools (CRULLER_DEBUG, src/platform/platform.h): 1 in pre-releases and pull requests, 0 in
+  # a release.
+  debug:
+    description: 1 or 0
+    value: ${{ steps.version.outputs.debug }}
+runs:
+  using: composite
+  steps:
+    # GitVersion kept in the runner's tool cache between runs: the setup finds it there (~1 s, not 3-8).
+    - uses: actions/cache@v6
+      with:
+        path: ${{ runner.tool_cache }}/GitVersion.Tool
+        key: gitversion-${{ inputs.gitversion }}-${{ runner.os }}
+    - uses: gittools/actions/gitversion/setup@v4
+      with:
+        versionSpec: ${{ inputs.gitversion }}
+    - id: gitversion
+      uses: gittools/actions/gitversion/execute@v4
+    - id: version
+      shell: bash
+      env:
+        CORE: ${{ steps.gitversion.outputs.majorMinorPatch }}
+        LABEL: ${{ steps.gitversion.outputs.preReleaseLabel }}
+        RELEASE: ${{ github.ref == 'refs/heads/master' }}
+      run: |
+        if [ "$RELEASE" = true ] || [ -z "$LABEL" ]; then v="$CORE" debug=0; else v="$CORE-$LABEL.$GITHUB_RUN_NUMBER" debug=1; fi
+        echo "version=$v" >> "$GITHUB_OUTPUT"
+        echo "debug=$debug" >> "$GITHUB_OUTPUT"
+        echo "Cruller $v (build $GITHUB_RUN_NUMBER, CRULLER_DEBUG=$debug)"
