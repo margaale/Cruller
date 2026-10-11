@@ -224,23 +224,18 @@
 
   // --- the profile picker: a folder at a time under /profile, a file picked ------------------------------
 
-  const DIR = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
   let pickDir = 'profile';
 
   async function pickList() {
-    const d = pickDir, parts = d.split('/');
-    q('gidpc').innerHTML = parts.map((p, k) => (k === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a href=# data-dir="' + esc(parts.slice(0, k + 1).join('/')) + '">' + esc(p) + '</a>')).join('<span>/</span>');
+    const d = pickDir, sd = window.sdInternals;
+    q('gidpc').innerHTML = sd.pickCrumbs(d);
     q('gidpl').innerHTML = '';
     q('gidps').textContent = asleep() ? 'The RT4K is asleep: turn it on to read its SD card.' : 'Reading the folder…';
     if (asleep()) return;
     try {
-      const r = await fetch('/rt4k/ls?dir=' + encodeURIComponent(d));
-      const body = await r.text();
-      if (!r.ok) throw new Error(body.trim() || 'HTTP ' + r.status);
+      const rows = await sd.pickRows(d, (path, e) => '<button type=button data-file="' + esc(path.replace(/^profile\//, '')) + '">' + esc(plain(e.name)) + '</button>');
       if (pickDir !== d) return;
-      const sd = window.sdInternals, list = sd.sortEntries(sd.parseList(body), 'name', false).filter((e) => e.dir || /\.rt[46]$/i.test(e.name));
-      q('gidpl').innerHTML = list.map((e) => (e.dir ? '<button type=button data-dir="' + esc(d + '/' + e.name) + '"><span class=ico>' + DIR + '</span>' + esc(e.name) + '</button>'
-        : '<button type=button data-file="' + esc((d + '/' + e.name).replace(/^profile\//, '')) + '">' + esc(plain(e.name)) + '</button>')).join('') || '<div class=pe0>No profiles here</div>';
+      q('gidpl').innerHTML = rows;
       q('gidps').textContent = '';
     } catch (e) {
       q('gidps').textContent = 'Could not read the folder: ' + failure(e);

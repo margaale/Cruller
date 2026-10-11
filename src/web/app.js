@@ -82,14 +82,29 @@ function route() {
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
   if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
-  if (tab === 'rt4k' && view === 'editor' && window.peOpen) window.peOpen(rest); // rest: a profile's path under /profile (editor.js)
+  if (tab === 'rt4k' && view === 'editor') need('/editor.js').then(() => window.peOpen(rest)); // rest: a profile's path under /profile
   if (tab === 'rt4k' && view === 'live') fit();
   if (tab === 'consoles' && window.profSvsOpen) window.profSvsOpen(); // reads the profiles for each input's combo
   if (tab === 'consoles' && window.gidOpen) window.gidOpen(); // gameID's consoles and the games, read again
   tellShown();
   if (tab === 'cruller') updFirst();
-  if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); }
+  if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); need('/mapper.js'); }
 }
+
+// The profile editor and the settings map (Debug), loaded the first time they show: most visits open
+// neither. The editor learns the RT4K's state from the last status as it comes. (One that didn't load is
+// tried again the next time.)
+const scripts = {};
+function need(src) {
+  return scripts[src] || (scripts[src] = new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => { if (window.peStatus && S.version) window.peStatus(S); resolve(); };
+    s.onerror = () => { delete scripts[src]; s.remove(); };
+    document.head.appendChild(s);
+  }));
+}
+window.need = need; // sd.js: its profiles, to edit together
 addEventListener('hashchange', route);
 
 // On a phone the sidebar slides in from the menu button, over the page: a tap outside it, a section or

@@ -122,12 +122,20 @@
   }
 
   // --- Cruller ----------------------------------------------------------------------------------------
+  //
+  // The SD card through Cruller (the editor and gameID use these too, from sdInternals).
 
   async function ask(cmd, expect, timeout) {
     const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect) + (timeout ? '&timeout=' + timeout : ''), { method: 'POST', body: cmd });
     const t = (await r.text()).trim();
     if (!r.ok) throw new Error(r.status === 504 ? 'the RT4K did not answer' : t);
     return t;
+  }
+
+  async function getFile(path) {
+    const r = await fetch(getUrl(path));
+    if (!r.ok) throw new Error((await r.text()).trim() || 'HTTP ' + r.status);
+    return new Uint8Array(await r.arrayBuffer());
   }
 
   async function putFile(path, data, sha) {
@@ -141,6 +149,17 @@
     if (!r.ok) throw new Error(r.status === 404 ? 'There is no folder "' + path + '" on the SD card.' : body.trim() || 'HTTP ' + r.status);
     const list = parseList(body);
     return { list, total: +r.headers.get('X-Total') || list.length };
+  }
+
+  // A profile picker's folder d (the editor's, gameID's): the way to it, each folder above a link (data-dir)...
+  const pickCrumbs = (d) => d.split('/').map((p, k, parts) => (k === parts.length - 1 ? '<b>' + esc(p) + '</b>' :
+    '<a href=# data-dir="' + esc(parts.slice(0, k + 1).join('/')) + '">' + esc(p) + '</a>')).join('<span>/</span>');
+  // ... and what's in it: its folders, a button each (data-dir), then its profiles as row(path, entry) draws them.
+  async function pickRows(d, row) {
+    const { list } = await listing(d);
+    return sortEntries(list, 'name', false).filter((e) => e.dir || /\.rt[46]$/i.test(e.name)).map((e) => (e.dir ?
+      '<button type=button data-dir="' + esc(d + '/' + e.name) + '"><span class=ico>' + ICON.dir + '</span>' + esc(e.name) + '</button>' : row(d + '/' + e.name, e)))
+      .join('') || '<div class=pe0>No profiles here</div>';
   }
 
   // Deletes a file, or a folder with everything in it (the RT4K's rm only takes empty ones).
@@ -454,7 +473,7 @@
       picked = new Set();
       render();
       location.hash = '#rt4k/editor';
-      window.peOpenSet(paths);
+      window.need('/editor.js').then(() => window.peOpenSet(paths));
     };
     q('sdt').onclick = (ev) => {
       const b = ev.target.closest('button[data-a]');
@@ -521,5 +540,6 @@
 
   window.sdOpen = open;
   window.sdStatus = onStatus;
-  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when, profilePath }; // tests/test_sd.js
+  window.sdInternals = { parseList, sortEntries, hrefFor, dirFromParts, getUrl, nameProblem, utf8Length, sameName, size, when, profilePath, // tests/test_sd.js
+    ask, getFile, putFile, pickCrumbs, pickRows }; // editor.js, gameid.js
 })();
