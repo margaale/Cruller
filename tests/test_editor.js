@@ -167,5 +167,14 @@ for (const m of doc.maps) {
   check(raw === 0, m.firmware + ': every setting editable (' + numbers + ' numbers, ' + lists + ' lists, ' + raw + ' not)');
 }
 
+// A value as a number: the same as mapper.js reads it (the map's min, max and step come from there).
+const mapper = { window: {}, console };
+vm.createContext(mapper);
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'mapper.js'), 'utf8'), mapper);
+for (const v of ['+3', '-0.50', '1.000 (Rmax: 30)', '+-100', '3432 dots/line', '1.5x', 'Off', '50%', '+0 (Y Min: 32)', '']) {
+  const a = e.asNumber(v), b = mapper.window.mapperInternals.asNumber(v);
+  check(a === b || (isNaN(a) && isNaN(b)), 'asNumber("' + v + '"): ' + a + ', mapper.js ' + b);
+}
+
 console.log(failures ? `editor.js: ${failures} of ${checks} checks failed` : `editor.js: ${checks} checks ok`);
 process.exit(failures ? 1 : 0);

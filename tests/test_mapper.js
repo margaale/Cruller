@@ -83,7 +83,8 @@ check(JSON.stringify(m.diff(a, b)) === '[{"off":1,"len":2},{"off":5,"len":1}]', 
 check(JSON.stringify(m.diff(a, b, 2)) === '[{"off":1,"len":5}]', 'diff, near ones merged');
 check(m.diff(a, a).length === 0, 'no diff');
 check(JSON.stringify(m.union([[{ off: 5, len: 1 }], [{ off: 1, len: 2 }, { off: 2, len: 2 }]].flat())) === '[{"off":1,"len":3},{"off":5,"len":1}]', 'union');
-check(m.bytesAt(b, [{ off: 1, len: 2 }, { off: 5, len: 1 }]) === '09 09 | 09', 'bytes at ranges');
+const twoRanges = [{ off: 1, len: 2 }, { off: 5, len: 1 }];
+check(m.hexAt(m.takeAt(b, twoRanges), twoRanges) === '09 09 | 09', 'bytes at ranges');
 check(m.fields('sget ready size=22876 ver=110 nonce=0x12').ver === '110', 'ready fields');
 
 // Own and shared bytes: Top Trim and Bottom Trim each have theirs, and both move the scaler's factors.
@@ -128,6 +129,11 @@ check(doc.maps.length === 1 && doc.maps[0].settings.length === 2 && m.settingsOf
 doc = m.keep(doc, '1.93.0', 110, 22900, [{ ...red, bytes: [[0x17e4, 1]] }]);
 check(doc.maps.length === 2 && m.settingsOf(doc, '1.93.0').length === 1 && m.settingsOf(doc, '1.93.0')[0].bytes[0][0] === 0x17e4, 'a new firmware: its own map');
 check(m.settingsOf(doc, '1.92.0').find((c) => c.label === 'Red').bytes[0][0] === 0x17d4 && m.settingsOf(doc, '1.80.0') === null, 'the other untouched');
+// What was written by hand on a setting stays when a run maps it again; what the run says replaces the rest.
+let hand = m.keep(null, '1.92.0', 109, 22876, [{ ...red, each: { by: 'mode', count: 128, stride: 1 }, note: 'by hand', min: 1 }]);
+hand = m.keep(hand, '1.92.0', 109, 22876, [red]);
+const kept = m.settingsOf(hand, '1.92.0')[0];
+check(kept.each && kept.each.count === 128 && kept.note === 'by hand' && kept.min === 0, 'a run again: each and note kept, min the run\'s');
 const rec = { path: ['Advanced', 'Scaling/Crop Setup'], label: 'Top Trim', own: [{ off: 0x524, len: 2 }], values: [{ value: '-403', at: { 1316: 0x6d, 1317: 0xfe } }], min: -403, max: 403, step: 1 };
 check(JSON.stringify(m.compact(rec)) === '{"path":"Advanced › Scaling/Crop Setup","label":"Top Trim","bytes":[[1316,2]],"values":[["-403","6dfe"]],"min":-403,"max":403,"step":1}',
   'a setting as kept: ' + JSON.stringify(m.compact(rec)));
