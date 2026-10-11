@@ -9,7 +9,6 @@
 #include "pico/flash.h"
 
 #include "platform.h"
-#include "rt4k.h"
 
 #define FLASH_SAFE_TIMEOUT_MS 1000
 

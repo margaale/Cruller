@@ -1653,7 +1653,7 @@ static void handle(request_t *r) {
     else if (get && !strcmp(r->path, "/ws")) handle_ws(r, false, NULL);
     else if (get && !strcmp(r->path, "/debug/tasks")) handle_debug_tasks(r->fd, query);
 #if CRULLER_DEBUG
-    else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, rt4k_rx_read); // (with /debug/raw)
+    else if (get && !strcmp(r->path, "/rt4k/rx")) handle_stream(r->fd, query, console_term_read); // (with /debug/raw)
     else if (post && !strcmp(r->path, "/debug/raw")) handle_debug_raw(r, query);
     else if (post && !strcmp(r->path, "/debug/baud")) handle_debug_baud(r->fd, query);
     else if (post && !strcmp(r->path, "/debug/gap")) handle_debug_gap(r->fd, query);
