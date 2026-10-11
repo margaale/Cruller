@@ -20,3 +20,8 @@ void freeze_start(void);
 
 // The current record as text (GET /debug/freeze), to check the sampling works.
 size_t freeze_dump(char *out, size_t size);
+
+// Each core's newest sample, for the Debug report: {"cores":[{"core","task","where","ints","wdt_left_ms",
+// "fed_ago_ms"},...]}, and on a board without the recorder {"cores":[],"last_reset":"..."}. The length,
+// or 0 when it doesn't fit.
+size_t freeze_last_json(char *out, size_t size);

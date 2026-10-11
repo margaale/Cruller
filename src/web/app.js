@@ -88,7 +88,7 @@ function route() {
   if (tab === 'consoles' && window.gidOpen) window.gidOpen(); // gameID's consoles and the games, read again
   tellShown();
   if (tab === 'cruller') updFirst();
-  if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); need('/mapper.js'); }
+  if (tab === 'debug') { drawCharts(); need('/mapper.js'); }
 }
 
 // The scripts most visits don't need, loaded the first time they're needed: the profile editor, the settings
@@ -1525,7 +1525,7 @@ $('find').onclick = async () => {
 // --- Debug ---------------------------------------------------------------------------------------------
 
 // Cruller pushes the reports over the WebSocket (type 6) every 2 s while this page shows Debug.
-const samples = []; // {t, tx, rx}: from the status in each report, for the byte-rate charts
+const samples = []; // {t, tx, rx}: the serial link's byte counts in each report, for the byte-rate charts
 const sensorSamples = []; // [average mV, lowest mV, °C × 10], 100 ms apart: the last 2 minutes
 let replyTimes = []; // the reply times of the commands in the last report, oldest first
 
@@ -1554,10 +1554,9 @@ function onDebug(kind, t) {
   }
   if (kind !== 5) return;
   const r = report = JSON.parse(t);
-  const s = r.status;
-  samples.push({ t: Date.now(), tx: s.rt4k_tx, rx: s.rt4k_rx });
+  samples.push({ t: Date.now(), tx: r.serial.tx, rx: r.serial.rx });
   if (samples.length > 61) samples.shift();
-  st(s);
+  showFreeze(r.freeze);
 
   // The board's supply and temperature (the Pico 2 W; null on a board without them)
   const sn = r.sensors;
@@ -1628,38 +1627,25 @@ function onDebug(kind, t) {
   drawCharts();
 }
 
-async function getText(path) {
-  const r = await fetch(path, { cache: 'no-store' });
-  return r.text();
-}
-
-// The task list: on request only (scanning the stacks pauses both cores for a few milliseconds).
+// The task list: on request only (scanning the stacks pauses both cores for a few milliseconds). The
+// least stack ever left first.
 async function stacks() {
   rows('t-rows', '<tr><td colspan="4" class="small">Reading…</td></tr>');
   try {
-    const t = await getText('/debug/tasks?stacks');
-    const list = [...t.matchAll(/^(\S+)\s+(\S+)\s+prio (\d+) stack free (\d+)$/gm)].map((m) => ({ name: m[1], state: m[2], prio: +m[3], free: +m[4] }));
-    list.sort((a, b) => a.free - b.free);
+    const list = (await (await fetch('/debug/tasks?json', { cache: 'no-store' })).json()).tasks;
+    list.sort((a, b) => a.stack_free - b.stack_free);
     rows('t-rows', list.map((k) => '<tr><td>' + esc(k.name) + '</td><td>' + k.state + '</td><td class="r">' + k.prio + '</td><td class="r ' +
-      (k.free < 128 ? 'warn' : '') + '">' + k.free * 4 + ' B</td></tr>').join('')); // high-water mark, in 4-byte words
+      (k.stack_free < 512 ? 'warn' : '') + '">' + k.stack_free + ' B</td></tr>').join(''));
   } catch (e) {
     rows('t-rows', '<tr><td colspan="4" class="small">Could not read them: ' + esc(e.message) + '</td></tr>');
   }
 }
 
-// The freeze recorder: the newest sample of each core.
-async function freeze() {
-  freeze.done = true;
-  try {
-    const t = await getText('/debug/freeze');
-    const last = {};
-    // freeze.c: "core 0   -120 ms Tmr Svc     pc=… lr=… irq 5  ints on   wdt left 7880 fed 120 ms ago"
-    for (const m of t.matchAll(/^core (\d)\s+(-?\d+) ms (\S.*?)\s+pc=\S+ lr=\S+ .*?wdt left (\d+) fed (\d+) ms ago/gm)) last[m[1]] = m;
-    rows('z-rows', Object.values(last).map((m) => '<tr><td>' + m[1] + '</td><td>' + esc(m[3]) + '</td><td class="r">' + (m[4] / 1000).toFixed(1) +
-      ' s</td><td class="r">' + m[5] + ' ms ago</td></tr>').join('') || '<tr><td colspan="4" class="small">No samples</td></tr>');
-  } catch (e) {
-    rows('z-rows', '<tr><td colspan="4" class="small">Could not read it: ' + esc(e.message) + '</td></tr>');
-  }
+// The freeze recorder (the report's "freeze"): each core's newest sample.
+function showFreeze(f) {
+  rows('z-rows', !f ? '' : f.cores.map((c) => '<tr><td>' + c.core + '</td><td>' + esc(c.task) + (c.where === 'task' ? '' : ' <span class="small">' + esc(c.where) + '</span>') +
+    '</td><td class="r">' + (c.wdt_left_ms / 1000).toFixed(1) + ' s</td><td class="r">' + c.fed_ago_ms + ' ms ago</td></tr>').join('') ||
+    '<tr><td colspan="4" class="small">' + (f.last_reset ? 'No freeze recorder on this board (last reset: ' + esc(f.last_reset) + ')' : 'No samples') + '</td></tr>');
 }
 
 async function tool(path) {
@@ -1673,7 +1659,7 @@ async function tool(path) {
 }
 
 function copyJson() {
-  const data = { report: report || { status: S }, keyTimesSeenByThisPage: keyTimes };
+  const data = { status: S, report, keyTimesSeenByThisPage: keyTimes };
   navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => text('d-state', 'Copied'), () => text('d-state', 'Could not copy'));
 }
 

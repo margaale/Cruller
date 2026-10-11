@@ -8,8 +8,9 @@
 //   0x04 Cruller log text; 0x05 the /status JSON (on connect, then every 5 s; every 0.5 s while an
 //        upload to the RT4K runs, with its progress in "put")
 //   0x06 Debug report: [5][JSON], every 2 s to pages showing their Debug tab:
-//        {"status": the /status JSON, "serial": FT232R counters and modem lines, "mirror": OSD polls and
-//        key -> screen times, "console": the last commands, "memory": clients, lwIP pools, heaps}
+//        {"serial": FT232R counters and modem lines, "mirror": OSD polls and key -> screen times,
+//        "console": the last commands, "memory": clients, lwIP pools, heaps, "sensors": the board's
+//        supply and temperature (null without them), "freeze": each core's newest freeze-recorder sample}
 //        [6]["owner\tline\n"...]: every line from the RT4K as it comes, with the console owner it was
 //        routed to (console.h: 0 page, 1 power, 2 query, 3 HTTP, 4 files, 5+ RFC 2217; -1 nobody's)
 // Client -> server, text messages: one RT4K console command each ("remote menu", "ver", ...).

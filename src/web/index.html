@@ -587,8 +587,8 @@ screen, the profile for its game (gameid.js, docs/GAMEID.md); the consoles not o
 </div><div class="small" id="d-tool"></div></div>
 
 <div class="panel span2"><div class="row"><h2 class="grow">Cruller log</h2></div><pre id="lg"></pre></div>
-<div class="panel"><div class="row"><h2 class="grow">Freeze recorder</h2><button onclick="freeze()">Refresh</button></div>
-<div class="small">What each core was running at the last samples; after a watchdog reset it shows the moments before it.</div>
+<div class="panel"><div class="row"><h2 class="grow">Freeze recorder</h2></div>
+<div class="small">What each core is running, sampled every 250 ms. After a watchdog reset, Cruller's log has the moments before it.</div>
 <table class="tbl"><thead><tr><th>Core</th><th>Task</th><th class="r">Watchdog left</th><th class="r">Fed</th></tr></thead><tbody id="z-rows"></tbody></table>
 <a class="more" href="/debug/freeze" target="_blank">Every sample →</a></div>
 <div class="panel span3" id="mp"></div>
