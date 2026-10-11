@@ -150,9 +150,9 @@ it opens from the menu button.
 Pick **Release** or **Experimental**, then a version, and press **Download and install**. Your
 browser downloads the zip from RetroTINK's firmware repository, checks it against the SHA-256 the
 repository lists, and unzips it. Cruller writes the files to the RT4K's SD card (only your model's
-`.rbf`, and `rt4kup.bin` last), and the RT4K checks them. Once you confirm, the RT4K installs the
-update and restarts, which takes about 40 s. Keep the page open, and don't turn the RT4K off while
-it installs.
+`.rbf`, and `rt4kup.bin` last), the RT4K checks them, then installs the update and restarts, which
+takes about 40 s. It asks once, before it starts. Keep the page open, and don't turn the RT4K off
+while it installs.
 
 The RT4K can be in standby: the installed version is the one Cruller saw the last time it was on
 (it keeps it across restarts), and **Download and install** offers to turn it on. The zip downloads
