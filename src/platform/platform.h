@@ -33,6 +33,8 @@ uint32_t plat_ms(void); // milliseconds since boot (wraps after 49 days: compare
 
 // --- short critical sections (a few instructions; both cores, and interrupts, locked out) ---------
 
+// On the Pico 2 W each lock takes one of the few hardware spinlocks left free (the SDK panics at
+// startup when none is): data seldom touched takes plat_critical_enter() instead.
 void plat_lock_init(plat_lock_t *lock);
 void plat_lock_enter(plat_lock_t *lock);
 void plat_lock_exit(plat_lock_t *lock);

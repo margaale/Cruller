@@ -66,13 +66,12 @@ typedef struct {
     uint8_t channel; // of its strongest access point
 } scan_entry_t;
 static scan_entry_t scan_list[SCAN_MAX];
-static int scan_count;
-static plat_lock_t scan_lock;
+static int scan_count; // (both under plat_critical_enter(): seldom touched, briefly)
 
 // One access point heard (several per network): a network once, with its strongest one.
 void net_scan_add(const char *ssid, int rssi, bool secure, uint8_t channel) {
     if (!ssid[0] || strlen(ssid) >= sizeof(scan_list[0].ssid)) return; // hidden networks have no name to pick
-    plat_lock_enter(&scan_lock);
+    plat_critical_enter();
     int i = 0;
     while (i < scan_count && strcmp(scan_list[i].ssid, ssid)) i++;
     if (i < scan_count) {
@@ -87,22 +86,22 @@ void net_scan_add(const char *ssid, int rssi, bool secure, uint8_t channel) {
         e->secure = secure;
         e->channel = channel;
     }
-    plat_lock_exit(&scan_lock);
+    plat_critical_exit();
 }
 
 static void scan(void) {
-    plat_lock_enter(&scan_lock);
+    plat_critical_enter();
     scan_count = 0;
-    plat_lock_exit(&scan_lock);
+    plat_critical_exit();
     net_port_scan();
 }
 
 // The list, strongest first.
 static int scan_copy(scan_entry_t list[SCAN_MAX]) {
-    plat_lock_enter(&scan_lock);
+    plat_critical_enter();
     const int n = scan_count;
     memcpy(list, scan_list, sizeof(scan_list));
-    plat_lock_exit(&scan_lock);
+    plat_critical_exit();
     for (int i = 1; i < n; i++) {
         for (int j = i; j > 0 && list[j].rssi > list[j - 1].rssi; j--) {
             const scan_entry_t t = list[j];
@@ -354,6 +353,5 @@ static void net_task(void *param) {
 }
 
 void net_start(void) {
-    plat_lock_init(&scan_lock);
     xTaskCreate(net_task, "net", PLAT_STACK(NET_TASK_STACK), NULL, NET_TASK_PRIORITY, NULL);
 }
