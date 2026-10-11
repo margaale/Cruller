@@ -3,8 +3,9 @@
 // The browser does the heavy lifting: it reads RetroTINK's firmware index on GitHub, downloads the
 // chosen zip, checks it against the SHA-256 in the index, unzips it and hashes every file. Cruller
 // then writes each file to the RT4K's SD card (POST /rt4k/put, RTL1 put) and runs the RT4K's own
-// installer (fwup check / fwup go) once the user confirms. All of it but the writing works with the
-// RT4K asleep: the installed version comes from what Cruller kept, and an install turns it on.
+// installer (fwup check / fwup go) once they're written: the user confirms once, before it starts. All of
+// it but the writing works with the RT4K asleep: the installed version comes from what Cruller kept, and
+// an install turns it on.
 
 (() => {
   'use strict';
@@ -235,10 +236,13 @@
   async function install() {
     const f = selected();
     if (!f || busy) return;
-    // Asleep: turned on now, so it boots while the zip downloads; only the writing needs it.
-    if (power === 'standby' && !(await window.askUser('Turn the RT4K on and install ' + f.version + '?',
-      'It\'s in standby. Cruller turns it on and downloads the firmware meanwhile; the files go to its SD card once it answers.',
-      'Turn on and install'))) return;
+    // One question, before anything: once the files are written and checked, the RT4K installs them by
+    // itself. Asleep, it's turned on now, so it boots while the zip downloads; only the writing needs it.
+    const asleep = power === 'standby';
+    if (!(await window.askUser((asleep ? 'Turn the RT4K on and install ' : 'Install ') + f.version + '?',
+      (asleep ? 'It\'s in standby: Cruller turns it on and downloads the firmware meanwhile. ' : '') +
+      'Once the files are on its SD card and it has checked them, the RT4K restarts and flashes for about 40 seconds (LED pink, then blue). Don\'t power it off.',
+      asleep ? 'Turn on and install' : 'Install'))) return;
     if (busy) return;
     busy = true;
     q('fwi').disabled = true;
@@ -306,12 +310,7 @@
       const version = (check.match(/version=(\S+)/) || [])[1];
       const token = (check.match(/token=([0-9A-Fa-f]+)/) || [])[1];
       if (!check.startsWith('fwup ok') || !token) throw new Error('the RT4K refused the update: ' + check);
-      step('in', 'run', 'ready to install ' + version);
-      if (!(await window.askUser('Install ' + version + ' now?', 'The RT4K restarts and flashes for about 40 seconds (LED pink, then blue). Don\'t power it off.', 'Install'))) {
-        step('in', 'wait', 'not installed');
-        status('The files are on the SD card; the RT4K menu (OSD/Firmware > Check SD Card) can install them later.');
-        return;
-      }
+      step('in', 'run', 'installing ' + version + '…');
       const go = await ask('fwup go ' + token, 'fwup', 10000);
       if (!/flashing/.test(go)) throw new Error('the RT4K did not start the install: ' + go);
       step('in', 'done', 'flashing ' + version + ': the RT4K restarts by itself (about 40 s)');
