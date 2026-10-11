@@ -1,6 +1,7 @@
 // SHA-256 for the Cruller page (served as /sha256.js, embedded at build time): the RT4K checks every
 // file written to its SD card against one, and crypto.subtle needs a secure context (the page is plain
-// http). Used by fw.js (firmware updates) and sd.js (uploads).
+// http). Used by sd.js's putFile (every file written: uploads, the editor's and profiles.js's saves, firmware
+// updates) and fw.js (the firmware's zip), loaded the first time one needs it.
 
 (() => {
   'use strict';

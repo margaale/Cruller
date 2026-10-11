@@ -995,10 +995,9 @@
   }
   const download = () => downloads(group());
 
-  // Writes a profile to the SD card at path, with its CRC (and its SHA-256, which the RT4K checks).
+  // Writes a profile to the SD card at path, with its CRC.
   async function putProfile(p, path) {
-    const data = buildProfile(p.header, p.body);
-    await sd().putFile(path, data, window.sha256(data));
+    await sd().putFile(path, buildProfile(p.header, p.body));
   }
 
   // Several edited together: each changed one replaces itself where it is on the SD card (asked once, every

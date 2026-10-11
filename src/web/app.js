@@ -40,7 +40,7 @@ function askUser(title, body, ok, danger) {
   $('ask-no').focus();
   return new Promise((resolve) => d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true }));
 }
-window.askUser = askUser; // fw.js, sd.js
+window.askUser = askUser; // fw.js, sd.js, editor.js, gameid.js
 
 // The same, asking for a line of text: resolves it on OK, null on Cancel. select: how much of value
 // starts selected (a file's name without its extension), all of it by default.
@@ -55,7 +55,7 @@ function askText(title, body, value, ok, select) {
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('ask').close('yes'); } };
   return answer.then((yes) => { input.hidden = true; return yes ? input.value : null; });
 }
-window.askText = askText; // sd.js
+window.askText = askText; // sd.js, editor.js
 
 // --- tabs -------------------------------------------------------------------------------------------
 
@@ -80,7 +80,7 @@ function route() {
   navOpen(false);
   $('chip-rt4k').hidden = tab !== 'rt4k';
   $('chip-wifi').hidden = $('chip-ver').hidden = tab === 'rt4k';
-  if (tab === 'rt4k' && view === 'firmware' && window.fwOpen) window.fwOpen();
+  if (tab === 'rt4k' && view === 'firmware') need('/fw.js').then(() => window.fwOpen());
   if (tab === 'rt4k' && view === 'sd' && window.sdOpen) window.sdOpen(rest); // rest: the folder (sd.js)
   if (tab === 'rt4k' && view === 'editor') need('/editor.js').then(() => window.peOpen(rest)); // rest: a profile's path under /profile
   if (tab === 'rt4k' && view === 'live') fit();
@@ -91,20 +91,20 @@ function route() {
   if (tab === 'debug') { drawCharts(); if (!freeze.done) freeze(); need('/mapper.js'); }
 }
 
-// The profile editor and the settings map (Debug), loaded the first time they show: most visits open
-// neither. The editor learns the RT4K's state from the last status as it comes. (One that didn't load is
-// tried again the next time.)
-const scripts = {};
+// The scripts most visits don't need, loaded the first time they're needed: the profile editor, the settings
+// map (Debug), the RT4K firmware updater, SHA-256 (for writing to the SD card). One that keeps state from the
+// status learns it from the last one as it comes. (One that didn't load is tried again the next time.)
+const scripts = {}, STATUS_HOOK = { '/editor.js': 'peStatus', '/fw.js': 'fwStatus' };
 function need(src) {
   return scripts[src] || (scripts[src] = new Promise((resolve) => {
     const s = document.createElement('script');
     s.src = src;
-    s.onload = () => { if (window.peStatus && S.version) window.peStatus(S); resolve(); };
+    s.onload = () => { const hook = window[STATUS_HOOK[src]]; if (hook && S.version) hook(S); resolve(); };
     s.onerror = () => { delete scripts[src]; s.remove(); };
     document.head.appendChild(s);
   }));
 }
-window.need = need; // sd.js: its profiles, to edit together
+window.need = need; // sd.js (SHA-256; its profiles, to edit together), fw.js
 addEventListener('hashchange', route);
 
 // On a phone the sidebar slides in from the menu button, over the page: a tap outside it, a section or
@@ -900,7 +900,7 @@ setInterval(showUptime, 1000);
 function wake() {
   return send('pwr on');
 }
-window.rt4kWake = wake; // fw.js, sd.js
+window.rt4kWake = wake; // fw.js, sd.js, profiles.js
 
 function showPower(power) {
   showLink();

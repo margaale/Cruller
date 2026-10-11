@@ -1,22 +1,16 @@
 // The RT4K's profiles for the Cruller page (served as /profiles.js, embedded at build time): each SVS
-// input's profile, picked in the Consoles view from the RT4K's /profile/SVS (GET /rt4k/ls, as sd.js reads
-// them; renamed with the RT4K's mv, copied with GET /rt4k/get and POST /rt4k/put). The profiles
-// themselves are browsed, loaded and opened in the editor in the SD card view (sd.js). Uses sd.js's
-// helpers (window.sdInternals).
+// input's profile, picked in the Consoles view from the RT4K's /profile/SVS (renamed with the RT4K's mv,
+// copied through the page). The profiles themselves are browsed, loaded and opened in the editor in the SD
+// card view (sd.js), whose helpers reach the card for this too (window.sdInternals).
 
 (() => {
   'use strict';
 
   const q = (id) => document.getElementById(id);
   const sd = window.sdInternals;
+  const { isProfile, plain, extOf } = sd;
 
   const ROOT = 'profile';   // on the SD card
-  const PATH_MAX = 160;     // bytes of the SD path, as Cruller takes them (sd.js)
-
-  // --- pure helpers (tests/test_profiles.js) ----------------------------------------------------------
-
-  const isProfile = (name) => /\.rt[46]$/i.test(name);
-  const plain = (name) => name.replace(/\.rt[46]$/i, '');
 
   // --- state ------------------------------------------------------------------------------------------
 
@@ -27,21 +21,12 @@
 
   // --- Cruller ----------------------------------------------------------------------------------------
 
-  async function ask(cmd, expect, timeout) {
-    const r = await fetch('/rt4k/ask?expect=' + encodeURIComponent(expect) + (timeout ? '&timeout=' + timeout : ''), { method: 'POST', body: cmd });
-    const t = (await r.text()).trim();
-    if (!r.ok) throw new Error(r.status === 504 ? 'the RT4K did not answer' : t);
-    return t;
-  }
-
-  // Copies a file on the SD card (paths from its root) through the page: read whole, written with its
-  // SHA-256 (the RT4K checks it).
+  // Copies a file on the SD card (paths from its root) through the page: read whole, written again. Its
+  // name says which failed.
   async function copyFile(from, to) {
-    const g = await fetch('/rt4k/get?path=' + encodeURIComponent(from));
-    if (!g.ok) throw new Error(from.split('/').pop() + ': ' + ((await g.text()).trim() || 'HTTP ' + g.status));
-    const data = new Uint8Array(await g.arrayBuffer());
-    const p = await fetch('/rt4k/put?path=' + encodeURIComponent(to) + '&sha=' + window.sha256(data), { method: 'POST', body: data });
-    if (!p.ok) throw new Error(to.split('/').pop() + ': ' + ((await p.text()).trim() || 'HTTP ' + p.status));
+    const named = (path) => (e) => { throw new Error(path.split('/').pop() + ': ' + sd.failure(e)); };
+    const data = await sd.getFile(from).catch(named(from));
+    await sd.putFile(to, data).catch(named(to));
   }
 
   // --- each SVS input's profile (the Consoles view) ---------------------------------------------------------
@@ -66,7 +51,6 @@
 
   // A profile's name without its X_, S<n>_ and extension ("X_S3_PS1 480i.rt4": "PS1 480i").
   const baseName = (name) => plain(name).replace(/^(X_)?(S\d+_)?/i, '');
-  const extOf = (name) => (/\.rt[46]$/i.exec(name) || ['.rt4'])[0];
 
   // A name that isn't in taken (lower case: FAT): base + ext, else "base (2)" + ext, and on.
   function freeName(taken, base, ext) {
@@ -129,9 +113,9 @@
     }
     const same = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
     if (sv.kept && same(sv.kept, now)) return;
-    sv.kept = now;
     const text = Object.keys(now).sort((a, b) => a - b).map((n) => n + '\t' + now[n]).join('\n');
-    fetch('/api/v1/svs/profiles', { method: 'POST', body: text }).catch(() => { /* sent again with the next read */ });
+    fetch('/api/v1/svs/profiles', { method: 'POST', body: text })
+      .then((r) => { if (r.ok) sv.kept = now; }, () => { /* sent again with the next read */ });
   }
 
   const svsShowing = () => q('v-prof') && !q('v-prof').hidden && !q('v-prof').closest('[data-view]').hidden;
@@ -144,13 +128,11 @@
     s.classList.toggle('bad', !!bad);
   }
 
-  // The SVS folder's profiles, in the card's order (macOS's ._ files aside).
+  // The SVS folder's profiles, in the card's order.
   async function svsList() {
-    const r = await fetch('/rt4k/ls?dir=' + encodeURIComponent(ROOT + '/' + SVS_DIR));
-    const body = await r.text();
-    sv.none = r.status === 404;
-    if (!r.ok && !sv.none) throw new Error(body.trim() || 'HTTP ' + r.status);
-    sv.files = sv.none ? [] : sd.parseList(body).filter((e) => !e.dir && isProfile(e.name) && !e.name.startsWith('.')).map((e) => e.name);
+    const got = await sd.listing(ROOT + '/' + SVS_DIR).catch((e) => { if (e.status !== 404) throw e; return null; });
+    sv.none = !got;
+    sv.files = got ? got.list.filter((e) => !e.dir && isProfile(e.name)).map((e) => e.name) : [];
     svsSend();
   }
 
@@ -267,22 +249,22 @@
 
   async function svsStep(s) {
     if (s.op === 'mv') {
-      const r = await ask('mv ' + svsPath(s.from) + '|' + svsPath(s.to), 'mv');
+      const r = await sd.ask('mv ' + svsPath(s.from) + '|' + svsPath(s.to), 'mv');
       if (!r.startsWith('mv ok')) throw new Error(s.from + ': ' + r);
       return;
     }
     await copyFile(svsPath(s.from), svsPath(s.to));
   }
 
-  const stepText = (s) => (s.op === 'mv' ? 'renaming ' + plain(s.from) + ' to ' + plain(s.to) : 'copying ' + plain(s.from) + ' to ' + plain(s.to));
+  const stepText = (s) => (s.op === 'mv' ? 'renaming ' : 'copying ') + plain(s.from) + ' to ' + plain(s.to);
 
   async function svsChoose(n, name) {
     if (sv.busy || !svsLive()) return svsRevert(n);
     const p = plan(sv.files, n, name);
     if (!p.steps.length) return svsRevert(n);
-    const long = p.steps.find((s) => sd.utf8Length(svsPath(s.to)) > PATH_MAX);
+    const long = p.steps.find((s) => sd.pathProblem(svsPath(s.to)));
     if (long) {
-      svsStatus(long.to + ': the path is too long for Cruller (' + PATH_MAX + ' bytes at most).', true);
+      svsStatus(long.to + ': ' + sd.pathProblem(svsPath(long.to)), true);
       return svsRevert(n);
     }
     sv.busy = true;
@@ -297,11 +279,11 @@
       // The input on screen: loaded now, as the RT4K would on switching to it.
       if (p.target && n === sv.input && power === 'on') {
         svsStatus('Input ' + n + ': loading ' + baseName(p.target) + '…');
-        const r = await ask('prof load ' + SVS_DIR + '/' + p.target, 'prof', 15000);
+        const r = await sd.ask('prof load ' + SVS_DIR + '/' + p.target, 'prof', 15000);
         if (r !== 'prof load ok') note = ['Input ' + n + ': loading ' + baseName(p.target) + ' failed: ' + r, true];
       }
     } catch (e) {
-      note = ['Input ' + n + ': ' + (e.message === 'Failed to fetch' ? 'Cruller did not answer' : e.message), true];
+      note = ['Input ' + n + ': ' + sd.failure(e), true];
     }
     try {
       await svsList();
@@ -328,20 +310,16 @@
     if (power === 'on' && svsShowing()) svsRead();
   }
 
-  // The RT4K asleep or waking up: what was read may not hold once it's back (its card can change).
-  function svsPower(was) {
+  // Every status: the RT4K going to sleep or waking up. What was read may not hold once it's back (its card
+  // can change): the SVS folder is read again once it's on.
+  function onStatus(s) {
+    const was = power;
+    power = s.rt4k_power;
     if (power !== 'standby') sv.waking = false;
     if (was === power) return;
     if (asleep()) { sv.files = null; sv.failed = false; }
     svsRender();
     if (power === 'on' && sv.total && svsShowing()) svsRead();
-  }
-
-  // Every status: the RT4K going to sleep or waking up (the SVS folder read again once it's on).
-  function onStatus(s) {
-    const was = power;
-    power = s.rt4k_power;
-    svsPower(was);
   }
 
   window.profStatus = onStatus;
