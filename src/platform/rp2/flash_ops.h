@@ -11,6 +11,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
+// rt4k.c's: the USB host (controller, IRQ and task) off and back on, for flash_quiet_begin()/end().
+// False if the rt4k task didn't stop within 1 s.
+bool rt4k_suspend(void);
+void rt4k_resume(void);
+
 // Before the scheduler starts.
 void flash_ops_init(void);
 

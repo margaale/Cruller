@@ -9,22 +9,10 @@
 void rt4k_start(void) {
 }
 
-bool rt4k_suspend(void) {
-    return true;
-}
-
-void rt4k_resume(void) {
-}
-
-bool rt4k_send_command(const char *cmd) {
-    (void)cmd;
-    return false; // no RT4K: console.c skips the reply window
-}
-
 bool rt4k_write(const void *data, size_t len) {
     (void)data;
     (void)len;
-    return false;
+    return false; // no RT4K: console.c skips the reply window
 }
 
 bool rt4k_link_lock(uint32_t timeout_ms) {
@@ -54,22 +42,6 @@ uint8_t rt4k_modem_status(void) {
 bool rt4k_set_baud(uint32_t baud) {
     (void)baud;
     return false;
-}
-
-uint32_t rt4k_ms_since_command(void) {
-    return UINT32_MAX;
-}
-
-void rt4k_term_push(const uint8_t *data, size_t len) {
-    (void)data;
-    (void)len;
-}
-
-size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {
-    (void)pos;
-    (void)out;
-    (void)max;
-    return 0;
 }
 
 void rt4k_get_status(rt4k_status_t *out) {

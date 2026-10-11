@@ -21,6 +21,8 @@
 #define CMD_MAX               336  // "mv <path>|<path>" with two of rtl1.h's longest paths
 #define LINE_MAX_LEN          CON_LINE_MAX
 #define HISTORY              64   // routed lines kept for console_read_line (power of two)
+#define TERM_SIZE            8192u // the web terminal's text kept (power of two)
+#define LINK_WAIT_MS         2000 // for an rtl1 transfer holding the link
 
 typedef struct {
     int owner;
@@ -39,11 +41,20 @@ typedef struct {
 static QueueHandle_t queue;
 static TaskHandle_t console_task_h;
 static SemaphoreHandle_t query_lock;
-static plat_lock_t lock;     // console_core and the history
+static plat_lock_t lock;     // console_core, the history and the terminal's text
 static entry_t history[HISTORY];
 static uint32_t head;               // lines ever routed
+static char term[TERM_SIZE];        // the web terminal's share of the lines (console_term_read)
+static uint32_t term_head;          // bytes ever written there
+static console_cmd_stats_t cmd_stats;
+static volatile uint32_t last_cmd_ms;
 static char line[LINE_MAX_LEN];     // being assembled (rt4k task only)
 static size_t line_len;
+
+static void term_put(const char *s, size_t n) {
+    for (size_t i = 0; i < n; i++) term[(term_head + i) & (TERM_SIZE - 1)] = s[i];
+    term_head += (uint32_t)n;
+}
 
 static void route(const char *text) {
     plat_lock_enter(&lock);
@@ -52,14 +63,27 @@ static void route(const char *text) {
     e->owner = owner;
     snprintf(e->text, sizeof(e->text), "%s", text);
     head++;
+    if (owner != CON_POWER && owner != CON_QUERY && owner != CON_FILES) { // the web terminal: all but Cruller's own
+        term_put(text, strlen(text));
+        term_put("\n", 1);
+    }
     plat_lock_exit(&lock);
     if (owner != CON_BROADCAST && console_task_h) xTaskNotifyGive(console_task_h); // may close its window
     power_feed_line(text);
     rt4k_info_line(text);
-    if (owner != CON_POWER && owner != CON_QUERY && owner != CON_FILES) { // the web terminal: all but Cruller's own
-        rt4k_term_push((const uint8_t *)text, strlen(text));
-        rt4k_term_push((const uint8_t *)"\n", 1);
-    }
+}
+
+size_t console_term_read(uint32_t *pos, char *out, size_t max) {
+    plat_lock_enter(&lock);
+    uint32_t from = *pos;
+    // Overwritten, or ahead of us (a reader from before a reset): restart at the oldest byte held.
+    if (from > term_head || term_head - from > TERM_SIZE) from = term_head > TERM_SIZE ? term_head - TERM_SIZE : 0;
+    size_t n = term_head - from;
+    if (n > max) n = max;
+    for (size_t i = 0; i < n; i++) out[i] = term[(from + i) & (TERM_SIZE - 1)];
+    *pos = from + (uint32_t)n;
+    plat_lock_exit(&lock);
+    return n;
 }
 
 void console_feed(const uint8_t *data, size_t len) {
@@ -248,13 +272,43 @@ static const char *final_line(const char *cmd, bool *no_reply) {
     return NULL;
 }
 
+// The way the RT4K reads a line, "\r<cmd>\r\n", once no rtl1 transfer holds the link. False when it
+// didn't go out: no RT4K, the link stayed busy, the queue to it was full.
+static bool send_command(const char *cmd) {
+    char text[CMD_MAX + 4];
+    const int n = snprintf(text, sizeof(text), "\r%s\r\n", cmd);
+    if (n < 0 || n >= (int)sizeof(text)) return false;
+    const uint32_t t0 = plat_ms();
+    const bool locked = rt4k_link_lock(LINK_WAIT_MS);
+    cmd_stats.last_wait_ms = plat_ms() - t0;
+    if (cmd_stats.last_wait_ms > cmd_stats.max_wait_ms) cmd_stats.max_wait_ms = cmd_stats.last_wait_ms;
+    const bool ok = locked && rt4k_write(text, (size_t)n);
+    if (locked) rt4k_link_unlock();
+    if (!ok) {
+        cmd_stats.dropped++;
+        return false;
+    }
+    cmd_stats.sent++;
+    last_cmd_ms = plat_ms();
+    if (!strcmp(cmd, "pwr on")) power_woken();
+    return true;
+}
+
+uint32_t console_ms_since_command(void) {
+    return plat_ms() - last_cmd_ms;
+}
+
+void console_cmd_stats(console_cmd_stats_t *out) {
+    *out = cmd_stats;
+}
+
 static void console_task(void *param) {
     (void)param;
     static request_t req;
     for (;;) {
         xQueueReceive(queue, &req, portMAX_DELAY);
         const uint32_t t0 = plat_ms();
-        const bool sent = rt4k_send_command(req.cmd); // false: no RT4K, or the link stayed busy
+        const bool sent = send_command(req.cmd);
         bool no_reply = false;
         const char *done_when = final_line(req.cmd, &no_reply);
         if (sent && !no_reply) {

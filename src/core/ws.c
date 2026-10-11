@@ -259,7 +259,7 @@ static bool push_debug(client_t *c) {
 static bool push_terminal(client_t *c) {
     for (int i = 0; i < 8; i++) {
         tx[16] = MSG_TERM;
-        const size_t n = rt4k_rx_read(&c->term_pos, (char *)tx + 17, TERM_CHUNK);
+        const size_t n = console_term_read(&c->term_pos, (char *)tx + 17, TERM_CHUNK);
         if (!n) return true;
         if (!send_tx(c, WS_OP_BINARY, 1 + n)) return false;
     }

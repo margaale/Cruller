@@ -51,6 +51,20 @@ bool console_reply_coming(void);
 // Text from the RT4K (rt4k task): split into lines and routed.
 void console_feed(const uint8_t *data, size_t len);
 
+// The web terminal's text (every line but Cruller's own checks), written after *pos: copied into out (up
+// to max bytes), *pos advanced. Skips ahead when *pos is older than what is kept (8 KB).
+size_t console_term_read(uint32_t *pos, char *out, size_t max);
+
+// Milliseconds since a command last went out (rtl1.c leaves its reply room before a transfer).
+uint32_t console_ms_since_command(void);
+
+// Commands sent and dropped (no RT4K, the link stayed busy, the queue to it full), and the waits for the
+// link, for the Debug tab.
+typedef struct {
+    uint32_t sent, dropped, last_wait_ms, max_wait_ms;
+} console_cmd_stats_t;
+void console_cmd_stats(console_cmd_stats_t *out);
+
 // Routed lines, in order, for readers that pick their own (RFC 2217 clients). *seq: the reader's
 // position, from console_head(); false when nothing is new. Lines older than the last 64 are gone.
 uint32_t console_head(void);

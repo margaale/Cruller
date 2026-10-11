@@ -36,13 +36,13 @@ void rtl1_set_gap(uint32_t fixed_ms, uint32_t after_reply_ms) {
 
 static void wait_after_command(void) {
     if (gap_fixed_ms) {
-        const uint32_t since = rt4k_ms_since_command();
+        const uint32_t since = console_ms_since_command();
         if (since < gap_fixed_ms) vTaskDelay(pdMS_TO_TICKS(gap_fixed_ms - since));
         return;
     }
-    while (rt4k_ms_since_command() < AFTER_COMMAND_MS && console_reply_pending()) vTaskDelay(pdMS_TO_TICKS(2));
-    while (rt4k_ms_since_command() < REPLY_MAX_MS && console_reply_coming()) vTaskDelay(pdMS_TO_TICKS(2));
-    if (gap_after_reply_ms && rt4k_ms_since_command() < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(gap_after_reply_ms));
+    while (console_ms_since_command() < AFTER_COMMAND_MS && console_reply_pending()) vTaskDelay(pdMS_TO_TICKS(2));
+    while (console_ms_since_command() < REPLY_MAX_MS && console_reply_coming()) vTaskDelay(pdMS_TO_TICKS(2));
+    if (gap_after_reply_ms && console_ms_since_command() < AFTER_COMMAND_MS) vTaskDelay(pdMS_TO_TICKS(gap_after_reply_ms));
 }
 
 static volatile uint32_t paused_until_ms; // debug: no transfers while raw bytes go out (POST /debug/raw)

@@ -12,6 +12,7 @@
 #include "hardware/irq.h"
 #include "tusb.h"
 
+#include "flash_ops.h"
 #include "platform.h"
 #include "rtl1.h"
 #include "rtl1_core.h"
@@ -23,23 +24,15 @@
                                                    // USB reads overflowed the FT232R (bad RTL1 CRCs)
 #define RT4K_TASK_CORE      1          // TinyUSB's host IRQ is registered on the core that initializes it
 #define TX_QUEUE_SIZE       2048
-#define RX_RING_SIZE        8192u      // power of two
-#define CMD_MAX             344        // console.c's longest command, and some
 
 static StreamBufferHandle_t tx_queue;
 static SemaphoreHandle_t tx_lock;      // stream buffers allow one writer at a time
 static SemaphoreHandle_t link_lock;    // one conversation with the RT4K at a time (rtl1 transfers)
 
-static char rx_ring[RX_RING_SIZE];
-static uint32_t rx_head;
-static critical_section_t rx_lock;
-
 static volatile rt4k_status_t status;
 static volatile uint8_t cdc_idx = 0xff;
 static TaskHandle_t rt4k_handle;
 static volatile bool want_suspend, suspended;
-static struct { uint32_t sent, dropped, last_wait_ms, max_wait_ms; } cmd_stats; // debug
-static volatile uint32_t last_cmd_ms;
 static volatile uint32_t last_event_us; // debug: the last host event (see tuh_cdc_rx_cb)
 static struct { uint32_t packets, overruns, errors, last_overrun_ms; } ftdi_stats; // debug
 
@@ -247,13 +240,6 @@ void tuh_cdc_rx_cb(uint8_t idx) {
 
 // --- task --------------------------------------------------------------------------------------
 
-void rt4k_term_push(const uint8_t *data, size_t len) {
-    critical_section_enter_blocking(&rx_lock);
-    for (size_t i = 0; i < len; i++) rx_ring[(rx_head + i) & (RX_RING_SIZE - 1)] = (char)data[i];
-    rx_head += (uint32_t)len;
-    critical_section_exit(&rx_lock);
-}
-
 static void host_init(void) {
     static const tusb_rhport_init_t rh = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(BOARD_TUH_RHPORT, &rh);
@@ -318,7 +304,6 @@ void rt4k_start(void) {
     tx_queue = xStreamBufferCreate(TX_QUEUE_SIZE, 1);
     tx_lock = xSemaphoreCreateMutex();
     link_lock = xSemaphoreCreateMutex();
-    critical_section_init(&rx_lock);
     xTaskCreateAffinitySet(rt4k_task, "rt4k", RT4K_TASK_STACK, NULL, RT4K_TASK_PRIORITY, 1u << RT4K_TASK_CORE, &rt4k_handle);
 }
 
@@ -366,33 +351,9 @@ bool rt4k_connected(void) {
     return status.mounted;
 }
 
-bool rt4k_send_command(const char *cmd) {
-    char line[CMD_MAX + 4];
-    const int n = snprintf(line, sizeof(line), "\r%s\r\n", cmd);
-    if (n < 0 || n >= (int)sizeof(line)) return false;
-    const uint32_t t0 = plat_ms();
-    const bool locked = rt4k_link_lock(2000); // waits for a running rtl1 transfer
-    const uint32_t waited = plat_ms() - t0;
-    cmd_stats.last_wait_ms = waited;
-    if (waited > cmd_stats.max_wait_ms) cmd_stats.max_wait_ms = waited;
-    if (!locked) {
-        cmd_stats.dropped++;
-        return false;
-    }
-    const bool ok = rt4k_write(line, (size_t)n);
-    rt4k_link_unlock();
-    cmd_stats.sent++;
-    last_cmd_ms = plat_ms();
-    if (ok && !strcmp(cmd, "pwr on")) power_woken();
-    return ok;
-}
-
-
-uint32_t rt4k_ms_since_command(void) {
-    return plat_ms() - last_cmd_ms;
-}
-
 void rt4k_debug(char *out, size_t size) {
+    console_cmd_stats_t cmd_stats;
+    console_cmd_stats(&cmd_stats);
     snprintf(out, size, "commands: sent %lu dropped %lu, link wait last %lu ms max %lu ms\n"
         "ftdi: %lu packets, %lu overruns (last at %lu ms), %lu line errors\n"
         "rx re-arm latency: max %lu us, %lu over 1 ms; before an overrun: last %lu us max %lu us\n",
@@ -408,6 +369,8 @@ void rt4k_debug(char *out, size_t size) {
 }
 
 size_t rt4k_debug_json(char *out, size_t size) {
+    console_cmd_stats_t cmd_stats;
+    console_cmd_stats(&cmd_stats);
     const uint8_t ms = modem_status_last; // FTDI: bit 4 CTS, 5 DSR, 6 RI, 7 DCD
     const int n = snprintf(out, size,
         "{\"usb\":%s,\"vid\":%u,\"pid\":%u,\"baud\":%lu,\"rx\":%lu,\"tx\":%lu,\"tx_dropped\":%lu,"
@@ -422,19 +385,6 @@ size_t rt4k_debug_json(char *out, size_t size) {
         (unsigned long)cmd_stats.sent, (unsigned long)cmd_stats.dropped, (unsigned long)cmd_stats.max_wait_ms,
         (unsigned long)gap_stats.max_us);
     return n > 0 && (size_t)n < size ? (size_t)n : 0;
-}
-
-size_t rt4k_rx_read(uint32_t *pos, char *out, size_t max) {
-    critical_section_enter_blocking(&rx_lock);
-    uint32_t from = *pos;
-    // Overwritten, or ahead of us: restart at the oldest byte held.
-    if (from > rx_head || rx_head - from > RX_RING_SIZE) from = rx_head > RX_RING_SIZE ? rx_head - RX_RING_SIZE : 0;
-    size_t n = rx_head - from;
-    if (n > max) n = max;
-    for (size_t i = 0; i < n; i++) out[i] = rx_ring[(from + i) & (RX_RING_SIZE - 1)];
-    *pos = from + (uint32_t)n;
-    critical_section_exit(&rx_lock);
-    return n;
 }
 
 void rt4k_get_status(rt4k_status_t *out) {
