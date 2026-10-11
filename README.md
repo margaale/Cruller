@@ -8,7 +8,7 @@ without pulling the card, and let Home Assistant and your SVS switch talk to it.
 
 [![Build](https://github.com/margaale/Cruller/actions/workflows/build.yml/badge.svg?branch=develop)](https://github.com/margaale/Cruller/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/margaale/Cruller?include_prereleases&label=release)](https://github.com/margaale/Cruller/releases)
-[![Pico SDK 2.3](https://img.shields.io/badge/Pico%20SDK-2.3-C51A4A)](https://github.com/raspberrypi/pico-sdk)
+[![Pico SDK 2.3.1](https://img.shields.io/badge/Pico%20SDK-2.3.1-C51A4A)](https://github.com/raspberrypi/pico-sdk)
 [![License: GPL-3.0](https://img.shields.io/github/license/margaale/Cruller)](LICENSE)
 
 </div>
@@ -17,7 +17,7 @@ Cruller is firmware for a Raspberry Pi Pico 2 W that plugs into the RetroTINK 4K
 where you would otherwise connect a PC. It talks to the RT4K over its USB serial port and serves a
 web page over Wi-Fi, so the scaler can live behind the TV and still be managed from your phone.
 
-![Live screen: the RT4K's menu mirrored live, its remote, and the serial console](docs/images/live-screen.png)
+![Live screen: the RT4K's main menu mirrored live, its remote, and the console with the reply to ver](docs/images/live-screen.png)
 
 > [!NOTE]
 > Cruller is young: every release so far is an alpha.
@@ -145,7 +145,7 @@ it opens from the menu button.
 
 #### Firmware
 
-![The RT4K firmware updater, showing an experimental version and its changelog](docs/images/rt4k-firmware.png)
+![The RT4K firmware updater: the installed version, an experimental one picked and what's new in it](docs/images/rt4k-firmware.png)
 
 Pick **Release** or **Experimental**, then a version, and press **Download and install**. Your
 browser downloads the zip from RetroTINK's firmware repository, checks it against the SHA-256 the
@@ -160,7 +160,7 @@ while it starts, and the files go to the card once it answers.
 
 #### SD card
 
-![The SD card view: the RT4K's card, with upload, new folder, rename and delete](docs/images/sd-card.png)
+![The SD card view in /profile/SVS: each profile with Load, Edit, download, rename and delete, and a tick to edit several together](docs/images/sd-card.png)
 
 Browse the RT4K's SD card, download files, upload them (with the button, or by dropping them on the
 list), make folders, rename, and delete files or whole folders. Transfers go at about 100 KB/s, so a
@@ -172,6 +172,15 @@ In `/profile`, each profile has two more buttons: **Load** (the RT4K loads it; t
 input and output resolution, as the profile was saved) and **Edit** (it opens in the profile editor).
 The one the RT4K has loaded is marked. Tick several (or every one in the folder) and **Edit them
 together**.
+
+#### Editor
+
+![The profile editor: S4_PS2 open from the SD card, its main settings as tiles, the input mode picked, and the advanced settings by menu and page](docs/images/editor.png)
+
+A profile opens from the SD card (**Edit**) or from this computer. It's laid out as the RT4K's menus,
+each setting shown as its OSD shows it; the settings the RT4K keeps per input mode, audio input or
+detected sample rate are edited in the one picked (**Add mode**, **Delete mode**), and **Find a
+setting** goes to any of them.
 
 The editor lists the profiles open beside it, with what's done with them: add more from the SD card
 or this computer, close one, undo, download, save. One shows at a time; with **Multi Edit** on, the
@@ -222,7 +231,7 @@ More in [GAMEID.md](docs/GAMEID.md) and [SVS.md](docs/SVS.md).
 
 ### Cruller
 
-![Cruller: the serial link, Wi-Fi, clients, memory, this Cruller, and its firmware updates](docs/images/cruller-tab.png)
+![Cruller: the serial link with its key-to-screen time, Wi-Fi, clients, memory, this Cruller (0.7.0), and its firmware updates](docs/images/cruller-tab.png)
 
 - **Serial link to the RT4K**: key-to-screen time, bytes lost, traffic, and the adapter's settings.
 - **Wi-Fi**: the network, its signal, and a way to change it.
@@ -329,10 +338,10 @@ and install it again.
 
 ## Building from source
 
-The Pico 2 W build needs the [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.3,
+The Pico 2 W build needs the [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.3.1,
 [FreeRTOS-Kernel](https://github.com/raspberrypi/FreeRTOS-Kernel) (Raspberry Pi's fork),
-[TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, the Arm GNU toolchain 14.2,
-[picotool](https://github.com/raspberrypi/picotool) 2.3, CMake, Ninja and Python 3. The exact
+[TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, the Arm GNU toolchain 14.2.Rel1,
+[picotool](https://github.com/raspberrypi/picotool) 2.3.1, CMake, Ninja and Python 3. The exact
 versions CI uses are at the top of [build.yml](.github/workflows/build.yml).
 
 ```bash
