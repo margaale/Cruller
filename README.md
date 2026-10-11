@@ -340,7 +340,7 @@ and install it again.
 
 The Pico 2 W build needs the [Pico SDK](https://github.com/raspberrypi/pico-sdk) 2.3.1,
 [FreeRTOS-Kernel](https://github.com/raspberrypi/FreeRTOS-Kernel) (Raspberry Pi's fork),
-[TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, the Arm GNU toolchain 14.2.Rel1,
+[TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, the Arm GNU toolchain 15.3.Rel2,
 [picotool](https://github.com/raspberrypi/picotool) 2.3.1, CMake, Ninja and Python 3. The exact
 versions CI uses are at the top of [build.yml](.github/workflows/build.yml).
 
