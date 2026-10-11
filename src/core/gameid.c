@@ -43,12 +43,17 @@ size_t gameid_consoles_get_json(char *out, size_t size) {
 }
 
 // The consoles as they were, for what a new list doesn't say: each one's MAC, kept while its address stays.
-static gameid_console_t kept[GAMEID_CONSOLES_MAX];
+static struct {
+    char url[GAMEID_URL_MAX], mac[GAMEID_MAC_MAX];
+} kept[GAMEID_CONSOLES_MAX];
 
 bool gameid_consoles_put_json(const char *json, size_t len, const char **why) {
     cfgfs_hold();
     const int was = load();
-    memcpy(kept, consoles, (size_t)was * sizeof(*kept));
+    for (int j = 0; j < was; j++) {
+        memcpy(kept[j].url, consoles[j].url, sizeof(kept[j].url));
+        memcpy(kept[j].mac, consoles[j].mac, sizeof(kept[j].mac));
+    }
     const int n = gameid_consoles_parse(json, len, consoles, GAMEID_CONSOLES_MAX, why);
     bool ok = n >= 0;
     for (int k = 0; ok && k < n; k++) {

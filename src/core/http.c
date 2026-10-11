@@ -626,12 +626,12 @@ void http_status_json(char *body, size_t size) {
         json_putf(body, room, &n, ",\"ip\":\"%s\",\"rssi\":%d,\"boot_partition\":%d,\"boot_type\":\"%s\",\"heap_free\":%u,\"heap_size\":%u,"
             "\"rt4k_usb\":\"%s\",\"rt4k_id\":\"%04x:%04x\",\"rt4k_baud\":%lu,\"rt4k_flow\":%s,"
             "\"rt4k_tx\":%lu,\"rt4k_rx\":%lu,\"rt4k_dropped\":%lu,\"rt4k_power\":\"%s\","
-            "\"web_clients\":%d,\"event_clients\":%d,\"rfc2217_count\":%d,\"clients_max\":%d,\"rfc2217_clients\":\"%s\"",
+            "\"web_clients\":%d,\"event_clients\":%d,\"rfc2217_count\":%d,\"clients_max\":%d,\"rfc2217_clients\":\"%s\",\"gameid_seq\":%lu",
             net_ip(), net_rssi(), ota_boot_partition(), ota_last_boot_type(), (unsigned)mem.heap_free, (unsigned)mem.heap_size,
             rt.mounted ? "connected" : "not connected", rt.vid, rt.pid, (unsigned long)rt.baud, rt4k_flow_control() ? "true" : "false",
             (unsigned long)rt.tx_bytes, (unsigned long)rt.rx_bytes, (unsigned long)rt.tx_dropped,
             rt.mounted ? power_state_name(power_state()) : "unknown", ws_clients(NULL), ws_event_clients(), rfc2217_count(NULL),
-            CLIENTS_MAX, rfc2217_ips);
+            CLIENTS_MAX, rfc2217_ips, (unsigned long)gameid_state_seq());
     if (!base) {
         snprintf(body, size, "{}");
         return;

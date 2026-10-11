@@ -33,6 +33,10 @@ bool svs_get(svs_state_t *out);
 // The switch as last described; its switch_seq (0, and *out left alone, if none since boot).
 uint32_t svs_get_switch(svs_switch_t *out);
 
+// From it, without a copy of all of it: input's console as the bridge names it (its port's device: "ps2";
+// "" none) and the kind of the output that goes to the RetroTINK ("vga"; "" not said).
+void svs_switch_ports(int input, char device[SVS_DEVICE_MAX + 1], char out_kind[SVS_KIND_MAX + 1]);
+
 // Changes with every input change, every new description and new profiles (the WebSocket pushes the
 // status then).
 uint32_t svs_version(void);

@@ -2,8 +2,8 @@
 // SVS input's card (app.js) the console that tells the game on it, and on the card on screen the profile for
 // its game; the consoles not on the SVS; and your games, each with the RT4K profile to load (docs/GAMEID.md). Read
 // from and saved to /api/v1/gameid (docs/API.md); a profile is picked from the RT4K's SD card (its /profile
-// folder). What Cruller knows as it asks the consoles (GET /api/v1/gameid/state): every 2 s while the view
-// shows.
+// folder). What Cruller knows as it asks the consoles (GET /api/v1/gameid/state): read when it changes (the
+// status's gameid_seq) while the view shows.
 
 (() => {
   'use strict';
@@ -318,6 +318,7 @@
   // going to or from the SVS's input: the SVS's cards (app.js) say it.
   function renderLive() {
     if (!built) return;
+    if (live && live.note_at) live.note_age_s = Math.round((Date.now() - live.note_at) / 1000); // (read only on a change: aged here)
     now = loadedNow(live, svsInfo(), power);
     const a = live && live.on_svs === false ? live.rt4k_input || 'another input' : '';
     if (a !== away) { away = a; if (window.svsRedraw) window.svsRedraw(); }
@@ -327,18 +328,21 @@
     if (p !== playing) { playing = p; renderGames(); }
   }
 
-  // Every 2 s while the view shows.
+  // Cruller's state, read while the view shows: on opening it, when the status says it changed, and once
+  // the page is seen again. A failed read is tried again in 2 s.
   async function tick() {
     if (!q('cons') || q('cons').hidden || document.hidden) return;
     try {
       const r = await fetch('/api/v1/gameid/state', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       live = await r.json();
+      live.note_at = Date.now() - live.note_age_s * 1000;
       liveFail = false;
       // the consoles saved again (by Cruller: a MAC learned, an address found; the API; another page): read again
       if (live.version !== version && !q('gdlg').open) { version = live.version; loadConsoles(); }
     } catch (e) {
       liveFail = true;
+      setTimeout(tick, 2000);
     }
     renderLive();
   }
@@ -684,14 +688,16 @@
 
   // The page shows the view: built the first time, read every time (the API may have changed them).
   function open() {
-    if (!built) { build(); setInterval(tick, 2000); }
+    if (!built) { build(); document.addEventListener('visibilitychange', tick); }
     tick();
     loadConsoles();
     loadGames();
   }
 
+  let seq; // gameID's state as the status last numbered it
   function onStatus(s) {
     power = s.rt4k_power || power;
+    if (s.gameid_seq !== seq) { seq = s.gameid_seq; tick(); }
   }
 
   window.gidOpen = open;

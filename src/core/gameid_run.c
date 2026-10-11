@@ -1,8 +1,9 @@
 #include "gameid_run.h"
 
+#include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -175,9 +176,13 @@ static const char *last_device = "";    // the SVS input's console, as the bridg
 static uint32_t lost_at[GAMEID_CONSOLES_MAX], sought_at[GAMEID_CONSOLES_MAX]; // seek(): since when its console
                                         // hasn't answered (0: it does), when it was last looked for
 
-static void say(const char *fmt, const char *a, const char *b, const char *c) {
+static void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void say(const char *fmt, ...) {
     char s[sizeof(note)];
-    snprintf(s, sizeof(s), fmt, a, b, c);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(s, sizeof(s), fmt, ap);
+    va_end(ap);
     xSemaphoreTake(lock, portMAX_DELAY);
     const bool fresh = strcmp(s, note) != 0;
     if (fresh) {
@@ -272,42 +277,17 @@ static void ask_all(void) {
     }
 }
 
-// Each SVS input's profile as the page last read the card: input's file name ("" none).
-static void svs_profile(int input, char *out, size_t size) {
-    out[0] = 0;
-    const char *t = svs_profiles_text();
-    for (const char *l = t; *l;) {
-        const char *e = strchr(l, '\n');
-        if (!e) e = l + strlen(l);
-        const char *tab = memchr(l, '\t', (size_t)(e - l));
-        if (tab && atoi(l) == input && (size_t)(e - tab) <= size) {
-            memcpy(out, tab + 1, (size_t)(e - tab - 1));
-            out[e - tab - 1] = 0;
-            return;
-        }
-        l = *e ? e + 1 : e;
-    }
-}
-
-static bool same_path(const char *a, const char *b) { // (FAT: no case)
-    for (; *a && *b; a++, b++) {
-        char x = *a, y = *b;
-        if (x >= 'A' && x <= 'Z') x = (char)(x - 'A' + 'a');
-        if (y >= 'A' && y <= 'Z') y = (char)(y - 'A' + 'a');
-        if (x != y) return false;
-    }
-    return *a == *b;
-}
-
-static void schedule(const char *profile, uint32_t at) {
+static void schedule(const char *profile, uint32_t at) { // (the lock held)
     snprintf(pending, sizeof(pending), "%s", profile);
     pending_at = at;
+    seq++;
 }
 
 static void done(bool ok) { // the pending profile: loaded (or not)
     xSemaphoreTake(lock, portMAX_DELAY);
     if (ok) memcpy(loaded, pending, sizeof(loaded));
     pending[0] = 0;
+    seq++;
     xSemaphoreGive(lock);
 }
 
@@ -323,29 +303,26 @@ static bool rt4k_profile_now(char *out, size_t size) {
 
 static void load(void) {
     char cur[GAMEID_PROFILE_MAX + 16] = "", cmd[GAMEID_PROFILE_MAX + 16], r[96] = "";
-    if (rt4k_profile_now(cur, sizeof(cur)) && same_path(cur, pending)) { // it has it already
-        say("%s loaded already%s%s", pending, "", "");
+    if (rt4k_profile_now(cur, sizeof(cur)) && !strcasecmp(cur, pending)) { // it has it already (FAT: no case)
+        say("%s loaded already", pending);
         done(true);
         return;
     }
     snprintf(cmd, sizeof(cmd), "prof load %s", pending);
     const bool ok = console_query(cmd, "prof", r, sizeof(r), LOAD_MS) && !strcmp(r, "prof load ok");
-    if (ok) say("loaded %s%s%s", pending, "", "");
-    else say("could not load %s (%s)%s", pending, r[0] ? r : "no answer", "");
+    if (ok) say("loaded %s", pending);
+    else say("could not load %s (%s)", pending, r[0] ? r : "no answer");
     rt4k_info_profile_soon();
     done(ok);
 }
 
 // Whose game is on screen now, and what that wants loaded; then loads it when it's time.
 static void decide(void) {
-    static svs_switch_t sw;
+    static char device[SVS_DEVICE_MAX + 1]; // (last_device, till the next round)
+    char out_kind[SVS_KIND_MAX + 1];
     svs_state_t sv;
-    int input = 0;
-    const char *device = "";
-    if (svs_get(&sv) && sv.input > 0) {
-        input = sv.input;
-        if (svs_get_switch(&sw) && input <= sw.inputs_n) device = sw.inputs[input - 1].device;
-    }
+    const int input = svs_get(&sv) && sv.input > 0 ? sv.input : 0;
+    svs_switch_ports(input, device, out_kind);
     const bool on = power_state() == PWR_ON, came_on = on && !rt4k_was_on;
     rt4k_was_on = on;
     // With consoles not on the SVS, the RT4K's input tells whose game it shows: asked (a bare "input" only
@@ -354,10 +331,11 @@ static void decide(void) {
     for (int j = 0; j < con_n; j++) direct |= con[j].enabled && con[j].svs_input == GAMEID_NOT_ON_SVS;
     char in_name[sizeof(rt4k_input)] = "", r[64];
     if (direct && input > 0 && on && console_query("input", "input=", r, sizeof(r), 2000)) gameid_rt4k_input(r, in_name, sizeof(in_name));
-    const int shows = gameid_on_svs(in_name, sw.has_output ? sw.output.kind : "");
+    const int shows = gameid_on_svs(in_name, out_kind);
     const uint32_t now = plat_ms();
     xSemaphoreTake(lock, portMAX_DELAY);
     const bool rt4k_changed = on_svs >= 0 && shows >= 0 && shows != on_svs;
+    if (strcmp(rt4k_input, in_name) || shows != on_svs || input != last_input) seq++;
     memcpy(rt4k_input, in_name, sizeof(rt4k_input));
     on_svs = shows;
     const int k = gameid_pick(con, seen, con_n, input, device, on_svs);
@@ -387,8 +365,7 @@ static void decide(void) {
     else if (k >= 0 && con[k].other[0]) { snprintf(w, sizeof(w), "%s", con[k].other); from = "other"; }
     else if (k < 0 && king >= 0 && input > 0 && input == last_input && on_svs != 0) { // its console went off: the input's own again
         char file[SVS_PROFILE_MAX + 1];
-        svs_profile(input, file, sizeof(file));
-        if (file[0] && snprintf(w, sizeof(w), "SVS/%s", file) < (int)sizeof(w)) from = "svs";
+        if (svs_profile_for(svs_profiles_text(), input, file, sizeof(file)) && snprintf(w, sizeof(w), "SVS/%s", file) < (int)sizeof(w)) from = "svs";
         else w[0] = 0;
     } else if (k < 0 && !strcmp(want_from, "svs") && input == last_input && on_svs != 0) { // (and so it stays, on that input)
         memcpy(w, want, sizeof(w));
@@ -414,7 +391,7 @@ static void decide(void) {
 
     if (!pending[0] || (int32_t)(now - pending_at) < 0) return;
     if (!on) {
-        say("%s waits for the RT4K to be on%s%s", pending, "", "");
+        say("%s waits for the RT4K to be on", pending);
         return; // (kept: loaded once it's on)
     }
     load();
@@ -479,53 +456,32 @@ uint32_t gameid_state_seq(void) {
 
 // --- its state as JSON --------------------------------------------------------------------------------
 
-static bool add(char *out, size_t size, size_t *n, const char *s) {
-    const size_t k = strlen(s);
-    if (*n + k >= size) return false;
-    memcpy(out + *n, s, k + 1);
-    *n += k;
-    return true;
-}
-
-static bool add_str(char *out, size_t size, size_t *n, const char *s) {
-    if (*n + 2 >= size) return false;
-    out[(*n)++] = '"';
-    const int k = json_escape_str(out + *n, size - *n - 1, s);
-    if (k < 0) return false;
-    *n += (size_t)k;
-    return add(out, size, n, "\"");
-}
-
 size_t gameid_state_json(char *out, size_t size) {
     if (!lock) return 0;
     size_t n = 0;
-    char num[48];
-    snprintf(num, sizeof(num), "{\"version\":%lu,\"consoles\":[", (unsigned long)gameid_version());
-    bool ok = add(out, size, &n, num);
+    bool ok = json_putf(out, size, &n, "{\"version\":%lu,\"consoles\":[", (unsigned long)gameid_version());
     xSemaphoreTake(lock, portMAX_DELAY);
     for (int k = 0; ok && k < con_n; k++) {
         const gameid_seen_t *s = &seen[k];
-        ok = add(out, size, &n, k ? ",{\"name\":" : "{\"name\":") && add_str(out, size, &n, con[k].name) &&
-            add(out, size, &n, s->on ? ",\"on\":true,\"game\":" : ",\"on\":false,\"game\":") && add_str(out, size, &n, s->game.id) &&
-            add(out, size, &n, ",\"game_name\":") && add_str(out, size, &n, s->game.name) &&
-            add(out, size, &n, ",\"kind\":") && add_str(out, size, &n, s->kind) &&
-            add(out, size, &n, k == king ? ",\"on_screen\":true}" : ",\"on_screen\":false}");
+        ok = json_put(out, size, &n, k ? ",{\"name\":" : "{\"name\":") && json_put_str(out, size, &n, con[k].name) &&
+            json_put(out, size, &n, s->on ? ",\"on\":true,\"game\":" : ",\"on\":false,\"game\":") && json_put_str(out, size, &n, s->game.id) &&
+            json_put(out, size, &n, ",\"game_name\":") && json_put_str(out, size, &n, s->game.name) &&
+            json_put(out, size, &n, ",\"kind\":") && json_put_str(out, size, &n, s->kind) &&
+            json_put(out, size, &n, k == king ? ",\"on_screen\":true}" : ",\"on_screen\":false}");
     }
-    snprintf(num, sizeof(num), "],\"svs_input\":%d,\"rt4k_input\":", last_input < 0 ? 0 : last_input);
-    ok = ok && add(out, size, &n, num) && add_str(out, size, &n, rt4k_input) &&
-        add(out, size, &n, on_svs < 0 ? ",\"on_svs\":null,\"playing\":" : on_svs ? ",\"on_svs\":true,\"playing\":" : ",\"on_svs\":false,\"playing\":");
+    ok = ok && json_putf(out, size, &n, "],\"svs_input\":%d,\"rt4k_input\":", last_input < 0 ? 0 : last_input) && json_put_str(out, size, &n, rt4k_input) &&
+        json_put(out, size, &n, on_svs < 0 ? ",\"on_svs\":null,\"playing\":" : on_svs ? ",\"on_svs\":true,\"playing\":" : ",\"on_svs\":false,\"playing\":");
     if (ok && king >= 0) {
-        ok = add(out, size, &n, "{\"console\":") && add_str(out, size, &n, con[king].name) && add(out, size, &n, ",\"game\":") &&
-            add_str(out, size, &n, seen[king].game.id) && add(out, size, &n, ",\"game_name\":") && add_str(out, size, &n, seen[king].game.name) &&
-            add(out, size, &n, "}");
+        ok = json_put(out, size, &n, "{\"console\":") && json_put_str(out, size, &n, con[king].name) && json_put(out, size, &n, ",\"game\":") &&
+            json_put_str(out, size, &n, seen[king].game.id) && json_put(out, size, &n, ",\"game_name\":") && json_put_str(out, size, &n, seen[king].game.name) &&
+            json_put(out, size, &n, "}");
     } else if (ok) {
-        ok = add(out, size, &n, "null");
+        ok = json_put(out, size, &n, "null");
     }
-    ok = ok && add(out, size, &n, ",\"profile\":") && add_str(out, size, &n, want) && add(out, size, &n, ",\"from\":") &&
-        add_str(out, size, &n, want_from) && add(out, size, &n, ",\"pending\":") && add_str(out, size, &n, pending) &&
-        add(out, size, &n, ",\"loaded\":") && add_str(out, size, &n, loaded) && add(out, size, &n, ",\"note\":") && add_str(out, size, &n, note);
-    snprintf(num, sizeof(num), ",\"note_age_s\":%lu}", note[0] ? (unsigned long)((plat_ms() - note_ms) / 1000) : 0UL);
-    ok = ok && add(out, size, &n, num);
+    ok = ok && json_put(out, size, &n, ",\"profile\":") && json_put_str(out, size, &n, want) && json_put(out, size, &n, ",\"from\":") &&
+        json_put_str(out, size, &n, want_from) && json_put(out, size, &n, ",\"pending\":") && json_put_str(out, size, &n, pending) &&
+        json_put(out, size, &n, ",\"loaded\":") && json_put_str(out, size, &n, loaded) && json_put(out, size, &n, ",\"note\":") && json_put_str(out, size, &n, note);
+    ok = ok && json_putf(out, size, &n, ",\"note_age_s\":%lu}", note[0] ? (unsigned long)((plat_ms() - note_ms) / 1000) : 0UL);
     xSemaphoreGive(lock);
     return ok ? n : 0;
 }

@@ -312,3 +312,18 @@ size_t svs_profiles_json(const char *text, char *out, size_t size) {
     }
     return ok && json_put(out, size, &o, "}") ? o : 0;
 }
+
+bool svs_profile_for(const char *text, int input, char *out, size_t size) {
+    const char *p = text, *line, *name;
+    size_t len, name_len;
+    int n;
+    out[0] = 0;
+    while (next_line(&p, &line, &len)) {
+        if (!profile_line(line, len, &n, &name, &name_len) || n != input) continue;
+        if (name_len >= size) return false;
+        memcpy(out, name, name_len);
+        out[name_len] = 0;
+        return true;
+    }
+    return false;
+}
