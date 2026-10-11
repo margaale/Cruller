@@ -6,15 +6,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "creds.h"
 #include "net.h"
 
 // Once, first: the radio on and the station interface up (named net_hostname() for DHCP).
 void net_port_start(void);
-
-// Wi-Fi credentials an earlier firmware left on this board (the DonutShop's on the Pico 2 W), for one
-// never set up. False when there are none.
-bool net_port_import_creds(wifi_creds_t *out);
 
 // Joins a network with the station (an access point that is up stays up): SETUP_OK once it has an
 // address (net_port_ip()); SETUP_WRONG_PASSWORD, SETUP_NOT_FOUND or SETUP_FAILED, within timeout_ms,

@@ -12,6 +12,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "creds.h"
 #include "json.h"
 #include "platform.h"
 #include "settings.h"
@@ -325,11 +326,7 @@ static void portal_test_step(void) {
 
 static void net_task(void *param) {
     (void)param;
-    wifi_creds_t imported;
-    if (!creds_load(&creds) && !creds_present() && net_port_import_creds(&imported)) { // never set up (a factory reset leaves a record)
-        creds = imported;
-        printf("net: imported Wi-Fi \"%s\", saving: %s\n", creds.ssid, creds_save(&creds) ? "ok" : "FAILED");
-    }
+    creds_load(&creds);
     names_init();
     net_port_start();
     if (!creds.ssid[0] || !join()) portal_forever();

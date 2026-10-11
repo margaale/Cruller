@@ -15,13 +15,8 @@ bool creds_load(wifi_creds_t *out) {
     return true;
 }
 
-bool creds_present(void) {
-    wifi_creds_t c;
-    return store_load(STORE_CREDS, &c, sizeof(c)) && terminated(&c);
-}
-
 bool creds_forget(void) {
-    const wifi_creds_t none = {0}; // a valid record with no network: not "never set up"
+    const wifi_creds_t none = {0};
     return creds_save(&none);
 }
 

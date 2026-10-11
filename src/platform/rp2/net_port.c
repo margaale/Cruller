@@ -15,7 +15,6 @@
 #include "lwip/tcpip.h"
 
 #include "dhcpserver.h"
-#include "donutshop.h"
 #include "dnsserver.h"
 #include "http.h"
 #include "platform.h"
@@ -34,10 +33,6 @@ static void sta_hostname(void) {
 void net_port_start(void) {
     cyw43_arch_enable_sta_mode();
     sta_hostname();
-}
-
-bool net_port_import_creds(wifi_creds_t *out) {
-    return donutshop_import_creds(out);
 }
 
 net_setup_state_t net_port_join(const char *ssid, const char *pass, uint32_t timeout_ms) {

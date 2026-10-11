@@ -61,11 +61,6 @@ void net_port_start(void) {
     esp_wifi_start();
 }
 
-bool net_port_import_creds(wifi_creds_t *out) {
-    (void)out;
-    return false; // nothing ran on this board before Cruller
-}
-
 net_setup_state_t net_port_join(const char *ssid, const char *pass, uint32_t timeout_ms) {
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(50));
