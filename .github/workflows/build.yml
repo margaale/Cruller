@@ -218,7 +218,7 @@ jobs:
             !${{ env.IDF_PATH }}/docs
             ${{ env.IDF_TOOLS_PATH }}
             !${{ env.IDF_TOOLS_PATH }}/dist
-          key: esp-idf-${{ env.ESP_IDF_VERSION }}-esp32s3-xtensa-${{ runner.os }}
+          key: esp-idf-${{ env.ESP_IDF_VERSION }}-esp32s3-only-${{ runner.os }} # (what install keeps)
 
       - name: ESP-IDF (install)
         if: steps.idf-cache.outputs.cache-hit != 'true'
@@ -227,6 +227,12 @@ jobs:
           echo "$ESP_IDF_VERSION" > "$IDF_PATH/version.txt"
           python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install --targets=esp32s3 xtensa-esp-elf
           python3 "$IDF_PATH/tools/idf_tools.py" --non-interactive install-python-env
+          # The compiler's libraries for the ESP32 and ESP32-S2 (newlib's and picolibc's): a third of the
+          # cache, restored every run, never linked.
+          cc="$IDF_TOOLS_PATH/tools/xtensa-esp-elf"
+          rm -rf "$cc"/*/xtensa-esp-elf/{xtensa-esp-elf,picolibc/xtensa-esp-elf}/lib/{esp32,esp32s2} \
+              "$cc"/*/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/*/{esp32,esp32s2}
+          du -sh "$IDF_PATH" "$IDF_TOOLS_PATH"
 
       # The ESP32's components (main/idf_component.yml) as dependencies.lock pins them, kept by it.
       - name: Components
